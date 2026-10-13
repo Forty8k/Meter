@@ -121,6 +121,7 @@ void PluginProcessor::getStateInformation (juce::MemoryBlock& destData)
     xml->setAttribute(juce::String("awm_width"), pluginWidth);
     if (pluginHeight < 8 || pluginHeight > 16386) pluginHeight = 720;
     xml->setAttribute(juce::String("awm_height"), pluginHeight);
+    xml->setAttribute(juce::String("awm_trimdb"), (double)getTrimDb());
     copyXmlToBinary(*xml, destData);
 }
 
@@ -139,6 +140,7 @@ void PluginProcessor::setStateInformation (const void* data, int sizeInBytes)
             auto h = xmlState->getIntAttribute(juce::String("awm_height"));
             if (h < 8 || h > 16386) h = 720;
             updatePluginSize(w, h);
+            setTrimDb((float)xmlState->getDoubleAttribute(juce::String("awm_trimdb"), 0.0)); //missing = 0 dB = original
         }
         updateHostDisplay();
     }
@@ -213,6 +215,11 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         auto inR = mainInput.getReadPointer(1, i); //specified that we can only be stereo and never mono
         double inputSampleL = *inL;
         double inputSampleR = *inR;
+        const double passThroughL = inputSampleL; //the audio we send onward is always the untouched original
+        const double passThroughR = inputSampleR;
+        const double trim = trimGain.load();
+        inputSampleL *= trim; //from here on these are the MEASURED copy, scaled by the trim (1.0 = original Meter)
+        inputSampleR *= trim;
         
         auto playHead = getPlayHead();
         if (playHead) {auto playHeadPos = playHead->getPosition();
@@ -260,8 +267,8 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
             windowCount++;
         }
         
-        *outL = (float)inputSampleL;
-        *outR = (float)inputSampleR; //this is a meter. Raw pass-through
+        *outL = (float)passThroughL;
+        *outR = (float)passThroughR; //this is a meter. Raw pass-through (never trimmed)
         
         if (windowCount > windowSize)
         {
@@ -335,6 +342,11 @@ void PluginProcessor::processBlock (juce::AudioBuffer<double>& buffer, juce::Mid
         auto inR = mainInput.getReadPointer(1, i); //specified that we can only be stereo and never mono
         double inputSampleL = *inL;
         double inputSampleR = *inR;
+        const double passThroughL = inputSampleL; //the audio we send onward is always the untouched original
+        const double passThroughR = inputSampleR;
+        const double trim = trimGain.load();
+        inputSampleL *= trim; //from here on these are the MEASURED copy, scaled by the trim (1.0 = original Meter)
+        inputSampleR *= trim;
         
         auto playHead = getPlayHead();
         if (playHead) {auto playHeadPos = playHead->getPosition();
@@ -382,8 +394,8 @@ void PluginProcessor::processBlock (juce::AudioBuffer<double>& buffer, juce::Mid
             windowCount++;
         }
         
-        *outL = inputSampleL;
-        *outR = inputSampleR; //this is a meter. Raw pass-through
+        *outL = passThroughL;
+        *outR = passThroughR; //this is a meter. Raw pass-through (never trimmed)
         
         if (windowCount > windowSize)
         {

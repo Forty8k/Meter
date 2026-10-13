@@ -20,6 +20,7 @@ PluginEditor::PluginEditor (PluginProcessor& p)
     idleTimer->startTimer(1000/30); //space between UI screen updates. Larger is slower updates to screen
     
     meter.pluginColour = airwindowsLookAndFeel.defaultColour;
+    meter.trimDb = lastTrimSeen = processorRef.getTrimDb(); //pick up the trim saved with the project
     meter.setOpaque(true);
     meter.resetArrays();
     meter.addMouseListener(this, false);
@@ -176,6 +177,12 @@ void PluginEditor::idle()
         } //end of switch statement for msg.what
     }
     processorRef.audioPlaying = meter.meterPlaying;
+    if (meter.trimDb != lastTrimSeen) {
+        processorRef.setTrimDb(meter.trimDb); //the user clicked the trim label. It only changes the measured copy of the audio
+        lastTrimSeen = meter.trimDb;
+    } else if (processorRef.getTrimDb() != lastTrimSeen) {
+        meter.trimDb = lastTrimSeen = processorRef.getTrimDb(); //a project or preset loaded a different trim
+    }
     if (repaintTS) {
         if (airwindowsLookAndFeel.useToneColor && meter.backdropColour.operator!=(meter.cachedColour)) {
             repaint();

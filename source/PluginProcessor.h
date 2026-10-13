@@ -144,6 +144,18 @@ public:
     int windowCount = 0;
     bool audioPlaying = true;
     bool playheadMoving = false;
+    
+    //TRIM: gain applied ONLY to the copy of the signal that is measured. The audio passing through is never changed.
+    //0 dB is the original Meter behaviour. Turn it down to see how a loud master reads at a streaming loudness.
+    std::atomic<double> trimGain {1.0};
+    std::atomic<float> trimDbValue {0.0f};
+    void setTrimDb(float db) {
+        if (db > 0.0f) db = 0.0f;
+        if (db < -36.0f) db = -36.0f;
+        trimDbValue.store(db);
+        trimGain.store(std::pow(10.0, (double)db / 20.0));
+    }
+    float getTrimDb() const {return trimDbValue.load();}
 
 private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)

@@ -10,6 +10,19 @@
 
 void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
 {
+    float vS = displayHeight/600.0f;
+    if ((sqrt(vS*64.0f)*1.618f) > 10.0f && event.x < 150 && event.y < (int)(20.0f*vS)) {
+        //TRIM label (top left): click = 1 dB lower, shift-click = 1 dB higher, right-click = back to 0 dB (original Meter).
+        //Changing it restarts the measurement, since the held grades were earned at the old level.
+        float newTrim = trimDb;
+        if (event.mods.isRightButtonDown()) newTrim = 0.0f;
+        else if (event.mods.isShiftDown()) newTrim += 1.0f;
+        else newTrim -= 1.0f;
+        if (newTrim > 0.0f) newTrim = 0.0f;
+        if (newTrim < -24.0f) newTrim = -24.0f;
+        if (newTrim != trimDb) {trimDb = newTrim; resetArrays();}
+        return;
+    }
     if (event.getNumberOfClicks() > 1) resetArrays();
     else meterPlaying = !meterPlaying;
 }
@@ -584,6 +597,17 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         g.setOpacity(1.0f);
         g.setColour(juce::Colours::black);
         g.drawText(bonusScore+totalPackage+authority+power+detail, 0, 0, displayWidth, (int)(20.0f*vS), juce::Justification::centred);
+        
+        //TRIM readout, top left. Dim at 0 dB (original Meter behaviour), full strength when trimming, so screenshots show the mode.
+        juce::String trimText = "trim " + juce::String(trimDb, 1) + " dB";
+        g.setFont(scaleFont*1.1f);
+        g.setColour(juce::Colours::white);
+        g.setOpacity(trimDb == 0.0f ? 0.3f : 0.618f);
+        g.drawText(trimText, (int)scaleFont/2+1, 1, 140, (int)(20.0f*vS), juce::Justification::centredLeft);
+        g.setColour(juce::Colours::black);
+        g.setOpacity(trimDb == 0.0f ? 0.5f : 1.0f);
+        g.drawText(trimText, (int)scaleFont/2, 0, 140, (int)(20.0f*vS), juce::Justification::centredLeft);
+        g.setOpacity(1.0f);
        //the Hit Record Letter Grade is 'totalPackage' followed by Power, Detail and Scale in order. If you have different priorities,
         //it's fair to want those in a different order for your quality metric: bass music might go scale first, pop might want detail.
         //I'm using power first simply because it is the most spectacular contrast between modern production and lasting hit status,

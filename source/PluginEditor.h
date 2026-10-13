@@ -36,6 +36,7 @@ private:
     PluginProcessor& processorRef; //quick ref
     
    std::unique_ptr<IdleTimer> idleTimer;
+   float lastTrimSeen = 0.0f; //keeps the on-screen trim and the audio side's trim in step, in both directions
     AirwindowsLookAndFeel airwindowsLookAndFeel;
     AirwindowsMeter meter;
     

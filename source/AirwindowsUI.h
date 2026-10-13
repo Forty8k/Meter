@@ -195,6 +195,7 @@ struct AirwindowsMeter : public juce::Component
     double outputShift;
     double sustainedClip;
     bool meterPlaying;
+    float trimDb = 0.0f; //set by clicking the trim label at the top left; the editor passes it to the audio side
     
     std::array<float, totalBins+2> peakTrack; //arrays can be counted from zero and have X elements
     std::array<float, totalBins+2> slewTrack; //there's a place where Meter works with <= totalBins
