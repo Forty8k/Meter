@@ -39,7 +39,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
 {
     float vS = displayHeight/600.0f; // short for vScale: everything * this
     
-    const float slewDisplayScale = 0.75f; //slew meter display only: 1.0 = original calibration, lower = more headroom at the top
+    const float slewDisplayScale = 1.0f; //slew meter display only: 1.0 = original calibration. The trim (top left) is the better way to see more headroom
     
     //LAYOUT: each of the three meters has a text strip along its top (titles, grades and hints), and its data is drawn below that.
     //stripTop is for the zero cross meter (it also holds the top color bar), stripMid is for the peak and slew meters.
@@ -110,7 +110,14 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         float meterZeroR = (sqrt(dataZR[count])*6.0f)-6.0f;
         if (meterZeroR > 192.0f) meterZeroR = 192.0f;
         float bassR = fmin((sqrt(meterZeroR)*16.2f)-20.0f,199.0f);
-        float beam = fmin(199.0f,sqrt(dataBL[count]+dataBR[count])*700.0f);
+        float beamRaw = sqrt(dataBL[count]+dataBR[count])*700.0f;
+        //The original capped the beam at 199, so on loud material it sat flat against the top edge and hid its own movement.
+        //Now it is the original (linear) up to beamKnee and then a gentle log curve, so higher values still sit higher and still move.
+        const float beamKnee = 165.0f;
+        const float beamSpan = 1350.0f; //how far past the knee the curve keeps separating values, before it reaches the top
+        float beam = beamRaw;
+        if (beamRaw > beamKnee) beam = beamKnee + (199.0f-beamKnee) * (log2f(1.0f+(beamRaw-beamKnee)/45.0f) / log2f(1.0f+beamSpan/45.0f));
+        beam = fmin(beam, 199.0f);
         float departure = fmax(0.0f,5.0f-(dataDL[count]+dataDR[count])*1500.0f) * 100.0f * fmax(dataBL[count],dataBR[count]);
          //begin draw dots on meters L
         if (peakL > 197.0f) {
@@ -152,6 +159,16 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             backR[count] = (float)storeR;
             backG[count] = (float)storeG;
             backB[count] = (float)storeB; //RGB backdrop for text
+            {   //PER-METER TONE: the same three scores the tone color is made from, kept separately for each meter
+                const float scoreMax = (float)fmax(fmax(outputR, outputG), fmax(outputB, 0.000001));
+                const float ratioZ = (float)(outputG/scoreMax); //zero crosses
+                const float ratioP = (float)(outputB/scoreMax); //peaks
+                const float ratioS = (float)(outputR/scoreMax); //slews
+                const float quietGate = (float)fmin(outputVol*outputVol*8.0, 1.0); //quiet passages fade to neutral, as the tone color does
+                devZ[count] = (ratioZ - (ratioP+ratioS)*0.5f) * quietGate;
+                devP[count] = (ratioP - (ratioZ+ratioS)*0.5f) * quietGate;
+                devS[count] = (ratioS - (ratioZ+ratioP)*0.5f) * quietGate;
+            }
         }
         if (psDotSizeR > 1.0f) g.setColour(juce::Colour::fromFloatRGBA(fmax((slewR-(peakR*0.945433426957143f)),0.0f)*0.029f,
                                                                        fmax(((peakR*0.945433426957143f)-slewR),0.0f)*0.012f, 1.0f, 1.0f));
@@ -167,6 +184,21 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         
         g.setColour(juce::Colour::fromFloatRGBA(backR[count], backG[count], backB[count], 1.0f)); //set backdrop colour
         g.fillRect((float)(count)-0.25f, 0.0f, 1.5f, 19.5f*vS); //top bar
+        
+        if (textStrips) { //PER-METER TONE SHADING behind each meter's title and hint: warm = this meter is stronger than the other two,
+            //cool = weaker, white = balanced. It is the tone color split by meter, so it shows where in the track each one drifted.
+            const float shadeGain = 1.6f; //higher = reacts to smaller imbalances
+            const float shadeMax = 0.55f; //strongest tint. Keep it light so the black text stays readable
+            const float devs[3] = {devZ[count], devP[count], devS[count]};
+            for (int sec = 0; sec < 3; ++sec) {
+                const float amount = fmin(fabs(devs[sec])*shadeGain, shadeMax);
+                if (amount < 0.02f) continue;
+                g.setColour((devs[sec] > 0.0f ? juce::Colour(255, 150, 50) : juce::Colour(70, 140, 255)).withAlpha(amount));
+                const float shadeTop = (sec == 0 ? 21.0f : 200.0f*(float)sec + 2.0f) * vS;
+                const float shadeBottom = (200.0f*(float)sec + stripH[sec]) * vS;
+                g.fillRect((float)(count)-0.25f, shadeTop, 1.5f, shadeBottom - shadeTop);
+            }
+        }
         
         unsigned long bintracker;
         bintracker = (unsigned long)((peakL-((180.0f-sustainedClip)*1.618033988749894f)) * (0.005f*(float)totalBins));
@@ -661,23 +693,31 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         
         g.setOpacity(1.0f);
         g.setFont(scaleFont);
-        g.drawText("900 Hz", (int)scaleFont, (int)meterY(0, 60.0f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("210 Hz", (int)scaleFont, (int)meterY(0, 101.02f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("100 Hz", (int)scaleFont, (int)meterY(0, 130.02f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("60 Hz", (int)scaleFont, (int)meterY(0, 150.2f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("45 Hz", (int)scaleFont, (int)meterY(0, 164.9f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("35 Hz", (int)scaleFont, (int)meterY(0, 175.2f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        auto axisLabel = [&](const juce::String& text, int y) { //scale labels get a light backing so the dots can't hide them
+            g.setColour(juce::Colours::white);
+            g.setOpacity(0.72f);
+            g.fillRect((int)scaleFont - 2, y + 1, (int)((float)text.length()*scaleFont*0.6f) + 6, (int)scaleFont);
+            g.setColour(juce::Colours::black);
+            g.setOpacity(1.0f);
+            g.drawText(text, (int)scaleFont, y, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        };
+        axisLabel("900 Hz", (int)meterY(0, 60.0f)-7);
+        axisLabel("210 Hz", (int)meterY(0, 101.02f)-7);
+        axisLabel("100 Hz", (int)meterY(0, 130.02f)-7);
+        axisLabel("60 Hz", (int)meterY(0, 150.2f)-7);
+        axisLabel("45 Hz", (int)meterY(0, 164.9f)-7);
+        axisLabel("35 Hz", (int)meterY(0, 175.2f)-7);
         
-        g.drawText("-6 dB", (int)scaleFont, (int)meterY(1, 260.0f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("-12 dB", (int)scaleFont, (int)meterY(1, 301.02f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("-18 dB", (int)scaleFont, (int)meterY(1, 330.02f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("-24 dB", (int)scaleFont, (int)meterY(1, 350.2f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("-30 dB", (int)scaleFont, (int)meterY(1, 364.9f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("-36 dB", (int)scaleFont, (int)meterY(1, 375.2f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        axisLabel("-6 dB", (int)meterY(1, 260.0f)-7);
+        axisLabel("-12 dB", (int)meterY(1, 301.02f)-7);
+        axisLabel("-18 dB", (int)meterY(1, 330.02f)-7);
+        axisLabel("-24 dB", (int)meterY(1, 350.2f)-7);
+        axisLabel("-30 dB", (int)meterY(1, 364.9f)-7);
+        axisLabel("-36 dB", (int)meterY(1, 375.2f)-7);
 
-        g.drawText("exciting", (int)scaleFont, (int)slewY(455.0f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("present", (int)scaleFont, (int)slewY(496.0f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("relaxed", (int)scaleFont, (int)slewY(525.0f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        axisLabel("exciting", (int)slewY(455.0f)-7);
+        axisLabel("present", (int)slewY(496.0f)-7);
+        axisLabel("relaxed", (int)slewY(525.0f)-7);
 
         g.setColour(juce::Colours::darkgrey);
         g.setOpacity(1.0f);

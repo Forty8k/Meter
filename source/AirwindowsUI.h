@@ -220,6 +220,9 @@ struct AirwindowsMeter : public juce::Component
     std::array<float, dataPoints+2> backR;//backdrop red channel: loud
     std::array<float, dataPoints+2> backG;//backdrop green channel: bright
     std::array<float, dataPoints+2> backB;//backdrop blue channel: bass
+    std::array<float, dataPoints+2> devZ; //per-meter tone history, drawn as shading behind each meter's text strip:
+    std::array<float, dataPoints+2> devP; //how far that meter sits above (+) or below (-) the average of the other two
+    std::array<float, dataPoints+2> devS; //zero crosses, peaks, slews. 0 = in balance
 
     void pushPeakL(float X) {dataPL[dataPosition] = X; dataPL[dataPosition+1] = X;}
     void pushPeakR(float X) {dataPR[dataPosition] = X; dataPR[dataPosition+1] = X;}
@@ -290,6 +293,9 @@ struct AirwindowsMeter : public juce::Component
             dataBR[count] = 0.0f;
             dataDL[count] = 0.0f;
             dataDR[count] = 0.0f;
+            devZ[count] = 0.0f;
+            devP[count] = 0.0f;
+            devS[count] = 0.0f;
             backR[count] = pluginColour.getFloatRed();
             backG[count] = pluginColour.getFloatGreen();
             backB[count] = pluginColour.getFloatBlue();
