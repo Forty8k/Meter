@@ -672,7 +672,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                 const float quietGate = (float)fmin(outputVol*outputVol*8.0, 1.0);
                 //The hints name a state, not an order: a dominant sub, a bright top or a dark record can all be deliberate.
                 //(hintTextMore = under target, hintTextLess = over target)
-                hintTextMore[0] = juce::String("light");      hintTextLess[0] = juce::String("sub-heavy");
+                hintTextMore[0] = juce::String("light");      hintTextLess[0] = juce::String("heavy");
                 hintTextMore[1] = juce::String("headroom");   hintTextLess[1] = juce::String("squashed");
                 hintTextMore[2] = juce::String("dark");       hintTextLess[2] = juce::String("bright");
                 for (int hint = 0; hint < 3; ++hint) {
