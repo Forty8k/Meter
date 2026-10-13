@@ -71,7 +71,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
     const juce::Colour labelCol = dark ? juce::Colour(206, 211, 221) : juce::Colours::black;
     const juce::Colour clipCol = dark ? juce::Colour(255, 225, 40) : juce::Colour(255, 0, 0); //clipping is yellow: no dot or strip ever is
     const juce::Colour beamCol = dark ? juce::Colour(238, 240, 246).withAlpha(0.88f) : juce::Colours::black; //bright trace of the lead element, sitting on a darker band so it stands out from the dots
-    const juce::Colour beamBand = juce::Colour(14, 16, 20).withAlpha(0.65f);
+    const juce::Colour beamBand = juce::Colour(4, 5, 8).withAlpha(0.92f);
     //the text strips stay white, as in the original, so the three sections stand apart from the dark meters. A strip tints toward its own
     //meter's color (zero crosses green, peaks blue, slews red, as in the top bar) when that meter is ahead.
     const juce::Colour stripBase[3] = {juce::Colours::white, juce::Colours::white, juce::Colours::white};
@@ -207,7 +207,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             if (peakR > 197.0f) sustainedClip *= 0.975f; //if both are clipping, escalate
         } else sustainedClip = 180.0f;
         
-        if (dark) { g.setColour(beamBand); g.fillRect((float)count, meterY(2, 600.0f-beam)-3.0f*vS, 1.0f, meterH(2, departure)+6.0f*vS); } //darker band behind the trace
+        if (dark) { g.setColour(beamBand); g.fillRect((float)count, meterY(2, 600.0f-beam)-4.0f*vS, 1.0f, meterH(2, departure)+8.0f*vS); } //darker band behind the trace
         g.setColour(beamCol);
         g.fillRect((float)count, meterY(2, 600.0f-beam), 1.0f, meterH(2, departure)); //draw beam
         
@@ -681,7 +681,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     int state = hintState[hint];
                     bool overNow, overKeep, underNow, underKeep;
                     if (hint == 2) { //slews: colour balance
-                        overNow = hintRedAvg > 0.33f;    overKeep = hintRedAvg > 0.26f;
+                        overNow = hintRedAvg > 0.25f;    overKeep = hintRedAvg > 0.19f;
                         underNow = hintGreenAvg > 0.70f; underKeep = hintGreenAvg > 0.60f;
                     } else { //low end and peaks: a flat line at the extreme (not a cloud) is over, rarely reaching the upper half is under
                         const float uEnter = (hint == 1) ? 0.25f : underEnter; //peaks: "raise peaks" when a cloud rarely reaches the top 6 dB, i.e. there is headroom to use
