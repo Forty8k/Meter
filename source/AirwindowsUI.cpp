@@ -17,29 +17,49 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
 void AirwindowsMeter::paint(juce::Graphics &g)
 {
     float vS = displayHeight/600.0f; // short for vScale: everything * this
+    
+    const float slewDisplayScale = 0.75f; //slew meter display only: 1.0 = original calibration, lower = more headroom at the top
+    
+    //LAYOUT: each of the three meters has a text strip along its top (titles, grades and hints), and its data is drawn below that.
+    //stripTop is for the zero cross meter (it also holds the top color bar), stripMid is for the peak and slew meters.
+    //Units are the 600-high layout. Set both to 0.0f to get the original full-height meters back.
+    const bool textStrips = (sqrt(vS*64.0f)*1.618f) > 10.0f; //same test that decides whether the titles get drawn
+    const float stripTop = textStrips ? 50.0f : 0.0f;
+    const float stripMid = textStrips ? 30.0f : 0.0f;
+    const float stripH[3] = {stripTop, stripMid, stripMid};
+    auto meterY = [&](int sec, float yv) -> float { //yv is a position in the original layout (0-600), result is in pixels
+        const float base = 200.0f*(float)sec;
+        return (base + stripH[sec] + (yv-base)*((200.0f-stripH[sec])/200.0f))*vS;
+    };
+    auto meterH = [&](int sec, float hv) -> float { //a height in the original layout, as pixels
+        return hv*((200.0f-stripH[sec])/200.0f)*vS;
+    };
+    auto slewY = [&](float yv) -> float { //slew meter positions, which also follow slewDisplayScale
+        return meterY(2, 600.0f-((600.0f-yv)*slewDisplayScale));
+    };
     if ((sqrt(vS*61.8f)*1.618f) > 10.0f) {
         g.fillAll(juce::Colours::white); //blank screen before doing anything, unless our draw covers the whole display anyway
         g.setColour(juce::Colours::lightgrey);
-        g.fillRect(0,  (int)(60.0f*vS), getWidth(),1); // -6dB markings
-        g.fillRect(0, (int)(101.02*vS), getWidth(),1); //-12dB markings
-        g.fillRect(0, (int)(130.02f*vS), getWidth(),1); //-18dB markings
-        g.fillRect(0, (int)(150.2f*vS), getWidth(),1); //-24dB markings
-        g.fillRect(0, (int)(164.9f*vS), getWidth(),1); //-30dB markings
-        g.fillRect(0, (int)(175.2f*vS), getWidth(),1); //-36dB markings
+        g.fillRect(0,  (int)meterY(0, 60.0f), getWidth(),1); // -6dB markings
+        g.fillRect(0, (int)meterY(0, 101.02f), getWidth(),1); //-12dB markings
+        g.fillRect(0, (int)meterY(0, 130.02f), getWidth(),1); //-18dB markings
+        g.fillRect(0, (int)meterY(0, 150.2f), getWidth(),1); //-24dB markings
+        g.fillRect(0, (int)meterY(0, 164.9f), getWidth(),1); //-30dB markings
+        g.fillRect(0, (int)meterY(0, 175.2f), getWidth(),1); //-36dB markings
         
-        g.fillRect(0,  (int)(260.0f*vS), getWidth(),1); // -6dB markings
-        g.fillRect(0, (int)(301.02*vS), getWidth(),1); //-12dB markings
-        g.fillRect(0, (int)(330.02f*vS), getWidth(),1); //-18dB markings
-        g.fillRect(0, (int)(350.2f*vS), getWidth(),1); //-24dB markings
-        g.fillRect(0, (int)(364.9f*vS), getWidth(),1); //-30dB markings
-        g.fillRect(0, (int)(375.2f*vS), getWidth(),1); //-36dB markings
+        g.fillRect(0,  (int)meterY(1, 260.0f), getWidth(),1); // -6dB markings
+        g.fillRect(0, (int)meterY(1, 301.02f), getWidth(),1); //-12dB markings
+        g.fillRect(0, (int)meterY(1, 330.02f), getWidth(),1); //-18dB markings
+        g.fillRect(0, (int)meterY(1, 350.2f), getWidth(),1); //-24dB markings
+        g.fillRect(0, (int)meterY(1, 364.9f), getWidth(),1); //-30dB markings
+        g.fillRect(0, (int)meterY(1, 375.2f), getWidth(),1); //-36dB markings
         
-        g.fillRect(0,  (int)(460.0f*vS), getWidth(),1); // -6dB markings
-        g.fillRect(0, (int)(501.02*vS), getWidth(),1); //-12dB markings
-        g.fillRect(0, (int)(530.02f*vS), getWidth(),1); //-18dB markings
-        g.fillRect(0, (int)(550.2f*vS), getWidth(),1); //-24dB markings
-        g.fillRect(0, (int)(564.9f*vS), getWidth(),1); //-30dB markings
-        g.fillRect(0, (int)(575.2f*vS), getWidth(),1); //-36dB markings
+        g.fillRect(0,  (int)slewY(460.0f), getWidth(),1); // -6dB markings
+        g.fillRect(0, (int)slewY(501.02f), getWidth(),1); //-12dB markings
+        g.fillRect(0, (int)slewY(530.02f), getWidth(),1); //-18dB markings
+        g.fillRect(0, (int)slewY(550.2f), getWidth(),1); //-24dB markings
+        g.fillRect(0, (int)slewY(564.9f), getWidth(),1); //-30dB markings
+        g.fillRect(0, (int)slewY(575.2f), getWidth(),1); //-36dB markings
     } else {
         juce::ColourGradient backdropGradient = juce::ColourGradient::vertical(juce::Colours::white, 0.0f, backdropColour, 600.0f*vS); //600 tall version
         backdropGradient.addColour((float)gradientMin, backdropColour.interpolatedWith(juce::Colours::white, (float)gradientMin));
@@ -61,9 +81,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         float peakR = dataPR[count] * 200.0f;
         float slewL = sqrt(dataSL[count])*300.0f;
         float slewR = sqrt(dataSR[count])*300.0f;
-        const float slewDisplayScale = 0.75f; // 1.0 = original; lower = more headroom at the top F8K
-float slewDrawL = slewL*slewDisplayScale;
-float slewDrawR = slewR*slewDisplayScale;
+        float slewDrawL = slewL*slewDisplayScale; //colours, dot sizes and scoring still use the unscaled slewL
+        float slewDrawR = slewR*slewDisplayScale;
         float meterZeroL = (sqrt(dataZL[count])*6.0f)-6.0f;
         if (meterZeroL > 192.0f) meterZeroL = 192.0f;
         float bassL = fmin((sqrt(meterZeroL)*16.2f)-20.0f,199.0f);
@@ -75,13 +94,13 @@ float slewDrawR = slewR*slewDisplayScale;
          //begin draw dots on meters L
         if (peakL > 197.0f) {
             g.setColour(juce::Colour(255, 0, 0));
-            g.fillRect((float)count, ((219.0f+(float)sustainedClip)*vS), 1.9f, (181.9f-(float)sustainedClip)*vS);
+            g.fillRect((float)count, meterY(1, 219.0f+(float)sustainedClip), 1.9f, meterH(1, 181.9f-(float)sustainedClip));
             sustainedClip *= 0.99f; //peak is clipping!
             if (peakR > 197.0f) sustainedClip *= 0.975f; //if both are clipping, escalate
         } else sustainedClip = 180.0f;
         
         g.setColour(juce::Colour(0, 0, 0));
-        g.fillRect((float)count, (float)((600.0f-beam)*vS), 1.0f, departure*vS); //draw beam
+        g.fillRect((float)count, meterY(2, 600.0f-beam), 1.0f, meterH(2, departure)); //draw beam
         
         psDotSizeL = (dataPL[count]*64.0f) / (fabs((peakL*0.945433426957143f)-slewL)+6.18033988749894f);
         slewDotSizeL = (sin(0.1618f/psDotSizeL)*6.18f)+(sqrt(slewL)*0.1618f);
@@ -90,17 +109,17 @@ float slewDrawR = slewR*slewDisplayScale;
                                                                        fmax(((peakL*0.945433426957143f)-slewL),0.0f)*0.012f, 1.0f, 1.0f));
         else if (slewL > peakL) g.setColour(juce::Colour::fromFloatRGBA(fmin((64.0f+slewL)/128.0f,1.0f), 0.0f, 0.0f, 1.0f));
         else                    g.setColour(juce::Colour::fromFloatRGBA(0.0f, fmax((160.0f-peakL)/160.0f,0.0f), 0.0f, 1.0f)); //set COLOR
-        g.fillRect((float)count, (float)((400.0f - peakL)*vS), psDotSizeL+0.618f, (psDotSizeL+0.618f)*vS);
+        g.fillRect((float)count, meterY(1, 400.0f - fmin(peakL, 200.0f)), psDotSizeL+0.618f, (psDotSizeL+0.618f)*vS);
         
-if (slewDrawL > 194.0f) g.fillRect((float)count, (float)((599.0f-(sqrt(slewDrawL-194.0f)*1.618f))*vS), 1.618f, (float)(sqrt(slewDrawL-194.0f)*1.618f)*vS);
-else g.fillRect((float)count, (float)((600.0f-slewDrawL)*vS), slewDotSizeL+0.618f, slewDotSizeL*vS); //draw slew F8k
+        if (slewDrawL > 194.0f) g.fillRect((float)count, meterY(2, 599.0f-(sqrt(slewDrawL-194.0f)*1.618f)), 1.618f, meterH(2, sqrt(slewDrawL-194.0f)*1.618f));
+        else g.fillRect((float)count, meterY(2, 600.0f-slewDrawL), slewDotSizeL+0.618f, slewDotSizeL*vS); //draw slew
         
-        if (bassL < 199.0f-(bassDotSizeL+fmax(pow(peakL/140.0f,4.0f),0.0f))) g.fillRect((float)count, bassL*vS, bassDotSizeL+fmax(pow(peakL/140.0f,4.0f),0.0f), (bassDotSizeL+fmax(pow(peakL/140.0f,4.0f),0.0f))*vS); //zero cross subs
+        if (bassL < 199.0f-(bassDotSizeL+fmax(pow(peakL/140.0f,4.0f),0.0f))) g.fillRect((float)count, meterY(0, fmax(bassL, 0.0f)), bassDotSizeL+fmax(pow(peakL/140.0f,4.0f),0.0f), (bassDotSizeL+fmax(pow(peakL/140.0f,4.0f),0.0f))*vS); //zero cross subs
         //end draw dots on meters L
         //begin draw dots on meters R
         if (peakR > 197.0f) {
             g.setColour(juce::Colour(255, 0, 0));
-            g.fillRect((float)count, ((219.0f+(float)sustainedClip)*vS), 1.9f, (181.9f-(float)sustainedClip)*vS);
+            g.fillRect((float)count, meterY(1, 219.0f+(float)sustainedClip), 1.9f, meterH(1, 181.9f-(float)sustainedClip));
             sustainedClip *= 0.99f; //peak is clipping!
             if (peakL > 197.0f) sustainedClip *= 0.975f; //if both are clipping, escalate
         } else sustainedClip = 180.0f;
@@ -117,12 +136,12 @@ else g.fillRect((float)count, (float)((600.0f-slewDrawL)*vS), slewDotSizeL+0.618
                                                                        fmax(((peakR*0.945433426957143f)-slewR),0.0f)*0.012f, 1.0f, 1.0f));
         else if (slewR > peakR) g.setColour(juce::Colour::fromFloatRGBA(fmin((64.0f+slewR)/128.0f,1.0f), 0.0f, 0.0f, 1.0f));
         else                    g.setColour(juce::Colour::fromFloatRGBA(0.0f, fmax((160.0f-peakR)/160.0f,0.0f), 0.0f, 1.0f)); //set COLOR
-        g.fillRect((float)count, (float)((400.0f - peakR)*vS), psDotSizeR+0.618f, (psDotSizeR+0.618f)*vS);
+        g.fillRect((float)count, meterY(1, 400.0f - fmin(peakR, 200.0f)), psDotSizeR+0.618f, (psDotSizeR+0.618f)*vS);
         
-if (slewDrawR > 194.0f) g.fillRect((float)count, (float)((599.0f-(sqrt(slewDrawR-194.0f)*1.618f))*vS), 1.618f, (float)(sqrt(slewDrawR-194.0f)*1.618f)*vS);
-else g.fillRect((float)count, (float)((600.0f-slewDrawR)*vS), slewDotSizeR+0.618f, slewDotSizeR*vS); //draw slew F8k
+        if (slewDrawR > 194.0f) g.fillRect((float)count, meterY(2, 599.0f-(sqrt(slewDrawR-194.0f)*1.618f)), 1.618f, meterH(2, sqrt(slewDrawR-194.0f)*1.618f));
+        else g.fillRect((float)count, meterY(2, 600.0f-slewDrawR), slewDotSizeR+0.618f, slewDotSizeR*vS); //draw slew
         
-        if (bassR < 199.0f-(bassDotSizeR+fmax(pow(peakR/140.0f,4.0f),0.0f))) g.fillRect((float)count, bassR*vS, bassDotSizeR+fmax(pow(peakR/140.0f,4.0f),0.0f), (bassDotSizeR+fmax(pow(peakL/140.0f,4.0f),0.0f))*vS); //zero cross subs
+        if (bassR < 199.0f-(bassDotSizeR+fmax(pow(peakR/140.0f,4.0f),0.0f))) g.fillRect((float)count, meterY(0, fmax(bassR, 0.0f)), bassDotSizeR+fmax(pow(peakR/140.0f,4.0f),0.0f), (bassDotSizeR+fmax(pow(peakL/140.0f,4.0f),0.0f))*vS); //zero cross subs
         //end draw dots on meters R
         
         g.setColour(juce::Colour::fromFloatRGBA(backR[count], backG[count], backB[count], 1.0f)); //set backdrop colour
@@ -473,52 +492,23 @@ else g.fillRect((float)count, (float)((600.0f-slewDrawR)*vS), slewDotSizeR+0.618
             //that are better tracked just using the letter rating and letter grades, which end up
             //being more predictive than the number when it's over 80.
             
-            directions = juce::String(" ");
-            directionsOpacity = fmax(0.925f-backdropColour.getLightness(),0.0f)*1.618033988749894f;
-            float directionsHue = backdropColour.getHue()*30.0f;
-            switch ((int)directionsHue) {
-                case 0:
-                    directions = juce::String("less bright"); break;
-                case 1:
-                case 2:
-                case 3:
-                case 4:
-                    directions = juce::String("too much air"); break;
-                case 5:
-                case 6:
-                case 7:
-                case 8:
-                case 9:
-                    directions = juce::String("allow fullness"); break;
-                case 10:
-                case 11:
-                case 12:
-                case 13:
-                    directions = juce::String("allow detail"); break;
-                case 14:
-                case 15:
-                case 16:
-                case 17:
-                case 18:
-                    directions = juce::String("allow activity"); break;
-                case 19:
-                case 20:
-                case 21:
-                case 22:
-                    directions = juce::String("less boring"); break;
-                case 23:
-                case 24:
-                case 25:
-                    directions = juce::String("less harrowing"); break;
-                case 26:
-                case 27:
-                case 28:
-                    directions = juce::String("more calm"); break;
-                case 29:
-                case 30:
-                    directions = juce::String("less bright"); break;
-            } //this is tone color interpreted as instructions. Not an AI, it's just what you'd do!
-            //the opacity will be a factor of balance, so if you don't want to see it, mix right
+            //PER-METER HINTS: the three scores are compared to the strongest of the three. The tone color is just these
+            //three scores as red (slews), green (zero crosses) and blue (peaks), so white means all three are in balance.
+            //A meter that is well behind the strongest gets a hint in its own top strip, and the further behind it is, the
+            //stronger the hint shows. Quiet passages are gated out, like the tone color does.
+            {
+                const float hintStart = 0.75f; //a meter below this fraction of the strongest starts to show a hint
+                const float hintFull = 0.45f;  //and below this fraction the hint is fully visible
+                float scoreMax = (float)fmax(fmax(outputR, outputG), fmax(outputB, 0.000001));
+                float scoreRatio[3] = {(float)(outputG/scoreMax), (float)(outputB/scoreMax), (float)(outputR/scoreMax)}; //zero crosses, peaks, slews
+                float quietGate = (float)fmin(outputVol*outputVol*8.0, 1.0);
+                hintText[0] = juce::String("more low end");
+                hintText[1] = juce::String("more dynamics");
+                hintText[2] = juce::String("more HF transients");
+                for (int hint = 0; hint < 3; ++hint) {
+                    hintOpacity[hint] = fmax(fmin((hintStart-scoreRatio[hint])/(hintStart-hintFull), 1.0f), 0.0f) * quietGate;
+                }
+            }
         }
     }
     
@@ -528,8 +518,8 @@ else g.fillRect((float)count, (float)((600.0f-slewDrawR)*vS), slewDotSizeR+0.618
         g.setColour(juce::Colours::black);
         g.drawText("authority "+authority, (int)scaleFont/2, (int)(23.0f*vS), displayWidth/2, 32, juce::Justification::topLeft);
         g.drawText("zero crosses", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(23.0f*vS), displayWidth/2, 32, juce::Justification::topRight);
-        g.setOpacity(fmin(directionsOpacity,1.0f));
-        g.drawText(directions, 0, (int)(23.0f*vS), displayWidth, 32, juce::Justification::centredTop);
+        g.setOpacity(fmin(hintOpacity[0],1.0f));
+        g.drawText(hintText[0], 0, (int)(23.0f*vS), displayWidth, 32, juce::Justification::centredTop);
          //authority is the amount of varying zero cross energy, between maximum and minimum.
         //it can't be always maximum because that is just one frequency and reads as boring, plus it doesn't translate across bassbins as well.
         //The zero cross meter measures how long the audio can go before crossing the middle of the waveform again.
@@ -552,6 +542,9 @@ else g.fillRect((float)count, (float)((600.0f-slewDrawR)*vS), slewDotSizeR+0.618
         g.setOpacity(1.0f);
         g.drawText("power "+power, (int)scaleFont/2, (int)(203*vS), displayWidth/3, 32, juce::Justification::topLeft);
         g.drawText("peaks", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(203*vS), displayWidth/2, 32, juce::Justification::topRight);
+        g.setOpacity(fmin(hintOpacity[1],1.0f));
+        g.drawText(hintText[1], 0, (int)(203*vS), displayWidth, 32, juce::Justification::centredTop);
+        g.setOpacity(1.0f);
         //power is the intensity of varying peak energy, between maximum and minimum.
         //it can't be always maximum because that is just constant loudness and can't startle or vary.
         //Power is the derivative, the unexpected. it's the ability of sound to be producing peak 'aura' beyond what our ears think is the median loud.
@@ -568,6 +561,9 @@ else g.fillRect((float)count, (float)((600.0f-slewDrawR)*vS), slewDotSizeR+0.618
         
         g.drawText("detail "+detail, (int)scaleFont/2, (int)(403*vS), displayWidth/2, 32, juce::Justification::topLeft);
         g.drawText("slews", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(403*vS), displayWidth/2, 32, juce::Justification::topRight);
+        g.setOpacity(fmin(hintOpacity[2],1.0f));
+        g.drawText(hintText[2], 0, (int)(403*vS), displayWidth, 32, juce::Justification::centredTop);
+        g.setOpacity(1.0f);
         //detail is the intensity of varying slew energy, between maximum and minimum.
         //it can't be always maximum because that is just hardness and glare and sounds bad to people.
         //it also can't be minimum or it comes off as dull and uneventful in the treble range, so there's a balance to be struck.
@@ -615,25 +611,23 @@ else g.fillRect((float)count, (float)((600.0f-slewDrawR)*vS), slewDotSizeR+0.618
         
         g.setOpacity(1.0f);
         g.setFont(scaleFont);
-        g.drawText("900 Hz", (int)scaleFont, (int)(60.0f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("210 Hz", (int)scaleFont, (int)(101.02f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("100 Hz", (int)scaleFont, (int)(130.02f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("60 Hz", (int)scaleFont, (int)(150.2f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("45 Hz", (int)scaleFont, (int)(164.9f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("35 Hz", (int)scaleFont, (int)(175.2f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        g.drawText("900 Hz", (int)scaleFont, (int)meterY(0, 60.0f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        g.drawText("210 Hz", (int)scaleFont, (int)meterY(0, 101.02f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        g.drawText("100 Hz", (int)scaleFont, (int)meterY(0, 130.02f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        g.drawText("60 Hz", (int)scaleFont, (int)meterY(0, 150.2f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        g.drawText("45 Hz", (int)scaleFont, (int)meterY(0, 164.9f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        g.drawText("35 Hz", (int)scaleFont, (int)meterY(0, 175.2f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
         
-        g.drawText("!", (int)scaleFont, (int)(205.0f*vS)-7, displayWidth, (int)scaleFont, juce::Justification::centredBottom); // F8K
-        g.drawText("-6 dB", (int)scaleFont, (int)(260.0f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("-12 dB", (int)scaleFont, (int)(301.02f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("-18 dB", (int)scaleFont, (int)(330.02f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("-24 dB", (int)scaleFont, (int)(350.2f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("-30 dB", (int)scaleFont, (int)(364.9f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("-36 dB", (int)scaleFont, (int)(375.2f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        g.drawText("-6 dB", (int)scaleFont, (int)meterY(1, 260.0f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        g.drawText("-12 dB", (int)scaleFont, (int)meterY(1, 301.02f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        g.drawText("-18 dB", (int)scaleFont, (int)meterY(1, 330.02f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        g.drawText("-24 dB", (int)scaleFont, (int)meterY(1, 350.2f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        g.drawText("-30 dB", (int)scaleFont, (int)meterY(1, 364.9f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        g.drawText("-36 dB", (int)scaleFont, (int)meterY(1, 375.2f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
 
-        g.drawText("!", (int)scaleFont, (int)(405.0f*vS)-7, displayWidth, (int)scaleFont, juce::Justification::centredBottom); // F8K
-        g.drawText("exciting", (int)scaleFont, (int)(455.0f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("present", (int)scaleFont, (int)(496.0f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("relaxed", (int)scaleFont, (int)(525.0f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        g.drawText("exciting", (int)scaleFont, (int)slewY(455.0f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        g.drawText("present", (int)scaleFont, (int)slewY(496.0f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        g.drawText("relaxed", (int)scaleFont, (int)slewY(525.0f)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
 
         g.setColour(juce::Colours::darkgrey);
         g.setOpacity(1.0f);
@@ -645,6 +639,11 @@ else g.fillRect((float)count, (float)((600.0f-slewDrawR)*vS), slewDotSizeR+0.618
         g.setColour(juce::Colours::darkgrey);
         g.fillRect(0, (int)(200.0f*vS), getWidth(), 2);
         g.fillRect(0, (int)(400.0f*vS), getWidth(), 2); // meter borders
+        
+        g.setColour(juce::Colours::lightgrey);
+        g.fillRect(0, (int)((stripTop)*vS), getWidth(), 1);
+        g.fillRect(0, (int)((200.0f+stripMid)*vS), getWidth(), 1);
+        g.fillRect(0, (int)((400.0f+stripMid)*vS), getWidth(), 1); // bottom edge of each meter's text strip
 
     } else {
         g.setColour(juce::Colours::darkgrey);
