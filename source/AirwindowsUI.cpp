@@ -180,7 +180,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
          //begin draw dots on meters L
         if (peakL > 197.0f) {
             g.setColour(clipCol);
-            g.fillRect((float)count, meterY(1, 219.0f+(float)sustainedClip), 1.9f, meterH(1, 181.9f-(float)sustainedClip));
+            {const float clipCol_h = (181.9f-(float)sustainedClip)*peakDisplayScale; g.fillRect((float)count, meterY(1, 400.9f-clipCol_h), 1.9f, meterH(1, clipCol_h));} //clip columns follow the peak trim (drawn only)
             sustainedClip *= 0.99f; //peak is clipping!
             if (peakR > 197.0f) sustainedClip *= 0.975f; //if both are clipping, escalate
         } else sustainedClip = 180.0f;
@@ -202,7 +202,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         //begin draw dots on meters R
         if (peakR > 197.0f) {
             g.setColour(clipCol);
-            g.fillRect((float)count, meterY(1, 219.0f+(float)sustainedClip), 1.9f, meterH(1, 181.9f-(float)sustainedClip));
+            {const float clipCol_h = (181.9f-(float)sustainedClip)*peakDisplayScale; g.fillRect((float)count, meterY(1, 400.9f-clipCol_h), 1.9f, meterH(1, clipCol_h));} //clip columns follow the peak trim (drawn only)
             sustainedClip *= 0.99f; //peak is clipping!
             if (peakL > 197.0f) sustainedClip *= 0.975f; //if both are clipping, escalate
         } else sustainedClip = 180.0f;
@@ -235,6 +235,10 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     const float top = fmax(pos[m][0], pos[m][1]);
                     hintOverAvg[m] += ((top >= overAt[m] ? 1.0f : 0.0f) - hintOverAvg[m]) * avgRate;
                     hintUpperAvg[m] += ((top >= 100.0f ? 1.0f : 0.0f) - hintUpperAvg[m]) * avgRate;
+                    if (top >= 160.0f) { //spread of the dots in the top band: a cloud varies, a flat line does not
+                        hintBandMean[m] += (top - hintBandMean[m]) * avgRate;
+                        hintBandDev[m] += (fabsf(top - hintBandMean[m]) - hintBandDev[m]) * avgRate;
+                    }
                 }
             }
         }
@@ -622,7 +626,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             //then comes from fixing whichever is off. Thresholds have hysteresis (they enter at one level and leave at another) so hints don't flicker,
             //and quiet passages are gated out, as the tone color is.
             {
-                const float overEnter = 0.15f, overLeave = 0.10f;   //share of recent dots that overshoot the top
+                const float overEnter = 0.15f, overLeave = 0.10f;   //share of recent dots that overshoot the top...
+                const float lineEnter = 4.0f, lineLeave = 8.0f;     //...AND whose top-band spread is tiny (a flat line). A cloud, even a narrow one, is fine.
                 const float underEnter = 0.30f, underLeave = 0.38f; //share of recent dots that reach the upper half
                 const float quietGate = (float)fmin(outputVol*outputVol*8.0, 1.0);
                 hintTextMore[0] = juce::String("more low end");   hintTextLess[0] = juce::String("reduce low end");
@@ -630,10 +635,10 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                 hintTextMore[2] = juce::String("more highs");     hintTextLess[2] = juce::String("reduce highs");
                 for (int hint = 0; hint < 3; ++hint) {
                     int state = hintState[hint];
-                    if (state == 1 && hintOverAvg[hint] < overLeave) state = 0;
+                    if (state == 1 && (hintOverAvg[hint] < overLeave || hintBandDev[hint] > lineLeave)) state = 0;
                     if (state == -1 && hintUpperAvg[hint] > underLeave) state = 0;
                     if (state == 0) {
-                        if (hintOverAvg[hint] > overEnter) state = 1;
+                        if (hintOverAvg[hint] > overEnter && hintBandDev[hint] < lineEnter) state = 1;
                         else if (hintUpperAvg[hint] < underEnter) state = -1;
                     }
                     hintState[hint] = state;

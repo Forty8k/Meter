@@ -209,6 +209,8 @@ struct AirwindowsMeter : public juce::Component
     //(under target if rarely) and how often they overshoot the top, where the scoring mirrors them back down (over target).
     float hintUpperAvg[3] = {0.5f, 0.5f, 0.5f};
     float hintOverAvg[3] = {0.0f, 0.0f, 0.0f};
+    float hintBandMean[3] = {180.0f, 180.0f, 180.0f}; //where the dots that reach the top band sit, and how far they vary from that: tiny = a flat line
+    float hintBandDev[3] = {20.0f, 20.0f, 20.0f};     //(over-limited or flattened), larger = a cloud (healthy, even a narrow one)
     int hintState[3] = {0, 0, 0}; //-1 = under target ("more"), 0 = fine, +1 = over target ("reduce")
     static constexpr float stripTopUnits = 50.0f; //height of the text strip above each meter, in the 600-high layout:
     static constexpr float stripMidUnits = 30.0f; //zero crosses (includes the top color bar), then peaks and slews
@@ -265,6 +267,8 @@ struct AirwindowsMeter : public juce::Component
             hintUpperAvg[hint] = 0.5f;
             hintOverAvg[hint] = 0.0f;
             hintState[hint] = 0;
+            hintBandMean[hint] = 180.0f;
+            hintBandDev[hint] = 20.0f;
         }
         cumulative = 0.0000001;
         duration = 0.00001;
