@@ -257,7 +257,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                 for (int m = 0; m < 3; ++m) {
                     const float top = fmax(pos[m][0], pos[m][1]);
                     hintOverAvg[m] += ((top >= overAt[m] ? 1.0f : 0.0f) - hintOverAvg[m]) * avgRate;
-                    hintUpperAvg[m] += ((top >= 100.0f ? 1.0f : 0.0f) - hintUpperAvg[m]) * avgRate;
+                    hintUpperAvg[m] += ((top >= (m == 1 ? 140.0f : 100.0f) ? 1.0f : 0.0f) - hintUpperAvg[m]) * avgRate; //peaks: does a cloud reach the top 6 dB? the others: the upper half
                     if (top >= 160.0f) { //spread of the dots in the top band: a cloud varies, a flat line does not
                         hintBandMean[m] += (top - hintBandMean[m]) * avgRate;
                         hintBandDev[m] += (fabsf(top - hintBandMean[m]) - hintBandDev[m]) * avgRate;
@@ -674,8 +674,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                         overNow = hintRedAvg > 0.33f;    overKeep = hintRedAvg > 0.26f;
                         underNow = hintGreenAvg > 0.70f; underKeep = hintGreenAvg > 0.60f;
                     } else { //low end and peaks: a flat line at the extreme (not a cloud) is over, rarely reaching the upper half is under
-                        const float uEnter = (hint == 1) ? 0.15f : underEnter; //peaks only need to reach about -12 dB now and then
-                        const float uLeave = (hint == 1) ? 0.22f : underLeave;
+                        const float uEnter = (hint == 1) ? 0.25f : underEnter; //peaks: "raise peaks" when a cloud rarely reaches the top 6 dB, i.e. there is headroom to use
+                        const float uLeave = (hint == 1) ? 0.32f : underLeave;
                         overNow = hintOverAvg[hint] > overEnter && hintBandDev[hint] < lineEnter;
                         overKeep = hintOverAvg[hint] >= overLeave && hintBandDev[hint] <= lineLeave;
                         underNow = hintUpperAvg[hint] < uEnter;
@@ -754,10 +754,11 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         stripText(hintText[2], 0, (int)(403*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[2],1.0f));
         if (displayWidth >= 700) { //TRIMS: press and drag up or down on the label to shift that meter's picture, double-click to reset
             g.setFont(scaleFont*1.1f);
-            stripText("slew trim " + juce::String(slewTrimDb, 1) + " dB" + (slewTrimDb == 0.0f ? " - drag" : ""), 190, (int)(402.0f*vS),
-                      220, (int)((stripMidUnits-2.0f)*vS), juce::Justification::bottomLeft, (slewTrimDb == 0.0f && trimDragging != 2) ? 0.6f : 1.0f);
-            stripText("peak trim " + juce::String(peakTrimDb, 1) + " dB" + (peakTrimDb == 0.0f ? " - drag" : ""), 190, (int)(202.0f*vS),
-                      220, (int)((stripMidUnits-2.0f)*vS), juce::Justification::bottomLeft, (peakTrimDb == 0.0f && trimDragging != 1) ? 0.6f : 1.0f);
+            auto trimText = [](float db) { return juce::String("display trim ") + juce::String(db > -0.05f ? 0.0f : db, 1) + " dB"; };
+            stripText(trimText(slewTrimDb), 190, (int)(402.0f*vS),
+                      220, (int)((stripMidUnits-2.0f)*vS), juce::Justification::bottomLeft, 0.6f);
+            stripText(trimText(peakTrimDb), 190, (int)(202.0f*vS),
+                      220, (int)((stripMidUnits-2.0f)*vS), juce::Justification::bottomLeft, 0.6f);
             g.setFont(scaleFont*1.618f);
         }
         //detail is the intensity of varying slew energy, between maximum and minimum.
