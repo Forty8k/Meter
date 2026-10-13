@@ -8,45 +8,87 @@
 #  define M_PI_2 (1.57079632679489661923)
 #endif
 
+//The slew trim label lives in the slews strip. Returns true if a click at this position is on it.
+static bool onSlewTrimLabel(const juce::MouseEvent &event, int displayWidth, float vS)
+{
+    const bool bigLayout = (sqrt(vS*61.8f)*1.618f) > 10.0f;
+    return bigLayout && displayWidth >= 700 && event.x >= 150 && event.x < 370
+        && event.y >= (int)(400.0f*vS) && event.y < (int)((400.0f+AirwindowsMeter::stripMidUnits)*vS);
+}
+
 void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
 {
     float vS = displayHeight/600.0f;
-    if ((sqrt(vS*64.0f)*1.618f) > 10.0f && event.x < 150 && event.y < (int)(20.0f*vS)) {
-        //TRIM label (top left): click = 1 dB lower, shift-click = 1 dB higher, right-click = back to 0 dB (original Meter).
-        //Changing it restarts the measurement, since the held grades were earned at the old level.
-        autoNote = juce::String();
-        float newTrim = trimDb;
-        if (event.mods.isRightButtonDown()) newTrim = 0.0f;
-        else if (event.mods.isShiftDown()) newTrim += 1.0f;
-        else newTrim -= 1.0f;
-        if (newTrim > 0.0f) newTrim = 0.0f;
-        if (newTrim < -24.0f) newTrim = -24.0f;
-        if (newTrim != trimDb) {trimDb = newTrim; resetArrays();}
-        return;
-    }
-    if ((sqrt(vS*64.0f)*1.618f) > 10.0f && displayWidth >= 500 && event.y < (int)(20.0f*vS)
-        && event.x >= 150 && event.x < 150 + (displayWidth >= 1000 ? 330 : 110)) {
-        //AUTO-TRIM label: click to start measuring, click again to set the trim, right-click to cancel
-        if (event.mods.isRightButtonDown()) autoAction = autoMeasuring ? 3 : 0;
-        else autoAction = autoMeasuring ? 2 : 1;
+    if (onSlewTrimLabel(event, displayWidth, vS)) {
+        if (event.getNumberOfClicks() > 1) {slewTrimDb = 0.0f; slewDragging = false; repaint();} //double-click = back to the original view
+        else {slewDragging = true; slewDragStart = slewTrimDb;} //press and drag up or down to set it
         return;
     }
     if (event.getNumberOfClicks() > 1) resetArrays();
     else meterPlaying = !meterPlaying;
 }
 
+void AirwindowsMeter::mouseDrag(const juce::MouseEvent &event)
+{
+    if (!slewDragging) return;
+    float newTrim = slewDragStart - (float)event.getDistanceFromDragStartY() * 0.12f; //dragging up lowers the zoom, down raises it
+    newTrim = std::round(newTrim * 10.0f) / 10.0f;
+    if (newTrim > 0.0f) newTrim = 0.0f;
+    if (newTrim < -24.0f) newTrim = -24.0f;
+    if (newTrim != slewTrimDb) {slewTrimDb = newTrim; repaint();}
+}
+
+void AirwindowsMeter::mouseUp(const juce::MouseEvent &)
+{
+    slewDragging = false;
+}
+
 void AirwindowsMeter::paint(juce::Graphics &g)
 {
     float vS = displayHeight/600.0f; // short for vScale: everything * this
     
-    const float slewDisplayScale = 1.0f; //slew meter display only: 1.0 = original calibration. The trim (top left) is the better way to see more headroom
+    //The slew meter's display zoom (see slewTrimDb). The slew meter shows sqrt of the slew value, so a trim in dB scales the picture by dB/40.
+    //0 dB = 1.0 = the original look. Only DRAWN positions use this: colours, dot sizes and every score use the full-level values.
+    const float slewDisplayScale = (float)pow(10.0, (double)slewTrimDb/40.0);
+    
+    //THEME: dark meters with light text, so that a strip lighting up draws the eye. Set kDarkTheme to false for the original light look.
+    static const bool kDarkTheme = true;
+    const bool bigLayout = (sqrt(vS*61.8f)*1.618f) > 10.0f; //the full three-meter layout, as opposed to the tiny-window grade display
+    const bool dark = kDarkTheme && bigLayout;
+    const juce::Colour meterBg = dark ? juce::Colour(14, 16, 20) : juce::Colours::white;
+    const juce::Colour gridCol = dark ? juce::Colour(58, 63, 74) : juce::Colours::lightgrey;
+    const juce::Colour borderCol = dark ? juce::Colour(96, 102, 116) : juce::Colours::darkgrey;
+    const juce::Colour textCol = dark ? juce::Colour(236, 238, 242) : juce::Colours::black;
+    const juce::Colour labelCol = dark ? juce::Colour(206, 211, 221) : juce::Colours::black;
+    const juce::Colour clipCol = dark ? juce::Colour(255, 225, 40) : juce::Colour(255, 0, 0); //clipping is yellow: no dot or strip ever is
+    const juce::Colour beamCol = dark ? juce::Colours::white : juce::Colours::black;
+    //each strip's resting color is a very dark tint of its meter's own color in the top bar: zero crosses green, peaks blue, slews red
+    const juce::Colour stripBase[3] = {juce::Colour(22, 33, 28), juce::Colour(22, 28, 42), juce::Colour(40, 26, 28)};
+    const juce::Colour stripGlow[3] = {juce::Colour(40, 210, 90), juce::Colour(60, 110, 255), juce::Colour(255, 70, 60)};
+    
+    //Dot colors, from how slews and peaks compare (blue = in balance/sonority, purple = slews leaning ahead, teal = peaks leaning ahead,
+    //red = slews well ahead, green to grey = peaks ahead, greyer as it gets louder). The light theme is exactly the original formulas.
+    //The dark theme lifts them so blue and the dark dots stay visible on black. The hues keep their meaning.
+    auto dotColour = [&](float slew, float peak, float psDot) -> juce::Colour {
+        const float slewVsPeak = fmax(slew-(peak*0.945433426957143f),0.0f)*0.029f;
+        const float peakVsSlew = fmax((peak*0.945433426957143f)-slew,0.0f)*0.012f;
+        if (!dark) {
+            if (psDot > 1.0f) return juce::Colour::fromFloatRGBA(slewVsPeak, peakVsSlew, 1.0f, 1.0f);
+            if (slew > peak) return juce::Colour::fromFloatRGBA(fmin((64.0f+slew)/128.0f,1.0f), 0.0f, 0.0f, 1.0f);
+            return juce::Colour::fromFloatRGBA(0.0f, fmax((160.0f-peak)/160.0f,0.0f), 0.0f, 1.0f);
+        }
+        if (psDot > 1.0f) return juce::Colour::fromFloatRGBA(0.30f+0.70f*fmin(slewVsPeak,1.0f), 0.42f+0.58f*fmin(peakVsSlew,1.0f), 1.0f, 1.0f);
+        if (slew > peak) return juce::Colour::fromFloatRGBA(0.55f+0.45f*fmin((64.0f+slew)/128.0f,1.0f), 0.12f, 0.12f, 1.0f);
+        const float quiet = fmax((160.0f-peak)/160.0f,0.0f); //1 = quiet (green), 0 = loud (grey)
+        return juce::Colour::fromFloatRGBA(0.55f+(0.25f-0.55f)*quiet, 0.57f+(0.85f-0.57f)*quiet, 0.60f+(0.35f-0.60f)*quiet, 1.0f);
+    };
     
     //LAYOUT: each of the three meters has a text strip along its top (titles, grades and hints), and its data is drawn below that.
     //stripTop is for the zero cross meter (it also holds the top color bar), stripMid is for the peak and slew meters.
     //Units are the 600-high layout. Set both to 0.0f to get the original full-height meters back.
-    const bool textStrips = (sqrt(vS*64.0f)*1.618f) > 10.0f; //same test that decides whether the titles get drawn
-    const float stripTop = textStrips ? 50.0f : 0.0f;
-    const float stripMid = textStrips ? 30.0f : 0.0f;
+    const bool textStrips = bigLayout;
+    const float stripTop = textStrips ? stripTopUnits : 0.0f;
+    const float stripMid = textStrips ? stripMidUnits : 0.0f;
     const float stripH[3] = {stripTop, stripMid, stripMid};
     auto meterY = [&](int sec, float yv) -> float { //yv is a position in the original layout (0-600), result is in pixels
         const float base = 200.0f*(float)sec;
@@ -55,12 +97,17 @@ void AirwindowsMeter::paint(juce::Graphics &g)
     auto meterH = [&](int sec, float hv) -> float { //a height in the original layout, as pixels
         return hv*((200.0f-stripH[sec])/200.0f)*vS;
     };
-    auto slewY = [&](float yv) -> float { //slew meter positions, which also follow slewDisplayScale
-        return meterY(2, 600.0f-((600.0f-yv)*slewDisplayScale));
-    };
     if ((sqrt(vS*61.8f)*1.618f) > 10.0f) {
-        g.fillAll(juce::Colours::white); //blank screen before doing anything, unless our draw covers the whole display anyway
-        g.setColour(juce::Colours::lightgrey);
+        g.fillAll(meterBg); //blank screen before doing anything, unless our draw covers the whole display anyway
+        if (dark) { //the text strips, each in its own very dark tint, so the title areas are separate from the data areas
+            for (int sec = 0; sec < 3; ++sec) {
+                const int stripFrom = (int)((sec == 0 ? 21.0f : 200.0f*(float)sec + 2.0f) * vS);
+                const int stripTo = (int)((200.0f*(float)sec + stripH[sec]) * vS);
+                g.setColour(stripBase[sec]);
+                g.fillRect(0, stripFrom, getWidth(), stripTo - stripFrom);
+            }
+        }
+        g.setColour(gridCol);
         g.fillRect(0,  (int)meterY(0, 60.0f), getWidth(),1); // -6dB markings
         g.fillRect(0, (int)meterY(0, 101.02f), getWidth(),1); //-12dB markings
         g.fillRect(0, (int)meterY(0, 130.02f), getWidth(),1); //-18dB markings
@@ -75,12 +122,12 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         g.fillRect(0, (int)meterY(1, 364.9f), getWidth(),1); //-30dB markings
         g.fillRect(0, (int)meterY(1, 375.2f), getWidth(),1); //-36dB markings
         
-        g.fillRect(0,  (int)slewY(460.0f), getWidth(),1); // -6dB markings
-        g.fillRect(0, (int)slewY(501.02f), getWidth(),1); //-12dB markings
-        g.fillRect(0, (int)slewY(530.02f), getWidth(),1); //-18dB markings
-        g.fillRect(0, (int)slewY(550.2f), getWidth(),1); //-24dB markings
-        g.fillRect(0, (int)slewY(564.9f), getWidth(),1); //-30dB markings
-        g.fillRect(0, (int)slewY(575.2f), getWidth(),1); //-36dB markings
+        g.fillRect(0,  (int)meterY(2, 460.0f), getWidth(),1); // -6dB markings
+        g.fillRect(0, (int)meterY(2, 501.02f), getWidth(),1); //-12dB markings
+        g.fillRect(0, (int)meterY(2, 530.02f), getWidth(),1); //-18dB markings
+        g.fillRect(0, (int)meterY(2, 550.2f), getWidth(),1); //-24dB markings
+        g.fillRect(0, (int)meterY(2, 564.9f), getWidth(),1); //-30dB markings
+        g.fillRect(0, (int)meterY(2, 575.2f), getWidth(),1); //-36dB markings
     } else {
         juce::ColourGradient backdropGradient = juce::ColourGradient::vertical(juce::Colours::white, 0.0f, backdropColour, 600.0f*vS); //600 tall version
         backdropGradient.addColour((float)gradientMin, backdropColour.interpolatedWith(juce::Colours::white, (float)gradientMin));
@@ -110,7 +157,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         float meterZeroR = (sqrt(dataZR[count])*6.0f)-6.0f;
         if (meterZeroR > 192.0f) meterZeroR = 192.0f;
         float bassR = fmin((sqrt(meterZeroR)*16.2f)-20.0f,199.0f);
-        float beamRaw = sqrt(dataBL[count]+dataBR[count])*700.0f;
+        float beamRaw = sqrt(dataBL[count]+dataBR[count])*700.0f*slewDisplayScale; //drawn position follows the slew zoom
         //The original capped the beam at 199, so on loud material it sat flat against the top edge and hid its own movement.
         //Now it is the original (linear) up to beamKnee and then a gentle log curve, so higher values still sit higher and still move.
         const float beamKnee = 165.0f;
@@ -118,25 +165,22 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         float beam = beamRaw;
         if (beamRaw > beamKnee) beam = beamKnee + (199.0f-beamKnee) * (log2f(1.0f+(beamRaw-beamKnee)/45.0f) / log2f(1.0f+beamSpan/45.0f));
         beam = fmin(beam, 199.0f);
-        float departure = fmax(0.0f,5.0f-(dataDL[count]+dataDR[count])*1500.0f) * 100.0f * fmax(dataBL[count],dataBR[count]);
+        float departure = fmax(0.0f,5.0f-(dataDL[count]+dataDR[count])*1500.0f) * 100.0f * fmax(dataBL[count],dataBR[count]) * slewDisplayScale;
          //begin draw dots on meters L
         if (peakL > 197.0f) {
-            g.setColour(juce::Colour(255, 0, 0));
+            g.setColour(clipCol);
             g.fillRect((float)count, meterY(1, 219.0f+(float)sustainedClip), 1.9f, meterH(1, 181.9f-(float)sustainedClip));
             sustainedClip *= 0.99f; //peak is clipping!
             if (peakR > 197.0f) sustainedClip *= 0.975f; //if both are clipping, escalate
         } else sustainedClip = 180.0f;
         
-        g.setColour(juce::Colour(0, 0, 0));
+        g.setColour(beamCol);
         g.fillRect((float)count, meterY(2, 600.0f-beam), 1.0f, meterH(2, departure)); //draw beam
         
         psDotSizeL = (dataPL[count]*64.0f) / (fabs((peakL*0.945433426957143f)-slewL)+6.18033988749894f);
         slewDotSizeL = (sin(0.1618f/psDotSizeL)*6.18f)+(sqrt(slewL)*0.1618f);
         bassDotSizeL = sqrt(meterZeroL*0.1f*dataPL[count]);
-        if (psDotSizeL > 1.0f) g.setColour(juce::Colour::fromFloatRGBA(fmax((slewL-(peakL*0.945433426957143f)),0.0f)*0.029f,
-                                                                       fmax(((peakL*0.945433426957143f)-slewL),0.0f)*0.012f, 1.0f, 1.0f));
-        else if (slewL > peakL) g.setColour(juce::Colour::fromFloatRGBA(fmin((64.0f+slewL)/128.0f,1.0f), 0.0f, 0.0f, 1.0f));
-        else                    g.setColour(juce::Colour::fromFloatRGBA(0.0f, fmax((160.0f-peakL)/160.0f,0.0f), 0.0f, 1.0f)); //set COLOR
+        g.setColour(dotColour(slewL, peakL, psDotSizeL)); //set COLOR
         g.fillRect((float)count, meterY(1, 400.0f - fmin(peakL, 200.0f)), psDotSizeL+0.618f, (psDotSizeL+0.618f)*vS);
         
         if (slewDrawL > 194.0f) g.fillRect((float)count, meterY(2, 599.0f-(sqrt(slewDrawL-194.0f)*1.618f)), 1.618f, meterH(2, sqrt(slewDrawL-194.0f)*1.618f));
@@ -146,7 +190,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         //end draw dots on meters L
         //begin draw dots on meters R
         if (peakR > 197.0f) {
-            g.setColour(juce::Colour(255, 0, 0));
+            g.setColour(clipCol);
             g.fillRect((float)count, meterY(1, 219.0f+(float)sustainedClip), 1.9f, meterH(1, 181.9f-(float)sustainedClip));
             sustainedClip *= 0.99f; //peak is clipping!
             if (peakL > 197.0f) sustainedClip *= 0.975f; //if both are clipping, escalate
@@ -170,10 +214,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                 devS[count] = (ratioS - (ratioZ+ratioP)*0.5f) * quietGate;
             }
         }
-        if (psDotSizeR > 1.0f) g.setColour(juce::Colour::fromFloatRGBA(fmax((slewR-(peakR*0.945433426957143f)),0.0f)*0.029f,
-                                                                       fmax(((peakR*0.945433426957143f)-slewR),0.0f)*0.012f, 1.0f, 1.0f));
-        else if (slewR > peakR) g.setColour(juce::Colour::fromFloatRGBA(fmin((64.0f+slewR)/128.0f,1.0f), 0.0f, 0.0f, 1.0f));
-        else                    g.setColour(juce::Colour::fromFloatRGBA(0.0f, fmax((160.0f-peakR)/160.0f,0.0f), 0.0f, 1.0f)); //set COLOR
+        g.setColour(dotColour(slewR, peakR, psDotSizeR)); //set COLOR
         g.fillRect((float)count, meterY(1, 400.0f - fmin(peakR, 200.0f)), psDotSizeR+0.618f, (psDotSizeR+0.618f)*vS);
         
         if (slewDrawR > 194.0f) g.fillRect((float)count, meterY(2, 599.0f-(sqrt(slewDrawR-194.0f)*1.618f)), 1.618f, meterH(2, sqrt(slewDrawR-194.0f)*1.618f));
@@ -185,17 +226,24 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         g.setColour(juce::Colour::fromFloatRGBA(backR[count], backG[count], backB[count], 1.0f)); //set backdrop colour
         g.fillRect((float)(count)-0.25f, 0.0f, 1.5f, 19.5f*vS); //top bar
         
-        if (textStrips) { //PER-METER TONE SHADING behind each meter's title and hint: warm = this meter is stronger than the other two,
-            //cool = weaker, white = balanced. It is the tone color split by meter, so it shows where in the track each one drifted.
-            const float shadeGain = 1.6f; //higher = reacts to smaller imbalances
-            const float shadeMax = 0.55f; //strongest tint. Keep it light so the black text stays readable
+        if (textStrips) { //PER-METER TONE behind each meter's title and hint. It is the tone color split up by meter.
             const float devs[3] = {devZ[count], devP[count], devS[count]};
             for (int sec = 0; sec < 3; ++sec) {
-                const float amount = fmin(fabs(devs[sec])*shadeGain, shadeMax);
-                if (amount < 0.02f) continue;
-                g.setColour((devs[sec] > 0.0f ? juce::Colour(255, 150, 50) : juce::Colour(70, 140, 255)).withAlpha(amount));
                 const float shadeTop = (sec == 0 ? 21.0f : 200.0f*(float)sec + 2.0f) * vS;
                 const float shadeBottom = (200.0f*(float)sec + stripH[sec]) * vS;
+                if (dark) {
+                    //dark theme: a strip lights up in its own meter's color (zero crosses green, peaks blue, slews red, the same as the
+                    //top bar) when that meter is AHEAD of the other two. Balanced or behind, it stays dark.
+                    const float glowGain = 2.0f; //higher = lights up for smaller leads
+                    const float glowMax = 0.9f;
+                    const float amount = fmin(fmax(devs[sec], 0.0f)*glowGain, glowMax);
+                    if (amount < 0.02f) continue;
+                    g.setColour(stripBase[sec].interpolatedWith(stripGlow[sec], amount*0.78f));
+                } else { //light theme: warm = this meter is stronger than the other two, blue = weaker, white = balanced
+                    const float amount = fmin(fabs(devs[sec])*1.6f, 0.55f);
+                    if (amount < 0.02f) continue;
+                    g.setColour((devs[sec] > 0.0f ? juce::Colour(255, 150, 50) : juce::Colour(70, 140, 255)).withAlpha(amount));
+                }
                 g.fillRect((float)(count)-0.25f, shadeTop, 1.5f, shadeBottom - shadeTop);
             }
         }
@@ -568,11 +616,19 @@ void AirwindowsMeter::paint(juce::Graphics &g)
     float scaleFont = (sqrt(vS*64.0f)*1.618f);
     if (scaleFont > 10.0f) {
         g.setFont(scaleFont*1.618f);
-        g.setColour(juce::Colours::black);
-        g.drawText("authority "+authority, (int)scaleFont/2, (int)(23.0f*vS), displayWidth/2, 32, juce::Justification::topLeft);
-        g.drawText("zero crosses", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(23.0f*vS), displayWidth/2, 32, juce::Justification::topRight);
-        g.setOpacity(fmin(hintOpacity[0],1.0f));
-        g.drawText(hintText[0], 0, (int)(23.0f*vS), displayWidth, 32, juce::Justification::centredTop);
+        auto stripText = [&](const juce::String& text, int x, int y, int w, int h, juce::Justification just, float opacity) {
+            if (dark) { //a soft shadow keeps the light text readable when a strip lights up
+                g.setColour(juce::Colours::black);
+                g.setOpacity(0.6f*opacity);
+                g.drawText(text, x+1, y+1, w, h, just);
+            }
+            g.setColour(textCol);
+            g.setOpacity(opacity);
+            g.drawText(text, x, y, w, h, just);
+        };
+        stripText("authority "+authority, (int)scaleFont/2, (int)(23.0f*vS), displayWidth/2, 32, juce::Justification::topLeft, 1.0f);
+        stripText("zero crosses", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(23.0f*vS), displayWidth/2, 32, juce::Justification::topRight, 1.0f);
+        stripText(hintText[0], 0, (int)(23.0f*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[0],1.0f));
          //authority is the amount of varying zero cross energy, between maximum and minimum.
         //it can't be always maximum because that is just one frequency and reads as boring, plus it doesn't translate across bassbins as well.
         //The zero cross meter measures how long the audio can go before crossing the middle of the waveform again.
@@ -593,11 +649,9 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         //considering what a black art that sort of thing is, it's useful to view it in this light.
         
         g.setOpacity(1.0f);
-        g.drawText("power "+power, (int)scaleFont/2, (int)(203*vS), displayWidth/3, 32, juce::Justification::topLeft);
-        g.drawText("peaks", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(203*vS), displayWidth/2, 32, juce::Justification::topRight);
-        g.setOpacity(fmin(hintOpacity[1],1.0f));
-        g.drawText(hintText[1], 0, (int)(203*vS), displayWidth, 32, juce::Justification::centredTop);
-        g.setOpacity(1.0f);
+        stripText("power "+power, (int)scaleFont/2, (int)(203*vS), displayWidth/3, 32, juce::Justification::topLeft, 1.0f);
+        stripText("peaks", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(203*vS), displayWidth/2, 32, juce::Justification::topRight, 1.0f);
+        stripText(hintText[1], 0, (int)(203*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[1],1.0f));
         //power is the intensity of varying peak energy, between maximum and minimum.
         //it can't be always maximum because that is just constant loudness and can't startle or vary.
         //Power is the derivative, the unexpected. it's the ability of sound to be producing peak 'aura' beyond what our ears think is the median loud.
@@ -612,11 +666,15 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         //This is of course impossible and a contradiction, which is what makes it interesting :)
         //We hear 'activity at very low dB during loud sounds' as openness of the sound, drama/excitement, and mix ease of listening.
         
-        g.drawText("detail "+detail, (int)scaleFont/2, (int)(403*vS), displayWidth/2, 32, juce::Justification::topLeft);
-        g.drawText("slews", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(403*vS), displayWidth/2, 32, juce::Justification::topRight);
-        g.setOpacity(fmin(hintOpacity[2],1.0f));
-        g.drawText(hintText[2], 0, (int)(403*vS), displayWidth, 32, juce::Justification::centredTop);
-        g.setOpacity(1.0f);
+        stripText("detail "+detail, (int)scaleFont/2, (int)(403*vS), displayWidth/2, 32, juce::Justification::topLeft, 1.0f);
+        stripText("slews", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(403*vS), displayWidth/2, 32, juce::Justification::topRight, 1.0f);
+        stripText(hintText[2], 0, (int)(403*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[2],1.0f));
+        if (displayWidth >= 700) { //SLEW TRIM: press and drag up or down to zoom the slew meter's picture, double-click to reset
+            g.setFont(scaleFont*1.1f);
+            stripText("slew trim " + juce::String(slewTrimDb, 1) + " dB" + (slewTrimDb == 0.0f ? " - drag" : ""), 150, (int)(402.0f*vS),
+                      220, (int)((stripMidUnits-2.0f)*vS), juce::Justification::centredLeft, (slewTrimDb == 0.0f && !slewDragging) ? 0.6f : 1.0f);
+            g.setFont(scaleFont*1.618f);
+        }
         //detail is the intensity of varying slew energy, between maximum and minimum.
         //it can't be always maximum because that is just hardness and glare and sounds bad to people.
         //it also can't be minimum or it comes off as dull and uneventful in the treble range, so there's a balance to be struck.
@@ -638,32 +696,19 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         g.setColour(juce::Colours::black);
         g.drawText(bonusScore+totalPackage+authority+power+detail, 0, 0, displayWidth, (int)(20.0f*vS), juce::Justification::centred);
         
-        //TRIM readout, top left. Dim at 0 dB (original Meter behaviour), full strength when trimming, so screenshots show the mode.
-        juce::String trimText = "trim " + juce::String(trimDb, 1) + " dB";
-        g.setFont(scaleFont*1.1f);
-        g.setColour(juce::Colours::white);
-        g.setOpacity(trimDb == 0.0f ? 0.3f : 0.618f);
-        g.drawText(trimText, (int)scaleFont/2+1, 1, 140, (int)(20.0f*vS), juce::Justification::centredLeft);
-        g.setColour(juce::Colours::black);
-        g.setOpacity(trimDb == 0.0f ? 0.5f : 1.0f);
-        g.drawText(trimText, (int)scaleFont/2, 0, 140, (int)(20.0f*vS), juce::Justification::centredLeft);
-        
-        //AUTO-TRIM readout, next to the trim
-        if (displayWidth >= 500) {
-            const bool wideTop = displayWidth >= 1000;
-            juce::String autoText;
-            if (autoMeasuring) {
-                if (measuredLufs > -900.0f) autoText = wideTop ? "measuring " + juce::String(measuredLufs, 1) + " LUFS - click to set" : juce::String(measuredLufs, 1) + " LUFS";
-                else autoText = wideTop ? juce::String("measuring - play the loudest part") : juce::String("measuring");
-            } else if (autoNote.isNotEmpty() && wideTop) autoText = autoNote;
-            else autoText = wideTop ? "auto-trim to " + juce::String((int)autoTrimTargetLufs) + " LUFS" : juce::String("auto");
-            const float autoOpacity = (autoMeasuring || autoNote.isNotEmpty()) ? 1.0f : 0.5f;
+        //KEYS on the top bar. The bar is the three meters' scores mixed as color, and each strip lights in its own meter's color.
+        if (displayWidth >= 760) {
+            g.setFont(scaleFont*0.95f);
+            const juce::String keyLeft("R slews   G zero crosses   B peaks");
+            const juce::String keyRight("strip lit = that meter is ahead");
             g.setColour(juce::Colours::white);
-            g.setOpacity(autoOpacity * 0.618f);
-            g.drawText(autoText, 151, 1, wideTop ? 330 : 110, (int)(20.0f*vS), juce::Justification::centredLeft);
+            g.setOpacity(0.618f);
+            g.drawText(keyLeft, (int)scaleFont/2+1, 1, 260, (int)(20.0f*vS), juce::Justification::centredLeft);
+            g.drawText(keyRight, displayWidth-261-(int)scaleFont/2, 1, 260, (int)(20.0f*vS), juce::Justification::centredRight);
             g.setColour(juce::Colours::black);
-            g.setOpacity(autoOpacity);
-            g.drawText(autoText, 150, 0, wideTop ? 330 : 110, (int)(20.0f*vS), juce::Justification::centredLeft);
+            g.setOpacity(0.85f);
+            g.drawText(keyLeft, (int)scaleFont/2, 0, 260, (int)(20.0f*vS), juce::Justification::centredLeft);
+            g.drawText(keyRight, displayWidth-260-(int)scaleFont/2, 0, 260, (int)(20.0f*vS), juce::Justification::centredRight);
         }
         g.setOpacity(1.0f);
        //the Hit Record Letter Grade is 'totalPackage' followed by Power, Detail and Scale in order. If you have different priorities,
@@ -694,10 +739,10 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         g.setOpacity(1.0f);
         g.setFont(scaleFont);
         auto axisLabel = [&](const juce::String& text, int y) { //scale labels get a light backing so the dots can't hide them
-            g.setColour(juce::Colours::white);
+            g.setColour(meterBg);
             g.setOpacity(0.72f);
             g.fillRect((int)scaleFont - 2, y + 1, (int)((float)text.length()*scaleFont*0.6f) + 6, (int)scaleFont);
-            g.setColour(juce::Colours::black);
+            g.setColour(labelCol);
             g.setOpacity(1.0f);
             g.drawText(text, (int)scaleFont, y, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
         };
@@ -715,22 +760,22 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         axisLabel("-30 dB", (int)meterY(1, 364.9f)-7);
         axisLabel("-36 dB", (int)meterY(1, 375.2f)-7);
 
-        axisLabel("exciting", (int)slewY(455.0f)-7);
-        axisLabel("present", (int)slewY(496.0f)-7);
-        axisLabel("relaxed", (int)slewY(525.0f)-7);
+        axisLabel("exciting", (int)meterY(2, 455.0f)-7);
+        axisLabel("present", (int)meterY(2, 496.0f)-7);
+        axisLabel("relaxed", (int)meterY(2, 525.0f)-7);
 
-        g.setColour(juce::Colours::darkgrey);
+        g.setColour(borderCol);
         g.setOpacity(1.0f);
         g.fillRect(0, (int)(20.0f*vS), getWidth(), 2); // outline backdrop color line
-        g.setColour(juce::Colours::lightgrey);
+        g.setColour(gridCol);
         g.fillRect(0, (int)(199.0f*vS), getWidth(), 1);
         g.fillRect(0, (int)(399.0f*vS), getWidth(), 1); // meter borders
         g.fillRect(0, (int)(599.0f*vS), getWidth(), 1); // meter borders
-        g.setColour(juce::Colours::darkgrey);
+        g.setColour(borderCol);
         g.fillRect(0, (int)(200.0f*vS), getWidth(), 2);
         g.fillRect(0, (int)(400.0f*vS), getWidth(), 2); // meter borders
         
-        g.setColour(juce::Colours::lightgrey);
+        g.setColour(gridCol);
         g.fillRect(0, (int)((stripTop)*vS), getWidth(), 1);
         g.fillRect(0, (int)((200.0f+stripMid)*vS), getWidth(), 1);
         g.fillRect(0, (int)((400.0f+stripMid)*vS), getWidth(), 1); // bottom edge of each meter's text strip

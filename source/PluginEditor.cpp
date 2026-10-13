@@ -20,7 +20,7 @@ PluginEditor::PluginEditor (PluginProcessor& p)
     idleTimer->startTimer(1000/30); //space between UI screen updates. Larger is slower updates to screen
     
     meter.pluginColour = airwindowsLookAndFeel.defaultColour;
-    meter.trimDb = lastTrimSeen = processorRef.getTrimDb(); //pick up the trim saved with the project
+    meter.slewTrimDb = lastSlewTrimSeen = processorRef.slewTrimDb; //pick up the slew trim saved with the project
     meter.setOpaque(true);
     meter.resetArrays();
     meter.addMouseListener(this, false);
@@ -177,40 +177,11 @@ void PluginEditor::idle()
         } //end of switch statement for msg.what
     }
     processorRef.audioPlaying = meter.meterPlaying;
-    if (meter.autoAction != 0) { //a click on the auto-trim label
-        const int action = meter.autoAction;
-        meter.autoAction = 0;
-        if (action == 1) {
-            processorRef.loudnessResetRequest.store(true);
-            processorRef.loudnessMeasuring.store(true);
-            meter.autoMeasuring = true;
-            meter.measuredLufs = LoudnessMeter::noReading;
-            meter.autoNote = juce::String();
-        } else {
-            processorRef.loudnessMeasuring.store(false);
-            meter.autoMeasuring = false;
-            if (action == 2) {
-                const float lufs = processorRef.measuredLufs.load();
-                if (lufs < -900.0f) {
-                    meter.autoNote = "nothing measured - play audio first";
-                } else if (lufs <= meter.autoTrimTargetLufs) {
-                    meter.autoNote = "already " + juce::String(lufs, 1) + " LUFS - no trim needed";
-                    meter.trimDb = 0.0f;
-                    meter.resetArrays();
-                } else {
-                    meter.trimDb = fmax(std::round((meter.autoTrimTargetLufs - lufs) * 10.0f) / 10.0f, -24.0f);
-                    meter.autoNote = "set from " + juce::String(lufs, 1) + " LUFS";
-                    meter.resetArrays();
-                }
-            } else meter.autoNote = juce::String();
-        }
-    }
-    if (meter.autoMeasuring) meter.measuredLufs = processorRef.measuredLufs.load();
-    if (meter.trimDb != lastTrimSeen) {
-        processorRef.setTrimDb(meter.trimDb); //the user clicked the trim label. It only changes the measured copy of the audio
-        lastTrimSeen = meter.trimDb;
-    } else if (processorRef.getTrimDb() != lastTrimSeen) {
-        meter.trimDb = lastTrimSeen = processorRef.getTrimDb(); //a project or preset loaded a different trim
+    if (meter.slewTrimDb != lastSlewTrimSeen) {
+        processorRef.slewTrimDb = lastSlewTrimSeen = meter.slewTrimDb; //the user dragged the slew trim
+    } else if (processorRef.slewTrimDb != lastSlewTrimSeen) {
+        meter.slewTrimDb = lastSlewTrimSeen = processorRef.slewTrimDb; //a project or preset loaded a different one
+        meter.repaint();
     }
     if (repaintTS) {
         if (airwindowsLookAndFeel.useToneColor && meter.backdropColour.operator!=(meter.cachedColour)) {

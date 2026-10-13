@@ -121,7 +121,7 @@ void PluginProcessor::getStateInformation (juce::MemoryBlock& destData)
     xml->setAttribute(juce::String("awm_width"), pluginWidth);
     if (pluginHeight < 8 || pluginHeight > 16386) pluginHeight = 720;
     xml->setAttribute(juce::String("awm_height"), pluginHeight);
-    xml->setAttribute(juce::String("awm_trimdb"), (double)getTrimDb());
+    xml->setAttribute(juce::String("awm_slewtrim"), (double)slewTrimDb);
     copyXmlToBinary(*xml, destData);
 }
 
@@ -140,7 +140,8 @@ void PluginProcessor::setStateInformation (const void* data, int sizeInBytes)
             auto h = xmlState->getIntAttribute(juce::String("awm_height"));
             if (h < 8 || h > 16386) h = 720;
             updatePluginSize(w, h);
-            setTrimDb((float)xmlState->getDoubleAttribute(juce::String("awm_trimdb"), 0.0)); //missing = 0 dB = original
+            slewTrimDb = (float)xmlState->getDoubleAttribute(juce::String("awm_slewtrim"), 0.0);
+            if (slewTrimDb > 0.0f || slewTrimDb < -24.0f) slewTrimDb = 0.0f;
         }
         updateHostDisplay();
     }
@@ -215,11 +216,6 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         auto inR = mainInput.getReadPointer(1, i); //specified that we can only be stereo and never mono
         double inputSampleL = *inL;
         double inputSampleR = *inR;
-        const double passThroughL = inputSampleL; //the audio we send onward is always the untouched original
-        const double passThroughR = inputSampleR;
-        const double trim = trimGain.load();
-        inputSampleL *= trim; //from here on these are the MEASURED copy, scaled by the trim (1.0 = original Meter)
-        inputSampleR *= trim;
         
         auto playHead = getPlayHead();
         if (playHead) {auto playHeadPos = playHead->getPosition();
@@ -227,7 +223,6 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
             //I have a sound editor that generates a playhead but won't do IsPlaying. This checks if the DAW speaks 'playHead'.
         }
         if (audioPlaying != playheadMoving) {
-            if (loudnessMeasuring.load()) feedLoudness(passThroughL, passThroughR, getSampleRate()); //measures the untrimmed audio
             double currentslewL = (fabs(inputSampleL-previousLeft)/32000.0)*getSampleRate();
             double currentslewR = (fabs(inputSampleR-previousRight)/32000.0)*getSampleRate();
             if (currentslewL > slewLeft) slewLeft = currentslewL;
@@ -268,8 +263,8 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
             windowCount++;
         }
         
-        *outL = (float)passThroughL;
-        *outR = (float)passThroughR; //this is a meter. Raw pass-through (never trimmed)
+        *outL = (float)inputSampleL;
+        *outR = (float)inputSampleR; //this is a meter. Raw pass-through
         
         if (windowCount > windowSize)
         {
@@ -343,11 +338,6 @@ void PluginProcessor::processBlock (juce::AudioBuffer<double>& buffer, juce::Mid
         auto inR = mainInput.getReadPointer(1, i); //specified that we can only be stereo and never mono
         double inputSampleL = *inL;
         double inputSampleR = *inR;
-        const double passThroughL = inputSampleL; //the audio we send onward is always the untouched original
-        const double passThroughR = inputSampleR;
-        const double trim = trimGain.load();
-        inputSampleL *= trim; //from here on these are the MEASURED copy, scaled by the trim (1.0 = original Meter)
-        inputSampleR *= trim;
         
         auto playHead = getPlayHead();
         if (playHead) {auto playHeadPos = playHead->getPosition();
@@ -355,7 +345,6 @@ void PluginProcessor::processBlock (juce::AudioBuffer<double>& buffer, juce::Mid
             //I have a sound editor that generates a playhead but won't do IsPlaying. This checks if the DAW speaks 'playHead'.
         }
         if (audioPlaying != playheadMoving) {
-            if (loudnessMeasuring.load()) feedLoudness(passThroughL, passThroughR, getSampleRate()); //measures the untrimmed audio
             double currentslewL = (fabs(inputSampleL-previousLeft)/32000.0)*getSampleRate();
             double currentslewR = (fabs(inputSampleR-previousRight)/32000.0)*getSampleRate();
             if (currentslewL > slewLeft) slewLeft = currentslewL;
@@ -396,8 +385,8 @@ void PluginProcessor::processBlock (juce::AudioBuffer<double>& buffer, juce::Mid
             windowCount++;
         }
         
-        *outL = passThroughL;
-        *outR = passThroughR; //this is a meter. Raw pass-through (never trimmed)
+        *outL = inputSampleL;
+        *outR = inputSampleR; //this is a meter. Raw pass-through
         
         if (windowCount > windowSize)
         {

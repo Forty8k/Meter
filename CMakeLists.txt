@@ -72,7 +72,7 @@ juce_add_plugin("${PROJECT_NAME}"
     # Change me!
     # A unique four-character plugin id
     # Note: this must have at least one upper-case character
-    PLUGIN_CODE Metr
+    PLUGIN_CODE Mf8k
     FORMATS "${FORMATS}"
 
     # The name of your final executable

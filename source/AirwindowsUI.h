@@ -154,6 +154,8 @@ public:
 struct AirwindowsMeter : public juce::Component
 {
     void mouseDown(const juce::MouseEvent &event) override;
+    void mouseDrag(const juce::MouseEvent &event) override;
+    void mouseUp(const juce::MouseEvent &event) override;
     void paint(juce::Graphics &g) override;
 
     static constexpr int dataPoints = 5151;
@@ -195,13 +197,13 @@ struct AirwindowsMeter : public juce::Component
     double outputShift;
     double sustainedClip;
     bool meterPlaying;
-    float trimDb = 0.0f; //set by clicking the trim label at the top left; the editor passes it to the audio side
-    //AUTO-TRIM: click the second label to measure, click again to set the trim so what was measured reads the target loudness
-    static constexpr float autoTrimTargetLufs = -14.0f;
-    int autoAction = 0; //set by clicks: 1 start measuring, 2 lock the trim, 3 cancel. The editor acts on it and clears it
-    bool autoMeasuring = false;
-    float measuredLufs = -1000.0f;
-    juce::String autoNote;
+    //SLEW TRIM: a display-only zoom of the slew meter, dragged up or down on its label in the slews strip (double-click = 0).
+    //Colours, dot sizes, scores and grades always use the full-level data. This only changes where the slew dots and beam are drawn.
+    float slewTrimDb = 0.0f;
+    bool slewDragging = false;
+    float slewDragStart = 0.0f;
+    static constexpr float stripTopUnits = 50.0f; //height of the text strip above each meter, in the 600-high layout:
+    static constexpr float stripMidUnits = 30.0f; //zero crosses (includes the top color bar), then peaks and slews
     
     std::array<float, totalBins+2> peakTrack; //arrays can be counted from zero and have X elements
     std::array<float, totalBins+2> slewTrack; //there's a place where Meter works with <= totalBins
