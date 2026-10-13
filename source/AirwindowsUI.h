@@ -1,4 +1,4 @@
-// AirwindowsUI by Chris Johnson.
+// AirwindowsUI by Chris Johnson
 // Initial seed code for the meter created by Paul Walker on 8/23/21.
 
 #ifndef AIRWINDOWSUI_H
