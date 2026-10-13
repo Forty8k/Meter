@@ -176,8 +176,8 @@ struct AirwindowsMeter : public juce::Component
     double durationPlus = 0.000001;
     juce::String totalPackage = juce::String();
     juce::String bonusScore = juce::String();
-    juce::String directions = juce::String();
-    float directionsOpacity;
+    juce::String hintText[3]; //per-meter hints, drawn in each meter's top strip: zero crosses, peaks, slews
+    float hintOpacity[3] = {0.0f, 0.0f, 0.0f};
     juce::String power = juce::String();
     juce::String detail = juce::String();
     juce::String authority = juce::String();
@@ -239,8 +239,10 @@ struct AirwindowsMeter : public juce::Component
         bassPrevGrade = 0.0; //to bump a grade you have to exceed it persistently
         totalPackage = juce::String();
         bonusScore = juce::String();
-        directions = juce::String();
-        directionsOpacity = 0.0f;
+        for (int hint = 0; hint < 3; ++hint) {
+            hintText[hint] = juce::String();
+            hintOpacity[hint] = 0.0f;
+        }
         cumulative = 0.0000001;
         duration = 0.00001;
         cumulativePlus = 0.0000001;
