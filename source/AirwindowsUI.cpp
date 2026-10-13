@@ -88,10 +88,10 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             if (slew > peak) return juce::Colour::fromFloatRGBA(fmin((64.0f+slew)/128.0f,1.0f), 0.0f, 0.0f, 1.0f);
             return juce::Colour::fromFloatRGBA(0.0f, fmax((160.0f-peak)/160.0f,0.0f), 0.0f, 1.0f);
         }
-        if (psDot > 1.0f) return juce::Colour::fromFloatRGBA(0.30f+0.70f*fmin(slewVsPeak,1.0f), 0.42f+0.58f*fmin(peakVsSlew,1.0f), 1.0f, 1.0f);
-        if (slew > peak) return juce::Colour::fromFloatRGBA(0.55f+0.45f*fmin((64.0f+slew)/128.0f,1.0f), 0.12f, 0.12f, 1.0f);
+        if (psDot > 1.0f) return juce::Colour::fromFloatRGBA(0.38f+0.62f*fmin(slewVsPeak,1.0f), 0.52f+0.48f*fmin(peakVsSlew,1.0f), 1.0f, 1.0f); //blue lifted so it holds its own next to the green
+        if (slew > peak) return juce::Colour::fromFloatRGBA(0.80f+0.20f*fmin((64.0f+slew)/128.0f,1.0f), 0.16f, 0.15f, 1.0f); //red pushed to its brightest while staying red
         const float quiet = fmax((160.0f-peak)/160.0f,0.0f); //1 = quiet (soft teal-green), 0 = loud (vivid green): peaks-ahead moments stay green, matching the low end color
-        return juce::Colour::fromFloatRGBA(0.15f+(0.35f-0.15f)*quiet, 1.00f+(0.72f-1.00f)*quiet, 0.30f+(0.55f-0.30f)*quiet, 1.0f);
+        return juce::Colour::fromFloatRGBA(0.20f+(0.36f-0.20f)*quiet, 0.94f+(0.72f-0.94f)*quiet, 0.36f+(0.56f-0.36f)*quiet, 1.0f);
     };
     
     //Dots are brightened in the columns where their meter was AHEAD of the other two and dimmed where it was behind, using the same per-column
@@ -99,7 +99,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
     auto shade = [&](const juce::Colour& c, int sec, unsigned long col) -> juce::Colour {
         if (!dark) return c;
         const float dv = (sec == 0) ? devZ[col] : (sec == 1) ? devP[col] : devS[col];
-        return c.withMultipliedBrightness((1.0f + 0.3f*fmax(fmin(dv*2.5f, 1.0f), -1.0f)) * 1.1f);
+        const float lead = fmax(fmin(dv*2.5f, 1.0f), -1.0f); //+1 = clearly ahead, -1 = clearly behind
+        return c.withMultipliedBrightness((lead >= 0.0f ? 1.0f + 0.3f*lead : 1.0f + 0.15f*lead) * 1.1f); //behind dims only gently (about 85%), ahead brightens
     };
     
     //LAYOUT: each of the three meters has a text strip along its top (titles, grades and hints), and its data is drawn below that.
