@@ -144,6 +144,7 @@ public:
     int windowCount = 0;
     bool audioPlaying = true;
     bool playheadMoving = false;
+    float peakTrimDb = 0.0f; //display-only level trim for the peak meter, same idea as slewTrimDb
     float slewTrimDb = 0.0f; //display-only zoom for the slew meter (0 = original). Saved with the project, never touches the audio or the scoring
 
 private:

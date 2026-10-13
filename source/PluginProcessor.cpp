@@ -122,6 +122,7 @@ void PluginProcessor::getStateInformation (juce::MemoryBlock& destData)
     if (pluginHeight < 8 || pluginHeight > 16386) pluginHeight = 720;
     xml->setAttribute(juce::String("awm_height"), pluginHeight);
     xml->setAttribute(juce::String("awm_slewtrim"), (double)slewTrimDb);
+    xml->setAttribute(juce::String("awm_peaktrim"), (double)peakTrimDb);
     copyXmlToBinary(*xml, destData);
 }
 
@@ -142,6 +143,8 @@ void PluginProcessor::setStateInformation (const void* data, int sizeInBytes)
             updatePluginSize(w, h);
             slewTrimDb = (float)xmlState->getDoubleAttribute(juce::String("awm_slewtrim"), 0.0);
             if (slewTrimDb > 0.0f || slewTrimDb < -24.0f) slewTrimDb = 0.0f;
+            peakTrimDb = (float)xmlState->getDoubleAttribute(juce::String("awm_peaktrim"), 0.0);
+            if (peakTrimDb > 0.0f || peakTrimDb < -24.0f) peakTrimDb = 0.0f;
         }
         updateHostDisplay();
     }

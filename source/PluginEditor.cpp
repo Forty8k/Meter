@@ -20,6 +20,7 @@ PluginEditor::PluginEditor (PluginProcessor& p)
     idleTimer->startTimer(1000/30); //space between UI screen updates. Larger is slower updates to screen
     
     meter.pluginColour = airwindowsLookAndFeel.defaultColour;
+    meter.peakTrimDb = lastPeakTrimSeen = processorRef.peakTrimDb;
     meter.slewTrimDb = lastSlewTrimSeen = processorRef.slewTrimDb; //pick up the slew trim saved with the project
     meter.setOpaque(true);
     meter.resetArrays();
@@ -177,6 +178,12 @@ void PluginEditor::idle()
         } //end of switch statement for msg.what
     }
     processorRef.audioPlaying = meter.meterPlaying;
+    if (meter.peakTrimDb != lastPeakTrimSeen) {
+        processorRef.peakTrimDb = lastPeakTrimSeen = meter.peakTrimDb;
+    } else if (processorRef.peakTrimDb != lastPeakTrimSeen) {
+        meter.peakTrimDb = lastPeakTrimSeen = processorRef.peakTrimDb;
+        meter.repaint();
+    }
     if (meter.slewTrimDb != lastSlewTrimSeen) {
         processorRef.slewTrimDb = lastSlewTrimSeen = meter.slewTrimDb; //the user dragged the slew trim
     } else if (processorRef.slewTrimDb != lastSlewTrimSeen) {

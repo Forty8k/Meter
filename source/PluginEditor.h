@@ -36,6 +36,7 @@ private:
     PluginProcessor& processorRef; //quick ref
     
    std::unique_ptr<IdleTimer> idleTimer;
+   float lastPeakTrimSeen = 0.0f;
    float lastSlewTrimSeen = 0.0f; //keeps the on-screen slew trim and the saved one in step, in both directions
     AirwindowsLookAndFeel airwindowsLookAndFeel;
     AirwindowsMeter meter;

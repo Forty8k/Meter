@@ -8,20 +8,25 @@
 #  define M_PI_2 (1.57079632679489661923)
 #endif
 
-//The slew trim label lives in the slews strip. Returns true if a click at this position is on it.
-static bool onSlewTrimLabel(const juce::MouseEvent &event, int displayWidth, float vS)
+//The trim labels live in the peaks strip (1) and the slews strip (2). Returns which one a click at this position is on, or 0 for neither.
+static int onTrimLabel(const juce::MouseEvent &event, int displayWidth, float vS)
 {
     const bool bigLayout = (sqrt(vS*61.8f)*1.618f) > 10.0f;
-    return bigLayout && displayWidth >= 700 && event.x >= 150 && event.x < 370
-        && event.y >= (int)(400.0f*vS) && event.y < (int)((400.0f+AirwindowsMeter::stripMidUnits)*vS);
+    if (!bigLayout || displayWidth < 700 || event.x < 150 || event.x >= 370) return 0;
+    for (int sec = 1; sec <= 2; ++sec) {
+        if (event.y >= (int)(200.0f*(float)sec*vS) && event.y < (int)((200.0f*(float)sec+AirwindowsMeter::stripMidUnits)*vS)) return sec;
+    }
+    return 0;
 }
 
 void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
 {
     float vS = displayHeight/600.0f;
-    if (onSlewTrimLabel(event, displayWidth, vS)) {
-        if (event.getNumberOfClicks() > 1) {slewTrimDb = 0.0f; slewDragging = false; repaint();} //double-click = back to the original view
-        else {slewDragging = true; slewDragStart = slewTrimDb;} //press and drag up or down to set it
+    const int which = onTrimLabel(event, displayWidth, vS);
+    if (which != 0) {
+        float& trim = (which == 1) ? peakTrimDb : slewTrimDb;
+        if (event.getNumberOfClicks() > 1) {trim = 0.0f; trimDragging = 0; repaint();} //double-click = back to the original view
+        else {trimDragging = which; trimDragStart = trim;} //press and drag up or down to set it
         return;
     }
     if (event.getNumberOfClicks() > 1) resetArrays();
@@ -30,17 +35,18 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
 
 void AirwindowsMeter::mouseDrag(const juce::MouseEvent &event)
 {
-    if (!slewDragging) return;
-    float newTrim = slewDragStart - (float)event.getDistanceFromDragStartY() * 0.12f; //dragging up lowers the zoom, down raises it
+    if (trimDragging == 0) return;
+    float& trim = (trimDragging == 1) ? peakTrimDb : slewTrimDb;
+    float newTrim = trimDragStart - (float)event.getDistanceFromDragStartY() * 0.12f; //dragging up lowers the zoom, down raises it
     newTrim = std::round(newTrim * 10.0f) / 10.0f;
     if (newTrim > 0.0f) newTrim = 0.0f;
     if (newTrim < -24.0f) newTrim = -24.0f;
-    if (newTrim != slewTrimDb) {slewTrimDb = newTrim; repaint();}
+    if (newTrim != trim) {trim = newTrim; repaint();}
 }
 
 void AirwindowsMeter::mouseUp(const juce::MouseEvent &)
 {
-    slewDragging = false;
+    trimDragging = 0;
 }
 
 void AirwindowsMeter::paint(juce::Graphics &g)
@@ -50,6 +56,9 @@ void AirwindowsMeter::paint(juce::Graphics &g)
     //The slew meter's display zoom (see slewTrimDb). The slew meter shows sqrt of the slew value, so a trim in dB scales the picture by dB/40.
     //0 dB = 1.0 = the original look. Only DRAWN positions use this: colours, dot sizes and every score use the full-level values.
     const float slewDisplayScale = (float)pow(10.0, (double)slewTrimDb/40.0);
+    //Same for the peak meter: the peak position is the square root of the amplitude, so a trim in dB scales the drawn position by dB/40.
+    //Clip detection, the yellow clip columns, the hint detectors and all scoring use the untrimmed peaks.
+    const float peakDisplayScale = (float)pow(10.0, (double)peakTrimDb/40.0);
     
     //THEME: dark meters with light text, so that a strip lighting up draws the eye. Set kDarkTheme to false for the original light look.
     static const bool kDarkTheme = true;
@@ -62,8 +71,10 @@ void AirwindowsMeter::paint(juce::Graphics &g)
     const juce::Colour labelCol = dark ? juce::Colour(206, 211, 221) : juce::Colours::black;
     const juce::Colour clipCol = dark ? juce::Colour(255, 225, 40) : juce::Colour(255, 0, 0); //clipping is yellow: no dot or strip ever is
     const juce::Colour beamCol = dark ? juce::Colours::white : juce::Colours::black;
-    //each strip's resting color is a very dark tint of its meter's own color in the top bar: zero crosses green, peaks blue, slews red
-    const juce::Colour stripBase[3] = {juce::Colour(22, 33, 28), juce::Colour(22, 28, 42), juce::Colour(40, 26, 28)};
+    //the text strips stay white, as in the original, so the three sections stand apart from the dark meters. A strip tints toward its own
+    //meter's color (zero crosses green, peaks blue, slews red, as in the top bar) when that meter is ahead.
+    const juce::Colour stripBase[3] = {juce::Colours::white, juce::Colours::white, juce::Colours::white};
+    const juce::Colour stripTextCol = dark ? juce::Colour(12, 14, 18) : juce::Colours::black;
     const juce::Colour stripGlow[3] = {juce::Colour(40, 210, 90), juce::Colour(60, 110, 255), juce::Colour(255, 70, 60)};
     
     //Dot colors, from how slews and peaks compare (blue = in balance/sonority, purple = slews leaning ahead, teal = peaks leaning ahead,
@@ -181,7 +192,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         slewDotSizeL = (sin(0.1618f/psDotSizeL)*6.18f)+(sqrt(slewL)*0.1618f);
         bassDotSizeL = sqrt(meterZeroL*0.1f*dataPL[count]);
         g.setColour(dotColour(slewL, peakL, psDotSizeL)); //set COLOR
-        g.fillRect((float)count, meterY(1, 400.0f - fmin(peakL, 200.0f)), psDotSizeL+0.618f, (psDotSizeL+0.618f)*vS);
+        g.fillRect((float)count, meterY(1, 400.0f - fmin(peakL*peakDisplayScale, 200.0f)), psDotSizeL+0.618f, (psDotSizeL+0.618f)*vS);
         
         if (slewDrawL > 194.0f) g.fillRect((float)count, meterY(2, 599.0f-(sqrt(slewDrawL-194.0f)*1.618f)), 1.618f, meterH(2, sqrt(slewDrawL-194.0f)*1.618f));
         else g.fillRect((float)count, meterY(2, 600.0f-slewDrawL), slewDotSizeL+0.618f, slewDotSizeL*vS); //draw slew
@@ -213,9 +224,22 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                 devP[count] = (ratioP - (ratioZ+ratioS)*0.5f) * quietGate;
                 devS[count] = (ratioS - (ratioZ+ratioP)*0.5f) * quietGate;
             }
+            {   //LIVE HINT DETECTORS (full-level values, never the trimmed display). Position 0-200 is how far up the meter's good zone a dot sits.
+                //over = a dot overshoots the top, where the scoring mirrors it back down (clipped peaks, slews past the overflow line, bass past the bottom bins)
+                //upper = a dot reaches the upper half of the meter. Healthy material spreads across the whole meter, so a meter is only
+                //called "under" when it rarely reaches the upper half at all.
+                const float pos[3][2] = {{bassL, bassR}, {peakL, peakR}, {slewL, slewR}};
+                const float overAt[3] = {190.0f, 197.0f, 194.0f};
+                const float avgRate = 0.02f;
+                for (int m = 0; m < 3; ++m) {
+                    const float top = fmax(pos[m][0], pos[m][1]);
+                    hintOverAvg[m] += ((top >= overAt[m] ? 1.0f : 0.0f) - hintOverAvg[m]) * avgRate;
+                    hintUpperAvg[m] += ((top >= 100.0f ? 1.0f : 0.0f) - hintUpperAvg[m]) * avgRate;
+                }
+            }
         }
         g.setColour(dotColour(slewR, peakR, psDotSizeR)); //set COLOR
-        g.fillRect((float)count, meterY(1, 400.0f - fmin(peakR, 200.0f)), psDotSizeR+0.618f, (psDotSizeR+0.618f)*vS);
+        g.fillRect((float)count, meterY(1, 400.0f - fmin(peakR*peakDisplayScale, 200.0f)), psDotSizeR+0.618f, (psDotSizeR+0.618f)*vS);
         
         if (slewDrawR > 194.0f) g.fillRect((float)count, meterY(2, 599.0f-(sqrt(slewDrawR-194.0f)*1.618f)), 1.618f, meterH(2, sqrt(slewDrawR-194.0f)*1.618f));
         else g.fillRect((float)count, meterY(2, 600.0f-slewDrawR), slewDotSizeR+0.618f, slewDotSizeR*vS); //draw slew
@@ -593,21 +617,29 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             //that are better tracked just using the letter rating and letter grades, which end up
             //being more predictive than the number when it's over 80.
             
-            //PER-METER HINTS: the three scores are compared to the strongest of the three. The tone color is just these
-            //three scores as red (slews), green (zero crosses) and blue (peaks), so white means all three are in balance.
-            //A meter that is well behind the strongest gets a hint in its own top strip, and the further behind it is, the
-            //stronger the hint shows. Quiet passages are gated out, like the tone color does.
+            //PER-METER HINTS: each meter is judged on its own against a target, not against the other two.
+            //under target -> "more X" / "raise peaks", over target -> "reduce X". On target -> no hint. The balance between the meters
+            //then comes from fixing whichever is off. Thresholds have hysteresis (they enter at one level and leave at another) so hints don't flicker,
+            //and quiet passages are gated out, as the tone color is.
             {
-                const float hintStart = 0.75f; //a meter below this fraction of the strongest starts to show a hint
-                const float hintFull = 0.45f;  //and below this fraction the hint is fully visible
-                float scoreMax = (float)fmax(fmax(outputR, outputG), fmax(outputB, 0.000001));
-                float scoreRatio[3] = {(float)(outputG/scoreMax), (float)(outputB/scoreMax), (float)(outputR/scoreMax)}; //zero crosses, peaks, slews
-                float quietGate = (float)fmin(outputVol*outputVol*8.0, 1.0);
-                hintText[0] = juce::String("more low end");
-                hintText[1] = juce::String("more dynamics");
-                hintText[2] = juce::String("more HF transients");
+                const float overEnter = 0.15f, overLeave = 0.10f;   //share of recent dots that overshoot the top
+                const float underEnter = 0.30f, underLeave = 0.38f; //share of recent dots that reach the upper half
+                const float quietGate = (float)fmin(outputVol*outputVol*8.0, 1.0);
+                hintTextMore[0] = juce::String("more low end");   hintTextLess[0] = juce::String("reduce low end");
+                hintTextMore[1] = juce::String("raise peaks");    hintTextLess[1] = juce::String("reduce limiting");
+                hintTextMore[2] = juce::String("more highs");     hintTextLess[2] = juce::String("reduce highs");
                 for (int hint = 0; hint < 3; ++hint) {
-                    hintOpacity[hint] = fmax(fmin((hintStart-scoreRatio[hint])/(hintStart-hintFull), 1.0f), 0.0f) * quietGate;
+                    int state = hintState[hint];
+                    if (state == 1 && hintOverAvg[hint] < overLeave) state = 0;
+                    if (state == -1 && hintUpperAvg[hint] > underLeave) state = 0;
+                    if (state == 0) {
+                        if (hintOverAvg[hint] > overEnter) state = 1;
+                        else if (hintUpperAvg[hint] < underEnter) state = -1;
+                    }
+                    hintState[hint] = state;
+                    hintText[hint] = (state > 0) ? hintTextLess[hint] : hintTextMore[hint]; //the text keeps its last wording while it fades out
+                    const float target = (state != 0) ? quietGate : 0.0f;
+                    hintOpacity[hint] += (target - hintOpacity[hint]) * 0.12f;
                 }
             }
         }
@@ -617,16 +649,16 @@ void AirwindowsMeter::paint(juce::Graphics &g)
     if (scaleFont > 10.0f) {
         g.setFont(scaleFont*1.618f);
         auto stripText = [&](const juce::String& text, int x, int y, int w, int h, juce::Justification just, float opacity) {
-            if (dark) { //a soft shadow keeps the light text readable when a strip lights up
-                g.setColour(juce::Colours::black);
-                g.setOpacity(0.6f*opacity);
+            if (dark) { //a soft white halo keeps the dark text readable when a strip tints
+                g.setColour(juce::Colours::white);
+                g.setOpacity(0.5f*opacity);
                 g.drawText(text, x+1, y+1, w, h, just);
             }
-            g.setColour(textCol);
+            g.setColour(stripTextCol);
             g.setOpacity(opacity);
             g.drawText(text, x, y, w, h, just);
         };
-        stripText("authority "+authority, (int)scaleFont/2, (int)(23.0f*vS), displayWidth/2, 32, juce::Justification::topLeft, 1.0f);
+        stripText("low end "+authority, (int)scaleFont/2, (int)(23.0f*vS), displayWidth/2, 32, juce::Justification::topLeft, 1.0f);
         stripText("zero crosses", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(23.0f*vS), displayWidth/2, 32, juce::Justification::topRight, 1.0f);
         stripText(hintText[0], 0, (int)(23.0f*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[0],1.0f));
          //authority is the amount of varying zero cross energy, between maximum and minimum.
@@ -649,7 +681,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         //considering what a black art that sort of thing is, it's useful to view it in this light.
         
         g.setOpacity(1.0f);
-        stripText("power "+power, (int)scaleFont/2, (int)(203*vS), displayWidth/3, 32, juce::Justification::topLeft, 1.0f);
+        stripText("peaks "+power, (int)scaleFont/2, (int)(203*vS), displayWidth/3, 32, juce::Justification::topLeft, 1.0f);
         stripText("peaks", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(203*vS), displayWidth/2, 32, juce::Justification::topRight, 1.0f);
         stripText(hintText[1], 0, (int)(203*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[1],1.0f));
         //power is the intensity of varying peak energy, between maximum and minimum.
@@ -666,13 +698,15 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         //This is of course impossible and a contradiction, which is what makes it interesting :)
         //We hear 'activity at very low dB during loud sounds' as openness of the sound, drama/excitement, and mix ease of listening.
         
-        stripText("detail "+detail, (int)scaleFont/2, (int)(403*vS), displayWidth/2, 32, juce::Justification::topLeft, 1.0f);
+        stripText("highs "+detail, (int)scaleFont/2, (int)(403*vS), displayWidth/2, 32, juce::Justification::topLeft, 1.0f);
         stripText("slews", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(403*vS), displayWidth/2, 32, juce::Justification::topRight, 1.0f);
         stripText(hintText[2], 0, (int)(403*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[2],1.0f));
-        if (displayWidth >= 700) { //SLEW TRIM: press and drag up or down to zoom the slew meter's picture, double-click to reset
+        if (displayWidth >= 700) { //TRIMS: press and drag up or down on the label to shift that meter's picture, double-click to reset
             g.setFont(scaleFont*1.1f);
             stripText("slew trim " + juce::String(slewTrimDb, 1) + " dB" + (slewTrimDb == 0.0f ? " - drag" : ""), 150, (int)(402.0f*vS),
-                      220, (int)((stripMidUnits-2.0f)*vS), juce::Justification::centredLeft, (slewTrimDb == 0.0f && !slewDragging) ? 0.6f : 1.0f);
+                      220, (int)((stripMidUnits-2.0f)*vS), juce::Justification::centredLeft, (slewTrimDb == 0.0f && trimDragging != 2) ? 0.6f : 1.0f);
+            stripText("peak trim " + juce::String(peakTrimDb, 1) + " dB" + (peakTrimDb == 0.0f ? " - drag" : ""), 150, (int)(202.0f*vS),
+                      220, (int)((stripMidUnits-2.0f)*vS), juce::Justification::centredLeft, (peakTrimDb == 0.0f && trimDragging != 1) ? 0.6f : 1.0f);
             g.setFont(scaleFont*1.618f);
         }
         //detail is the intensity of varying slew energy, between maximum and minimum.

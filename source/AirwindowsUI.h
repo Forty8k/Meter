@@ -178,6 +178,8 @@ struct AirwindowsMeter : public juce::Component
     double durationPlus = 0.000001;
     juce::String totalPackage = juce::String();
     juce::String bonusScore = juce::String();
+    juce::String hintTextMore[3];
+    juce::String hintTextLess[3];
     juce::String hintText[3]; //per-meter hints, drawn in each meter's top strip: zero crosses, peaks, slews
     float hintOpacity[3] = {0.0f, 0.0f, 0.0f};
     juce::String power = juce::String();
@@ -200,8 +202,14 @@ struct AirwindowsMeter : public juce::Component
     //SLEW TRIM: a display-only zoom of the slew meter, dragged up or down on its label in the slews strip (double-click = 0).
     //Colours, dot sizes, scores and grades always use the full-level data. This only changes where the slew dots and beam are drawn.
     float slewTrimDb = 0.0f;
-    bool slewDragging = false;
-    float slewDragStart = 0.0f;
+    float peakTrimDb = 0.0f; //the same kind of display-only trim for the peak meter (drawn positions only; clip detection and scores stay at full level)
+    int trimDragging = 0; //0 = none, 1 = peak trim being dragged, 2 = slew trim being dragged
+    float trimDragStart = 0.0f;
+    //LIVE HINT DETECTORS, one per meter (zero crosses, peaks, slews). Slow averages of how often the dots reach the upper half of the meter
+    //(under target if rarely) and how often they overshoot the top, where the scoring mirrors them back down (over target).
+    float hintUpperAvg[3] = {0.5f, 0.5f, 0.5f};
+    float hintOverAvg[3] = {0.0f, 0.0f, 0.0f};
+    int hintState[3] = {0, 0, 0}; //-1 = under target ("more"), 0 = fine, +1 = over target ("reduce")
     static constexpr float stripTopUnits = 50.0f; //height of the text strip above each meter, in the 600-high layout:
     static constexpr float stripMidUnits = 30.0f; //zero crosses (includes the top color bar), then peaks and slews
     
@@ -254,6 +262,9 @@ struct AirwindowsMeter : public juce::Component
         for (int hint = 0; hint < 3; ++hint) {
             hintText[hint] = juce::String();
             hintOpacity[hint] = 0.0f;
+            hintUpperAvg[hint] = 0.5f;
+            hintOverAvg[hint] = 0.0f;
+            hintState[hint] = 0;
         }
         cumulative = 0.0000001;
         duration = 0.00001;
