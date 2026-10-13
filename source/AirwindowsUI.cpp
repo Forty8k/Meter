@@ -61,6 +61,9 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         float peakR = dataPR[count] * 200.0f;
         float slewL = sqrt(dataSL[count])*300.0f;
         float slewR = sqrt(dataSR[count])*300.0f;
+        const float slewDisplayScale = 0.75f; // 1.0 = original; lower = more headroom at the top F8K
+float slewDrawL = slewL*slewDisplayScale;
+float slewDrawR = slewR*slewDisplayScale;
         float meterZeroL = (sqrt(dataZL[count])*6.0f)-6.0f;
         if (meterZeroL > 192.0f) meterZeroL = 192.0f;
         float bassL = fmin((sqrt(meterZeroL)*16.2f)-20.0f,199.0f);
@@ -89,8 +92,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         else                    g.setColour(juce::Colour::fromFloatRGBA(0.0f, fmax((160.0f-peakL)/160.0f,0.0f), 0.0f, 1.0f)); //set COLOR
         g.fillRect((float)count, (float)((400.0f - peakL)*vS), psDotSizeL+0.618f, (psDotSizeL+0.618f)*vS);
         
-        if (slewL > 194.0f) g.fillRect((float)count, (float)((599.0f-(sqrt(slewL-194.0f)*1.618f))*vS), 1.618f, (float)(sqrt(slewL-194.0f)*1.618f)*vS);
-        else g.fillRect((float)count, (float)((600.0f-slewL)*vS), slewDotSizeL+0.618f, slewDotSizeL*vS); //draw slew
+if (slewDrawL > 194.0f) g.fillRect((float)count, (float)((599.0f-(sqrt(slewDrawL-194.0f)*1.618f))*vS), 1.618f, (float)(sqrt(slewDrawL-194.0f)*1.618f)*vS);
+else g.fillRect((float)count, (float)((600.0f-slewDrawL)*vS), slewDotSizeL+0.618f, slewDotSizeL*vS); //draw slew F8k
         
         if (bassL < 199.0f-(bassDotSizeL+fmax(pow(peakL/140.0f,4.0f),0.0f))) g.fillRect((float)count, bassL*vS, bassDotSizeL+fmax(pow(peakL/140.0f,4.0f),0.0f), (bassDotSizeL+fmax(pow(peakL/140.0f,4.0f),0.0f))*vS); //zero cross subs
         //end draw dots on meters L
@@ -116,8 +119,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         else                    g.setColour(juce::Colour::fromFloatRGBA(0.0f, fmax((160.0f-peakR)/160.0f,0.0f), 0.0f, 1.0f)); //set COLOR
         g.fillRect((float)count, (float)((400.0f - peakR)*vS), psDotSizeR+0.618f, (psDotSizeR+0.618f)*vS);
         
-        if (slewR > 194.0f) g.fillRect((float)count, (float)((599.0f-(sqrt(slewR-194.0f)*1.618f))*vS), 1.618f, (float)(sqrt(slewR-194.0f)*1.618f)*vS);
-        else g.fillRect((float)count, (float)((600.0f-slewR)*vS), slewDotSizeR+0.618f, slewDotSizeR*vS); //draw slew
+if (slewDrawR > 194.0f) g.fillRect((float)count, (float)((599.0f-(sqrt(slewDrawR-194.0f)*1.618f))*vS), 1.618f, (float)(sqrt(slewDrawR-194.0f)*1.618f)*vS);
+else g.fillRect((float)count, (float)((600.0f-slewDrawR)*vS), slewDotSizeR+0.618f, slewDotSizeR*vS); //draw slew F8k
         
         if (bassR < 199.0f-(bassDotSizeR+fmax(pow(peakR/140.0f,4.0f),0.0f))) g.fillRect((float)count, bassR*vS, bassDotSizeR+fmax(pow(peakR/140.0f,4.0f),0.0f), (bassDotSizeR+fmax(pow(peakL/140.0f,4.0f),0.0f))*vS); //zero cross subs
         //end draw dots on meters R
@@ -619,7 +622,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         g.drawText("45 Hz", (int)scaleFont, (int)(164.9f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
         g.drawText("35 Hz", (int)scaleFont, (int)(175.2f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
         
-        g.drawText("top edge means the output is clipping or beyond clipping", (int)scaleFont, (int)(205.0f*vS)-7, displayWidth, (int)scaleFont, juce::Justification::centredBottom);
+        g.drawText("!", (int)scaleFont, (int)(205.0f*vS)-7, displayWidth, (int)scaleFont, juce::Justification::centredBottom); // F8K
         g.drawText("-6 dB", (int)scaleFont, (int)(260.0f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
         g.drawText("-12 dB", (int)scaleFont, (int)(301.02f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
         g.drawText("-18 dB", (int)scaleFont, (int)(330.02f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
@@ -627,10 +630,10 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         g.drawText("-30 dB", (int)scaleFont, (int)(364.9f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
         g.drawText("-36 dB", (int)scaleFont, (int)(375.2f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
 
-        g.drawText("top edge means enough intensity to be alarming and scary", (int)scaleFont, (int)(405.0f*vS)-7, displayWidth, (int)scaleFont, juce::Justification::centredBottom);
+        g.drawText("!", (int)scaleFont, (int)(405.0f*vS)-7, displayWidth, (int)scaleFont, juce::Justification::centredBottom); // F8K
         g.drawText("exciting", (int)scaleFont, (int)(455.0f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
         g.drawText("present", (int)scaleFont, (int)(496.0f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
-        g.drawText("absent", (int)scaleFont, (int)(525.0f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
+        g.drawText("relaxed", (int)scaleFont, (int)(525.0f*vS)-7, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
 
         g.setColour(juce::Colours::darkgrey);
         g.setOpacity(1.0f);
