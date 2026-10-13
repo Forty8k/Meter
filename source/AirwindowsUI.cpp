@@ -88,7 +88,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             if (slew > peak) return juce::Colour::fromFloatRGBA(fmin((64.0f+slew)/128.0f,1.0f), 0.0f, 0.0f, 1.0f);
             return juce::Colour::fromFloatRGBA(0.0f, fmax((160.0f-peak)/160.0f,0.0f), 0.0f, 1.0f);
         }
-        if (psDot > 1.0f) return juce::Colour::fromFloatRGBA(0.38f+0.62f*fmin(slewVsPeak,1.0f), 0.52f+0.48f*fmin(peakVsSlew,1.0f), 1.0f, 1.0f); //blue lifted so it holds its own next to the green
+        if (psDot > 1.0f) return juce::Colour::fromFloatRGBA(0.28f+0.72f*fmin(slewVsPeak,1.0f), 0.58f+0.42f*fmin(peakVsSlew,1.0f), 1.0f, 1.0f); //azure: the target colour, bright and vivid next to the green
         if (slew > peak) return juce::Colour::fromFloatRGBA(0.80f+0.20f*fmin((64.0f+slew)/128.0f,1.0f), 0.16f, 0.15f, 1.0f); //red pushed to its brightest while staying red
         const float quiet = fmax((160.0f-peak)/160.0f,0.0f); //1 = quiet (soft teal-green), 0 = loud (vivid green): peaks-ahead moments stay green, matching the low end color
         return juce::Colour::fromFloatRGBA(0.20f+(0.36f-0.20f)*quiet, 0.94f+(0.72f-0.94f)*quiet, 0.36f+(0.56f-0.36f)*quiet, 1.0f);
@@ -670,9 +670,11 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                 const float lineEnter = 4.0f, lineLeave = 8.0f;     //...AND whose top-band spread is tiny (a flat line). A cloud, even a narrow one, is fine.
                 const float underEnter = 0.30f, underLeave = 0.38f; //share of recent dots that reach the upper half
                 const float quietGate = (float)fmin(outputVol*outputVol*8.0, 1.0);
-                hintTextMore[0] = juce::String("more low end");   hintTextLess[0] = juce::String("reduce sub");
-                hintTextMore[1] = juce::String("raise peaks");    hintTextLess[1] = juce::String("reduce limiting");
-                hintTextMore[2] = juce::String("more highs");     hintTextLess[2] = juce::String("reduce highs");
+                //The hints name a state, not an order: a dominant sub, a bright top or a dark record can all be deliberate.
+                //(hintTextMore = under target, hintTextLess = over target)
+                hintTextMore[0] = juce::String("light");      hintTextLess[0] = juce::String("sub-heavy");
+                hintTextMore[1] = juce::String("headroom");   hintTextLess[1] = juce::String("squashed");
+                hintTextMore[2] = juce::String("dark");       hintTextLess[2] = juce::String("bright");
                 for (int hint = 0; hint < 3; ++hint) {
                     int state = hintState[hint];
                     bool overNow, overKeep, underNow, underKeep;
