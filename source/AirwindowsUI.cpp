@@ -14,6 +14,7 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
     if ((sqrt(vS*64.0f)*1.618f) > 10.0f && event.x < 150 && event.y < (int)(20.0f*vS)) {
         //TRIM label (top left): click = 1 dB lower, shift-click = 1 dB higher, right-click = back to 0 dB (original Meter).
         //Changing it restarts the measurement, since the held grades were earned at the old level.
+        autoNote = juce::String();
         float newTrim = trimDb;
         if (event.mods.isRightButtonDown()) newTrim = 0.0f;
         else if (event.mods.isShiftDown()) newTrim += 1.0f;
@@ -21,6 +22,13 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
         if (newTrim > 0.0f) newTrim = 0.0f;
         if (newTrim < -24.0f) newTrim = -24.0f;
         if (newTrim != trimDb) {trimDb = newTrim; resetArrays();}
+        return;
+    }
+    if ((sqrt(vS*64.0f)*1.618f) > 10.0f && displayWidth >= 500 && event.y < (int)(20.0f*vS)
+        && event.x >= 150 && event.x < 150 + (displayWidth >= 1000 ? 330 : 110)) {
+        //AUTO-TRIM label: click to start measuring, click again to set the trim, right-click to cancel
+        if (event.mods.isRightButtonDown()) autoAction = autoMeasuring ? 3 : 0;
+        else autoAction = autoMeasuring ? 2 : 1;
         return;
     }
     if (event.getNumberOfClicks() > 1) resetArrays();
@@ -607,6 +615,24 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         g.setColour(juce::Colours::black);
         g.setOpacity(trimDb == 0.0f ? 0.5f : 1.0f);
         g.drawText(trimText, (int)scaleFont/2, 0, 140, (int)(20.0f*vS), juce::Justification::centredLeft);
+        
+        //AUTO-TRIM readout, next to the trim
+        if (displayWidth >= 500) {
+            const bool wideTop = displayWidth >= 1000;
+            juce::String autoText;
+            if (autoMeasuring) {
+                if (measuredLufs > -900.0f) autoText = wideTop ? "measuring " + juce::String(measuredLufs, 1) + " LUFS - click to set" : juce::String(measuredLufs, 1) + " LUFS";
+                else autoText = wideTop ? juce::String("measuring - play the loudest part") : juce::String("measuring");
+            } else if (autoNote.isNotEmpty() && wideTop) autoText = autoNote;
+            else autoText = wideTop ? "auto-trim to " + juce::String((int)autoTrimTargetLufs) + " LUFS" : juce::String("auto");
+            const float autoOpacity = (autoMeasuring || autoNote.isNotEmpty()) ? 1.0f : 0.5f;
+            g.setColour(juce::Colours::white);
+            g.setOpacity(autoOpacity * 0.618f);
+            g.drawText(autoText, 151, 1, wideTop ? 330 : 110, (int)(20.0f*vS), juce::Justification::centredLeft);
+            g.setColour(juce::Colours::black);
+            g.setOpacity(autoOpacity);
+            g.drawText(autoText, 150, 0, wideTop ? 330 : 110, (int)(20.0f*vS), juce::Justification::centredLeft);
+        }
         g.setOpacity(1.0f);
        //the Hit Record Letter Grade is 'totalPackage' followed by Power, Detail and Scale in order. If you have different priorities,
         //it's fair to want those in a different order for your quality metric: bass music might go scale first, pop might want detail.

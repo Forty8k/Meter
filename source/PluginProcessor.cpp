@@ -227,6 +227,7 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
             //I have a sound editor that generates a playhead but won't do IsPlaying. This checks if the DAW speaks 'playHead'.
         }
         if (audioPlaying != playheadMoving) {
+            if (loudnessMeasuring.load()) feedLoudness(passThroughL, passThroughR, getSampleRate()); //measures the untrimmed audio
             double currentslewL = (fabs(inputSampleL-previousLeft)/32000.0)*getSampleRate();
             double currentslewR = (fabs(inputSampleR-previousRight)/32000.0)*getSampleRate();
             if (currentslewL > slewLeft) slewLeft = currentslewL;
@@ -354,6 +355,7 @@ void PluginProcessor::processBlock (juce::AudioBuffer<double>& buffer, juce::Mid
             //I have a sound editor that generates a playhead but won't do IsPlaying. This checks if the DAW speaks 'playHead'.
         }
         if (audioPlaying != playheadMoving) {
+            if (loudnessMeasuring.load()) feedLoudness(passThroughL, passThroughR, getSampleRate()); //measures the untrimmed audio
             double currentslewL = (fabs(inputSampleL-previousLeft)/32000.0)*getSampleRate();
             double currentslewR = (fabs(inputSampleR-previousRight)/32000.0)*getSampleRate();
             if (currentslewL > slewLeft) slewLeft = currentslewL;

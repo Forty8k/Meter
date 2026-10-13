@@ -196,6 +196,12 @@ struct AirwindowsMeter : public juce::Component
     double sustainedClip;
     bool meterPlaying;
     float trimDb = 0.0f; //set by clicking the trim label at the top left; the editor passes it to the audio side
+    //AUTO-TRIM: click the second label to measure, click again to set the trim so what was measured reads the target loudness
+    static constexpr float autoTrimTargetLufs = -14.0f;
+    int autoAction = 0; //set by clicks: 1 start measuring, 2 lock the trim, 3 cancel. The editor acts on it and clears it
+    bool autoMeasuring = false;
+    float measuredLufs = -1000.0f;
+    juce::String autoNote;
     
     std::array<float, totalBins+2> peakTrack; //arrays can be counted from zero and have X elements
     std::array<float, totalBins+2> slewTrack; //there's a place where Meter works with <= totalBins

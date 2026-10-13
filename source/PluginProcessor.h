@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Loudness.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #if (MSVC)
@@ -156,6 +157,20 @@ public:
         trimGain.store(std::pow(10.0, (double)db / 20.0));
     }
     float getTrimDb() const {return trimDbValue.load();}
+    
+    //AUTO-TRIM measurement: while loudnessMeasuring is on, the untrimmed audio is measured as integrated LUFS.
+    //The UI starts and stops it, then reads measuredLufs. Only the audio thread touches the meter itself.
+    LoudnessMeter loudness;
+    std::atomic<bool> loudnessMeasuring {false};
+    std::atomic<bool> loudnessResetRequest {false};
+    std::atomic<float> measuredLufs {LoudnessMeter::noReading};
+    void feedLoudness(double l, double r, double sampleRate) {
+        if (loudnessResetRequest.exchange(false) || loudness.getSampleRate() != sampleRate) {
+            loudness.prepare(sampleRate);
+            measuredLufs.store(LoudnessMeter::noReading);
+        }
+        if (loudness.process(l, r)) measuredLufs.store(loudness.getIntegratedLufs());
+    }
 
 private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)
