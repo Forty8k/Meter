@@ -70,7 +70,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
     const juce::Colour textCol = dark ? juce::Colour(236, 238, 242) : juce::Colours::black;
     const juce::Colour labelCol = dark ? juce::Colour(206, 211, 221) : juce::Colours::black;
     const juce::Colour clipCol = dark ? juce::Colour(255, 225, 40) : juce::Colour(255, 0, 0); //clipping is yellow: no dot or strip ever is
-    const juce::Colour beamCol = dark ? juce::Colour(205, 210, 222).withAlpha(0.55f) : juce::Colours::black; //softer than the dots, so it guides the eye without taking over
+    const juce::Colour beamCol = dark ? juce::Colour(238, 240, 246).withAlpha(0.88f) : juce::Colours::black; //bright trace of the lead element, sitting on a darker band so it stands out from the dots
+    const juce::Colour beamBand = juce::Colour(14, 16, 20).withAlpha(0.65f);
     //the text strips stay white, as in the original, so the three sections stand apart from the dark meters. A strip tints toward its own
     //meter's color (zero crosses green, peaks blue, slews red, as in the top bar) when that meter is ahead.
     const juce::Colour stripBase[3] = {juce::Colours::white, juce::Colours::white, juce::Colours::white};
@@ -206,6 +207,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             if (peakR > 197.0f) sustainedClip *= 0.975f; //if both are clipping, escalate
         } else sustainedClip = 180.0f;
         
+        if (dark) { g.setColour(beamBand); g.fillRect((float)count, meterY(2, 600.0f-beam)-3.0f*vS, 1.0f, meterH(2, departure)+6.0f*vS); } //darker band behind the trace
         g.setColour(beamCol);
         g.fillRect((float)count, meterY(2, 600.0f-beam), 1.0f, meterH(2, departure)); //draw beam
         
@@ -717,7 +719,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             g.setOpacity(opacity);
             g.drawText(text, x, y, w, h, just);
         };
-        stripText("low end "+authority, (int)scaleFont/2, (int)(21.0f*vS), displayWidth/2, (int)(29.0f*vS), juce::Justification::centredLeft, 1.0f);
+        stripText("body "+authority, (int)scaleFont/2, (int)(21.0f*vS), displayWidth/2, (int)(29.0f*vS), juce::Justification::centredLeft, 1.0f);
         stripText("zero crosses", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(21.0f*vS), displayWidth/2, (int)(29.0f*vS), juce::Justification::centredRight, 1.0f);
         stripText(hintText[0], 0, (int)(23.0f*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[0],1.0f));
          //authority is the amount of varying zero cross energy, between maximum and minimum.
@@ -797,7 +799,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             const float keyFont = scaleFont*0.95f;
             g.setFont(keyFont);
             const float chip = fmin(fmax(11.0f*vS*1.6f, 8.0f), 14.0f);
-            const juce::String keyWords[3] = {juce::String("low end"), juce::String("dynamics"), juce::String("detail")};
+            const juce::String keyWords[3] = {juce::String("body"), juce::String("dynamics"), juce::String("detail")};
             float kx = (float)((int)scaleFont/2);
             const float ky = (19.5f*vS - chip) * 0.5f;
             for (int k = 0; k < 3; ++k) {
