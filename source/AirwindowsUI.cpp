@@ -78,7 +78,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
     const juce::Colour stripGlow[3] = {juce::Colour(40, 210, 90), juce::Colour(60, 110, 255), juce::Colour(255, 70, 60)};
     
     //Dot colors, from how slews and peaks compare (blue = in balance/sonority, purple = slews leaning ahead, teal = peaks leaning ahead,
-    //red = slews well ahead, green to grey = peaks ahead, greyer as it gets louder). The light theme is exactly the original formulas.
+    //red = slews well ahead, green = peaks ahead, more vivid as it gets louder). The light theme is exactly the original formulas.
     //The dark theme lifts them so blue and the dark dots stay visible on black. The hues keep their meaning.
     auto dotColour = [&](float slew, float peak, float psDot) -> juce::Colour {
         const float slewVsPeak = fmax(slew-(peak*0.945433426957143f),0.0f)*0.029f;
@@ -90,8 +90,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         }
         if (psDot > 1.0f) return juce::Colour::fromFloatRGBA(0.30f+0.70f*fmin(slewVsPeak,1.0f), 0.42f+0.58f*fmin(peakVsSlew,1.0f), 1.0f, 1.0f);
         if (slew > peak) return juce::Colour::fromFloatRGBA(0.55f+0.45f*fmin((64.0f+slew)/128.0f,1.0f), 0.12f, 0.12f, 1.0f);
-        const float quiet = fmax((160.0f-peak)/160.0f,0.0f); //1 = quiet (green), 0 = loud (grey)
-        return juce::Colour::fromFloatRGBA(0.55f+(0.25f-0.55f)*quiet, 0.57f+(0.85f-0.57f)*quiet, 0.60f+(0.35f-0.60f)*quiet, 1.0f);
+        const float quiet = fmax((160.0f-peak)/160.0f,0.0f); //1 = quiet (soft teal-green), 0 = loud (vivid green): peaks-ahead moments stay green, matching the low end color
+        return juce::Colour::fromFloatRGBA(0.15f+(0.35f-0.15f)*quiet, 1.00f+(0.72f-1.00f)*quiet, 0.30f+(0.55f-0.30f)*quiet, 1.0f);
     };
     
     //Dots are brightened in the columns where their meter was AHEAD of the other two and dimmed where it was behind, using the same per-column
@@ -268,8 +268,13 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                 const float redNow = ((psDotSizeL <= 1.0f && slewL > peakL) ? 0.5f : 0.0f) + ((psDotSizeR <= 1.0f && slewR > peakR) ? 0.5f : 0.0f);
                 const float greenNow = ((psDotSizeL <= 1.0f && slewL <= peakL) ? 0.5f : 0.0f) + ((psDotSizeR <= 1.0f && slewR <= peakR) ? 0.5f : 0.0f);
                 if (fmax(peakL, peakR) > 70.0f) { //quiet gaps between notes (peak below about -18 dB) say nothing about balance, so they are skipped
-                    hintRedAvg += (redNow - hintRedAvg) * avgRate;
-                    hintGreenAvg += (greenNow - hintGreenAvg) * avgRate;
+                    //Consecutive windows count more: a lone hi-hat hit is often fine, a sustained run is not. The weight ramps up over 6 windows in a row.
+                    hintRedRun = (redNow > 0.5f) ? hintRedRun + 1.0f : 0.0f;
+                    hintGreenRun = (greenNow > 0.5f) ? hintGreenRun + 1.0f : 0.0f;
+                    const float redWeighted = redNow * fmin(hintRedRun / 6.0f, 1.0f);
+                    const float greenWeighted = greenNow * fmin(hintGreenRun / 6.0f, 1.0f);
+                    hintRedAvg += (redWeighted - hintRedAvg) * avgRate;
+                    hintGreenAvg += (greenWeighted - hintGreenAvg) * avgRate;
                 }
             }
         }

@@ -212,6 +212,7 @@ struct AirwindowsMeter : public juce::Component
     float hintBandMean[3] = {180.0f, 180.0f, 180.0f}; //where the dots that reach the top band sit, and how far they vary from that: tiny = a flat line
     float hintBandDev[3] = {20.0f, 20.0f, 20.0f};     //(over-limited or flattened), larger = a cloud (healthy, even a narrow one)
     float hintRedAvg = 0.0f;   //slews: share of recent dots that are red (slews well ahead of peaks)
+    float hintRedRun = 0.0f, hintGreenRun = 0.0f; //how many windows in a row have been red / green: sustained runs count fully, brief ones count less
     float hintGreenAvg = 0.0f; //slews: share of recent dots that are green/teal (peaks well ahead of slews)
     int hintState[3] = {0, 0, 0}; //-1 = under target ("more"), 0 = fine, +1 = over target ("reduce")
     static constexpr float stripTopUnits = 50.0f; //height of the text strip above each meter, in the 600-high layout:
@@ -274,6 +275,8 @@ struct AirwindowsMeter : public juce::Component
         }
         hintRedAvg = 0.0f;
         hintGreenAvg = 0.0f;
+        hintRedRun = 0.0f;
+        hintGreenRun = 0.0f;
         cumulative = 0.0000001;
         duration = 0.00001;
         cumulativePlus = 0.0000001;
