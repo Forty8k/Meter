@@ -76,7 +76,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
     //meter's color (zero crosses green, peaks blue, slews red, as in the top bar) when that meter is ahead.
     const juce::Colour stripBase[3] = {juce::Colours::white, juce::Colours::white, juce::Colours::white};
     const juce::Colour stripTextCol = dark ? juce::Colour(12, 14, 18) : juce::Colours::black;
-    const juce::Colour stripGlow[3] = {juce::Colour(40, 210, 90), juce::Colour(60, 110, 255), juce::Colour(255, 70, 60)};
+    const juce::Colour stripGlow[3] = {juce::Colour(255, 70, 60), juce::Colour(40, 210, 90), juce::Colour(60, 110, 255)};
     
     //Dot colors, from how slews and peaks compare (blue = in balance/sonority, purple = slews leaning ahead, teal = peaks leaning ahead,
     //red = slews well ahead, green = peaks ahead, more vivid as it gets louder). The light theme is exactly the original formulas.
@@ -293,7 +293,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         if (bassR < 199.0f-(bassDotSizeR+fmax(pow(peakR/140.0f,4.0f),0.0f))) g.fillRect((float)count, meterY(0, fmax(bassR, 0.0f)), bassDotSizeR+fmax(pow(peakR/140.0f,4.0f),0.0f), (bassDotSizeR+fmax(pow(peakL/140.0f,4.0f),0.0f))*vS); //zero cross subs
         //end draw dots on meters R
         
-        g.setColour(juce::Colour::fromFloatRGBA(backR[count], backG[count], backB[count], 1.0f)); //set backdrop colour
+        g.setColour(juce::Colour::fromFloatRGBA(backG[count], backB[count], backR[count], 1.0f)); //set backdrop colour
         g.fillRect((float)(count)-0.25f, 0.0f, 1.5f, 19.5f*vS); //top bar
         
         if (textStrips) { //PER-METER TONE behind each meter's title and hint. It is the tone color split up by meter.
