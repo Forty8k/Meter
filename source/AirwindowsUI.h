@@ -222,12 +222,9 @@ struct AirwindowsMeter : public juce::Component
     float peakCeil = 0.0f;       //dynamics: slow envelope of the loudest peak position, the track's own ceiling (a limited master piles up just under it, whatever level that is)
     float hintCeilAvg = 0.0f;    //dynamics: share of recent windows sitting within a hair of that ceiling
     bool slewHitNow[totalBins+2] = {}, slewHitPrev[totalBins+2] = {}; //which slew bins were hit this window / last window (for the fill gate)
-    //LIVE HINT DETECTORS, one per meter (zero crosses, peaks, slews). Slow averages of how often the dots reach the upper half of the meter
-    //(under target if rarely) and how often they overshoot the top, where the scoring mirrors them back down (over target).
+    //LIVE HINT DETECTORS: slow averages (only over audible windows) of how often the bass and the peaks reach their target zones,
+    //plus the slew colour shares and the track's own peak ceiling. Index 0 = low end, 1 = dynamics.
     float hintUpperAvg[3] = {0.5f, 0.5f, 0.5f};
-    float hintOverAvg[3] = {0.0f, 0.0f, 0.0f};
-    float hintBandMean[3] = {180.0f, 180.0f, 180.0f}; //where the dots that reach the top band sit, and how far they vary from that: tiny = a flat line
-    float hintBandDev[3] = {20.0f, 20.0f, 20.0f};     //(over-limited or flattened), larger = a cloud (healthy, even a narrow one)
     float hintRedAvg = 0.0f;   //slews: share of recent dots that are red (slews well ahead of peaks)
     float hintRedRun = 0.0f, hintGreenRun = 0.0f; //how many windows in a row have been red / green: sustained runs count fully, brief ones count less
     float hintGreenAvg = 0.0f; //slews: share of recent dots that are green/teal (peaks well ahead of slews)
@@ -290,10 +287,7 @@ struct AirwindowsMeter : public juce::Component
             hintText[hint] = juce::String();
             hintOpacity[hint] = 0.0f;
             hintUpperAvg[hint] = 0.5f;
-            hintOverAvg[hint] = 0.0f;
             hintState[hint] = 0;
-            hintBandMean[hint] = 180.0f;
-            hintBandDev[hint] = 20.0f;
         }
         hintRedAvg = 0.0f;
         hintGreenAvg = 0.0f;

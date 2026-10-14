@@ -40,7 +40,7 @@ static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, int disp
     }
     for (int sec = 0; sec < 3; ++sec) {
         const float bottom = 200.0f*(float)sec + (sec == 0 ? AirwindowsMeter::stripTopUnits : AirwindowsMeter::stripMidUnits);
-        if (event.y < (int)((bottom-14.0f)*vS) || event.y >= (int)(bottom*vS)) continue;
+        if (event.y < (int)((bottom-32.0f)*vS) || event.y >= (int)(bottom*vS)) continue; //the whole label, text and gauge
         for (int k = 0; k < 2; ++k) {
             const int x0 = tuneLabelX(displayWidth, vS, k);
             if (event.x >= x0 && event.x < x0+tuneLabelW(vS)) return sec*2 + k;
@@ -153,25 +153,20 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                 devS[col] = (ratioS - (ratioZ+ratioP)*0.5f) * quietGate;
             }
             {   //LIVE HINT DETECTORS (full-level values, never the trimmed display). Position 0-200 is how far up the meter's good zone a dot sits.
-                //over = a dot overshoots the top, where the scoring mirrors it back down (clipped peaks, slews past the overflow line, bass past the bottom bins)
-                //upper = a dot reaches the upper half of the meter. Healthy material spreads across the whole meter, so a meter is only
-                //called "under" when it rarely reaches the upper half at all.
-                const float pos[3][2] = {{bassL, bassR}, {peakL, peakR}, {slewL, slewR}};
-                const float overAt[3] = {190.0f, 197.0f, 194.0f};
+                //Windows below about -18 dB (peak position under 70) are skipped by every hint: silence reads as the deepest bass (no zero crossings) and
+                //as "never reaching the top", so quiet gaps, breaks and fades would otherwise bend the averages.
                 const float avgRate = 0.01f + 0.07f*tune[8]; //how fast the hint averages move (the hint speed control)
-                for (int m = 0; m < 3; ++m) {
-                    const float top = fmax(pos[m][0], pos[m][1]);
-                    hintOverAvg[m] += ((top >= overAt[m] ? 1.0f : 0.0f) - hintOverAvg[m]) * avgRate;
-                    hintUpperAvg[m] += ((top >= (m == 1 ? 140.0f : 100.0f) ? 1.0f : 0.0f) - hintUpperAvg[m]) * avgRate; //peaks: does a cloud reach the top 6 dB? the others: the upper half
-                    if (m == 1 && top > 70.0f) { //dynamics: the track's own ceiling. A limited master piles up just under it, even when it is exported well below 0 dB.
-                        if (top > peakCeil) peakCeil = top; else peakCeil -= (peakCeil - top) * 0.001f;
-                        hintCeilAvg += (((peakCeil >= 150.0f && top >= peakCeil - 3.0f) ? 1.0f : 0.0f) - hintCeilAvg) * avgRate;
-                    }
-                    if (m == 0) hintDeepAvg += ((top >= 150.0f ? 1.0f : 0.0f) - hintDeepAvg) * avgRate; //low end: how often the bass reaches below about 60 Hz
-                    if (top >= 160.0f) { //spread of the dots in the top band: a cloud varies, a flat line does not
-                        hintBandMean[m] += (top - hintBandMean[m]) * avgRate;
-                        hintBandDev[m] += (fabsf(top - hintBandMean[m]) - hintBandDev[m]) * avgRate;
-                    }
+                const bool audible = fmax(peakL, peakR) > 70.0f;
+                if (audible) {
+                    const float topBass = fmax(bassL, bassR);
+                    const float topPeak = fmax(peakL, peakR);
+                    hintUpperAvg[0] += ((topBass >= 100.0f ? 1.0f : 0.0f) - hintUpperAvg[0]) * avgRate; //low end: does the bass reach the lower half (below ~210 Hz)?
+                    hintDeepAvg += ((topBass >= 150.0f ? 1.0f : 0.0f) - hintDeepAvg) * avgRate;         //low end: how often it reaches below about 60 Hz
+                    hintUpperAvg[1] += ((topPeak >= 140.0f ? 1.0f : 0.0f) - hintUpperAvg[1]) * avgRate; //dynamics: does a cloud reach the top 6 dB?
+                    //dynamics: the track's own ceiling, which follows where peaks keep landing (it rises gradually, so one stray over does not lift it past a plateau).
+                    //A limited master piles up just under it, even when it is exported well below 0 dB.
+                    if (topPeak > peakCeil) peakCeil += (topPeak - peakCeil) * 0.04f; else peakCeil -= (peakCeil - topPeak) * 0.002f;
+                    hintCeilAvg += (((peakCeil >= 150.0f && topPeak >= peakCeil - 3.0f) ? 1.0f : 0.0f) - hintCeilAvg) * avgRate;
                 }
                 //SLEWS are judged by the dot colours, the meter's own balance measure: red = slews well ahead of peaks, green/teal = peaks well
                 //ahead. (Overflow bars and a high beam are normal on loud, well balanced masters, so they are not used.)
