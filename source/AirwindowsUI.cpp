@@ -87,6 +87,168 @@ void AirwindowsMeter::mouseUp(const juce::MouseEvent &)
     tuneDragging = -1;
 }
 
+//Everything that is SCORED lives here and runs exactly once per audio window, as the window arrives (not while painting). The painting
+//only reads the results. That keeps the scores, grades, tone bar and hints independent of the window size and the redraw rate.
+//The formulas for the per-column numbers must match the ones the painting uses to draw the dots.
+AirwindowsMeter::ColumnMetrics AirwindowsMeter::columnMetrics(unsigned long col) const
+{
+    ColumnMetrics m;
+    m.peakL = dataPL[col] * 200.0f;
+    m.peakR = dataPR[col] * 200.0f;
+    m.slewL = sqrt(dataSL[col])*300.0f;
+    m.slewR = sqrt(dataSR[col])*300.0f;
+    m.meterZeroL = (sqrt(dataZL[col])*6.0f)-6.0f;
+    if (m.meterZeroL > 192.0f) m.meterZeroL = 192.0f;
+    m.bassL = fmin((sqrt(m.meterZeroL)*16.2f)-20.0f,199.0f);
+    m.meterZeroR = (sqrt(dataZR[col])*6.0f)-6.0f;
+    if (m.meterZeroR > 192.0f) m.meterZeroR = 192.0f;
+    m.bassR = fmin((sqrt(m.meterZeroR)*16.2f)-20.0f,199.0f);
+    m.psDotSizeL = (dataPL[col]*64.0f) / (fabs((m.peakL*0.945433426957143f)-m.slewL)+6.18033988749894f);
+    m.slewDotSizeL = (sin(0.1618f/m.psDotSizeL)*6.18f)+(sqrt(m.slewL)*0.1618f);
+    m.bassDotSizeL = sqrt(m.meterZeroL*0.1f*dataPL[col]);
+    m.psDotSizeR = (dataPR[col]*64.0f) / (fabs((m.peakR*0.945433426957143f)-m.slewR)+6.18033988749894f);
+    m.slewDotSizeR = (sin(0.1618f/m.psDotSizeR)*6.18f)+(sqrt(m.slewR)*0.1618f);
+    m.bassDotSizeR = sqrt(m.meterZeroR*0.1f*dataPR[col]);
+    return m;
+}
+
+void AirwindowsMeter::scoreColumn(unsigned long col)
+{
+    const ColumnMetrics m = columnMetrics(col);
+    const float peakL = m.peakL, peakR = m.peakR, slewL = m.slewL, slewR = m.slewR, bassL = m.bassL, bassR = m.bassR;
+    const float psDotSizeL = m.psDotSizeL, psDotSizeR = m.psDotSizeR;
+    const float slewDotSizeL = m.slewDotSizeL, slewDotSizeR = m.slewDotSizeR;
+    const float bassDotSizeL = m.bassDotSizeL, bassDotSizeR = m.bassDotSizeR;
+    //clip length, as the drawing tracks it: clipping peaks shorten the allowed length, escalating when both channels clip
+    if (peakL > 197.0f) {
+        scoreSustainedClip *= 0.99f;
+        if (peakR > 197.0f) scoreSustainedClip *= 0.975f;
+    } else scoreSustainedClip = 180.0f;
+    if (peakR > 197.0f) {
+        scoreSustainedClip *= 0.99f;
+        if (peakL > 197.0f) scoreSustainedClip *= 0.975f;
+    } else scoreSustainedClip = 180.0f;
+        {
+            backR[col] = (float)storeR;
+            backG[col] = (float)storeG;
+            backB[col] = (float)storeB; //RGB backdrop for text
+            {   //PER-METER TONE: the same three scores the tone color is made from, kept separately for each meter
+                const float scoreMax = (float)fmax(fmax(outputR, outputG), fmax(outputB, 0.000001));
+                const float ratioZ = (float)(outputG/scoreMax); //zero crosses
+                const float ratioP = (float)(outputB/scoreMax); //peaks
+                const float ratioS = (float)(outputR/scoreMax); //slews
+                const float quietGate = (float)fmin(outputVol*outputVol*8.0, 1.0); //quiet passages fade to neutral, as the tone color does
+                devZ[col] = (ratioZ - (ratioP+ratioS)*0.5f) * quietGate;
+                devP[col] = (ratioP - (ratioZ+ratioS)*0.5f) * quietGate;
+                devS[col] = (ratioS - (ratioZ+ratioP)*0.5f) * quietGate;
+            }
+            {   //LIVE HINT DETECTORS (full-level values, never the trimmed display). Position 0-200 is how far up the meter's good zone a dot sits.
+                //over = a dot overshoots the top, where the scoring mirrors it back down (clipped peaks, slews past the overflow line, bass past the bottom bins)
+                //upper = a dot reaches the upper half of the meter. Healthy material spreads across the whole meter, so a meter is only
+                //called "under" when it rarely reaches the upper half at all.
+                const float pos[3][2] = {{bassL, bassR}, {peakL, peakR}, {slewL, slewR}};
+                const float overAt[3] = {190.0f, 197.0f, 194.0f};
+                const float avgRate = 0.02f;
+                for (int m = 0; m < 3; ++m) {
+                    const float top = fmax(pos[m][0], pos[m][1]);
+                    hintOverAvg[m] += ((top >= overAt[m] ? 1.0f : 0.0f) - hintOverAvg[m]) * avgRate;
+                    hintUpperAvg[m] += ((top >= (m == 1 ? 140.0f : 100.0f) ? 1.0f : 0.0f) - hintUpperAvg[m]) * avgRate; //peaks: does a cloud reach the top 6 dB? the others: the upper half
+                    if (m == 0) hintDeepAvg += ((top >= 150.0f ? 1.0f : 0.0f) - hintDeepAvg) * avgRate; //low end: how often the bass reaches below about 60 Hz
+                    if (top >= 160.0f) { //spread of the dots in the top band: a cloud varies, a flat line does not
+                        hintBandMean[m] += (top - hintBandMean[m]) * avgRate;
+                        hintBandDev[m] += (fabsf(top - hintBandMean[m]) - hintBandDev[m]) * avgRate;
+                    }
+                }
+                //SLEWS are judged by the dot colours, the meter's own balance measure: red = slews well ahead of peaks, green/teal = peaks well
+                //ahead. (Overflow bars and a high beam are normal on loud, well balanced masters, so they are not used.)
+                const float redNow = ((psDotSizeL <= 1.0f && slewL > peakL) ? 0.5f : 0.0f) + ((psDotSizeR <= 1.0f && slewR > peakR) ? 0.5f : 0.0f);
+                const float greenNow = ((psDotSizeL <= 1.0f && slewL <= peakL) ? 0.5f : 0.0f) + ((psDotSizeR <= 1.0f && slewR <= peakR) ? 0.5f : 0.0f);
+                if (fmax(peakL, peakR) > 70.0f) { //quiet gaps between notes (peak below about -18 dB) say nothing about balance, so they are skipped
+                    //Consecutive windows count more: a lone hi-hat hit is often fine, a sustained run is not. The weight ramps up over 6 windows in a row.
+                    hintRedRun = (redNow > 0.5f) ? hintRedRun + 1.0f : 0.0f;
+                    hintGreenRun = (greenNow > 0.5f) ? hintGreenRun + 1.0f : 0.0f;
+                    const float redWeighted = redNow * fmin(hintRedRun / 6.0f, 1.0f);
+                    const float greenWeighted = greenNow * fmin(hintGreenRun / 6.0f, 1.0f);
+                    hintRedAvg += (redWeighted - hintRedAvg) * avgRate;
+                    hintGreenAvg += (greenWeighted - hintGreenAvg) * avgRate;
+                }
+            }
+        }
+        unsigned long bintracker;
+        bintracker = (unsigned long)((peakL-((180.0f-scoreSustainedClip)*1.618033988749894f)) * (0.005f*(float)totalBins));
+        //converts 0-200 to 0-bin number for textscore bins, and the peak measurement will also try to incorporate varying clip lengths
+        //on the grounds that FOR loudenated stuff, variety in the length of total clip registers for our purposes.
+        bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins))); //mirror around max value so it reflects
+        if (bintracker > 0 && bintracker <= totalBins) peakTrack[bintracker] += psDotSizeL;
+        bintracker = (unsigned long)((peakR-((180.0f-scoreSustainedClip)*1.618033988749894f)) * (0.005f*(float)totalBins));
+        bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins)));
+        if (bintracker > 0 && bintracker <= totalBins) peakTrack[bintracker] += psDotSizeR;
+        //peak textscore bins
+        bintracker = (unsigned long)(slewL * (0.005f*(float)totalBins));//converts 0-200 to 0-bin number for textscore bins
+        bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins))); //mirror around max value so it reflects
+        if (bintracker > 0 && bintracker <= totalBins) slewTrack[bintracker] += slewDotSizeL;
+        bintracker = (unsigned long)(slewR * (0.005f*(float)totalBins));
+        bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins)));
+        if (bintracker > 0 && bintracker <= totalBins) slewTrack[bintracker] += slewDotSizeR;
+        //slew textscore bins
+        bintracker = (unsigned long)(bassL * (0.005f*(float)totalBins));//converts 0-200 to 0-bin number for textscore bins
+        bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins))); //mirror around max value so it reflects
+        if (bintracker > 0 && bintracker <= totalBins) bassTrack[bintracker] += bassDotSizeL;
+        bintracker = (unsigned long)(bassR * (0.005f*(float)totalBins));
+        bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins)));
+        if (bintracker > 0 && bintracker <= totalBins) bassTrack[bintracker] += bassDotSizeR;
+        //bass textscore bins
+        
+        //bins are for reinforcing score of a dispersed cloud of dot positions rather than maxing out a position
+        float peakScore = 0.0;
+        float slewScore = 0.0;
+        float bassScore = 0.0;
+        float sinScale = 0.0;
+        for (unsigned long binscale = 0; binscale < totalBins; ++binscale) {
+            peakTrack[binscale] = fmax(fmin(peakTrack[binscale]-0.1618033988749894f, 1.618033988749894f),0.0f); //decrement speed
+            sinScale = fmax(sin(((float)binscale/(float)totalBins)*(float)M_PI_2),0.0f);
+            //sin(1.57) weighting means big red dots in good places, ignore green slews at bottom
+            peakScore += (float)sin(peakTrack[binscale]) * sinScale;
+            
+            slewTrack[binscale] = fmax(fmin(slewTrack[binscale]-0.1618033988749894f, 1.618033988749894f),0.0f); //decrement speed
+            slewScore += (float)sin(slewTrack[binscale]) * sinScale;
+            
+            bassTrack[binscale] = fmax(fmin(bassTrack[binscale]-0.1618033988749894f, 1.618033988749894f),0.0f); //decrement speed
+            sinScale = fmax(sin(((float)binscale/(float)totalBins)*(float)M_PI),0.0f);
+            //sin(3.1415) does a sine weighting on zero cross meter, but resists overweighting midrange sections
+            bassScore += (float)sin(bassTrack[binscale]) * sinScale;
+        }
+        {
+            outputB += peakScore;
+            outputR += slewScore;
+            outputG += bassScore;
+            outputVol = sqrt(fmax(fmax(dataPL[col],dataPR[col]),fmax(dataSL[col],dataSR[col])));
+            //our volume measurement gets kicked up towards 0 by peak or slew
+        }
+        {
+            float applyCurve = (float)fmin(fmin(outputR,outputG),outputB) / (float)fmax(fmax(outputR+0.000001f,outputG),outputB);
+            applyCurve = 1.0f-pow(1.0f-applyCurve,1.618033988749894f);
+            cumulative += applyCurve * outputVol;
+            duration += outputVol;
+            //when loudness rises it will be paying proportionally more attention to the balance.
+            //that means on varying tracks it'll care more about the main part than intros/outros.
+        }
+            if (pow(peakScore, 1.618033988749894f) > peakPrevGrade) peakPrevGrade = (peakPrevGrade*0.9)+(pow(peakScore, 1.618033988749894f)*0.1);
+            if (pow(slewScore, 1.618033988749894f) > slewPrevGrade) slewPrevGrade = (slewPrevGrade*0.9)+(pow(slewScore, 1.618033988749894f)*0.1);
+            if (pow(bassScore, 1.618033988749894f) > bassPrevGrade) bassPrevGrade = (bassPrevGrade*0.9)+(pow(bassScore, 1.618033988749894f)*0.1);
+            peakGrade = (int)peakPrevGrade; //directly store the value so we can
+            slewGrade = (int)slewPrevGrade; //always check to see if it's been higher
+            bassGrade = (int)bassPrevGrade; //for two measurements in a row.
+            durationPlus += 1.0;
+            double cumulativeAmount = 1.0;
+            double blackLine = fmax(0.0f,5.0f-(dataDL[col]+dataDR[col])*1500.0f) * 100.0f * fmax(dataBL[col],dataBR[col])*0.2;
+            cumulativeAmount = fmax(fabs((peakPrevGrade) - (slewPrevGrade-3.0)),cumulativeAmount);
+            cumulativeAmount = fmax(fabs((bassPrevGrade) - (slewPrevGrade-3.0)),cumulativeAmount);
+            cumulativeAmount = fmax(fabs((peakPrevGrade) - (bassPrevGrade)),cumulativeAmount);
+            cumulativePlus += (blackLine/(cumulativeAmount*cumulativeAmount));
+            if (cumulativePlus > durationPlus) cumulativePlus = durationPlus;
+}
+
 void AirwindowsMeter::paint(juce::Graphics &g)
 {
     float vS = displayHeight/600.0f; // short for vScale: everything * this
@@ -278,52 +440,6 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         psDotSizeR = (dataPR[count]*64.0f) / (fabs((peakR*0.945433426957143f)-slewR)+6.18033988749894f);
         slewDotSizeR = (sin(0.1618f/psDotSizeR)*6.18f)+(sqrt(slewR)*0.1618f);
         bassDotSizeR = sqrt(meterZeroR*0.1f*dataPR[count]);
-        if (count < dataPosition && count > dataPosition-2) {
-            backR[count] = (float)storeR;
-            backG[count] = (float)storeG;
-            backB[count] = (float)storeB; //RGB backdrop for text
-            {   //PER-METER TONE: the same three scores the tone color is made from, kept separately for each meter
-                const float scoreMax = (float)fmax(fmax(outputR, outputG), fmax(outputB, 0.000001));
-                const float ratioZ = (float)(outputG/scoreMax); //zero crosses
-                const float ratioP = (float)(outputB/scoreMax); //peaks
-                const float ratioS = (float)(outputR/scoreMax); //slews
-                const float quietGate = (float)fmin(outputVol*outputVol*8.0, 1.0); //quiet passages fade to neutral, as the tone color does
-                devZ[count] = (ratioZ - (ratioP+ratioS)*0.5f) * quietGate;
-                devP[count] = (ratioP - (ratioZ+ratioS)*0.5f) * quietGate;
-                devS[count] = (ratioS - (ratioZ+ratioP)*0.5f) * quietGate;
-            }
-            {   //LIVE HINT DETECTORS (full-level values, never the trimmed display). Position 0-200 is how far up the meter's good zone a dot sits.
-                //over = a dot overshoots the top, where the scoring mirrors it back down (clipped peaks, slews past the overflow line, bass past the bottom bins)
-                //upper = a dot reaches the upper half of the meter. Healthy material spreads across the whole meter, so a meter is only
-                //called "under" when it rarely reaches the upper half at all.
-                const float pos[3][2] = {{bassL, bassR}, {peakL, peakR}, {slewL, slewR}};
-                const float overAt[3] = {190.0f, 197.0f, 194.0f};
-                const float avgRate = 0.02f;
-                for (int m = 0; m < 3; ++m) {
-                    const float top = fmax(pos[m][0], pos[m][1]);
-                    hintOverAvg[m] += ((top >= overAt[m] ? 1.0f : 0.0f) - hintOverAvg[m]) * avgRate;
-                    hintUpperAvg[m] += ((top >= (m == 1 ? 140.0f : 100.0f) ? 1.0f : 0.0f) - hintUpperAvg[m]) * avgRate; //peaks: does a cloud reach the top 6 dB? the others: the upper half
-                    if (m == 0) hintDeepAvg += ((top >= 150.0f ? 1.0f : 0.0f) - hintDeepAvg) * avgRate; //low end: how often the bass reaches below about 60 Hz
-                    if (top >= 160.0f) { //spread of the dots in the top band: a cloud varies, a flat line does not
-                        hintBandMean[m] += (top - hintBandMean[m]) * avgRate;
-                        hintBandDev[m] += (fabsf(top - hintBandMean[m]) - hintBandDev[m]) * avgRate;
-                    }
-                }
-                //SLEWS are judged by the dot colours, the meter's own balance measure: red = slews well ahead of peaks, green/teal = peaks well
-                //ahead. (Overflow bars and a high beam are normal on loud, well balanced masters, so they are not used.)
-                const float redNow = ((psDotSizeL <= 1.0f && slewL > peakL) ? 0.5f : 0.0f) + ((psDotSizeR <= 1.0f && slewR > peakR) ? 0.5f : 0.0f);
-                const float greenNow = ((psDotSizeL <= 1.0f && slewL <= peakL) ? 0.5f : 0.0f) + ((psDotSizeR <= 1.0f && slewR <= peakR) ? 0.5f : 0.0f);
-                if (fmax(peakL, peakR) > 70.0f) { //quiet gaps between notes (peak below about -18 dB) say nothing about balance, so they are skipped
-                    //Consecutive windows count more: a lone hi-hat hit is often fine, a sustained run is not. The weight ramps up over 6 windows in a row.
-                    hintRedRun = (redNow > 0.5f) ? hintRedRun + 1.0f : 0.0f;
-                    hintGreenRun = (greenNow > 0.5f) ? hintGreenRun + 1.0f : 0.0f;
-                    const float redWeighted = redNow * fmin(hintRedRun / 6.0f, 1.0f);
-                    const float greenWeighted = greenNow * fmin(hintGreenRun / 6.0f, 1.0f);
-                    hintRedAvg += (redWeighted - hintRedAvg) * avgRate;
-                    hintGreenAvg += (greenWeighted - hintGreenAvg) * avgRate;
-                }
-            }
-        }
         const juce::Colour dotR = dotColour(slewR, peakR, psDotSizeR); //set COLOR
         g.setColour(shade(dotR, 1, count));
         g.fillRect((float)count, meterY(1, 400.0f - fmin(peakR*peakDisplayScale, 200.0f)), psDotSizeR+0.618f, (psDotSizeR+0.618f)*vS);
@@ -361,72 +477,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             }
         }
         
-        unsigned long bintracker;
-        bintracker = (unsigned long)((peakL-((180.0f-sustainedClip)*1.618033988749894f)) * (0.005f*(float)totalBins));
-        //converts 0-200 to 0-bin number for textscore bins, and the peak measurement will also try to incorporate varying clip lengths
-        //on the grounds that FOR loudenated stuff, variety in the length of total clip registers for our purposes.
-        bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins))); //mirror around max value so it reflects
-        if (bintracker > 0 && bintracker <= totalBins) peakTrack[bintracker] += psDotSizeL;
-        bintracker = (unsigned long)((peakR-((180.0f-sustainedClip)*1.618033988749894f)) * (0.005f*(float)totalBins));
-        bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins)));
-        if (bintracker > 0 && bintracker <= totalBins) peakTrack[bintracker] += psDotSizeR;
-        //peak textscore bins
-        bintracker = (unsigned long)(slewL * (0.005f*(float)totalBins));//converts 0-200 to 0-bin number for textscore bins
-        bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins))); //mirror around max value so it reflects
-        if (bintracker > 0 && bintracker <= totalBins) slewTrack[bintracker] += slewDotSizeL;
-        bintracker = (unsigned long)(slewR * (0.005f*(float)totalBins));
-        bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins)));
-        if (bintracker > 0 && bintracker <= totalBins) slewTrack[bintracker] += slewDotSizeR;
-        //slew textscore bins
-        bintracker = (unsigned long)(bassL * (0.005f*(float)totalBins));//converts 0-200 to 0-bin number for textscore bins
-        bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins))); //mirror around max value so it reflects
-        if (bintracker > 0 && bintracker <= totalBins) bassTrack[bintracker] += bassDotSizeL;
-        bintracker = (unsigned long)(bassR * (0.005f*(float)totalBins));
-        bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins)));
-        if (bintracker > 0 && bintracker <= totalBins) bassTrack[bintracker] += bassDotSizeR;
-        //bass textscore bins
-        
-        //bins are for reinforcing score of a dispersed cloud of dot positions rather than maxing out a position
-        float peakScore = 0.0;
-        float slewScore = 0.0;
-        float bassScore = 0.0;
-        float sinScale = 0.0;
-        for (unsigned long binscale = 0; binscale < totalBins; ++binscale) {
-            peakTrack[binscale] = fmax(fmin(peakTrack[binscale]-0.1618033988749894f, 1.618033988749894f),0.0f); //decrement speed
-            sinScale = fmax(sin(((float)binscale/(float)totalBins)*(float)M_PI_2),0.0f);
-            //sin(1.57) weighting means big red dots in good places, ignore green slews at bottom
-            peakScore += (float)sin(peakTrack[binscale]) * sinScale;
-            
-            slewTrack[binscale] = fmax(fmin(slewTrack[binscale]-0.1618033988749894f, 1.618033988749894f),0.0f); //decrement speed
-            slewScore += (float)sin(slewTrack[binscale]) * sinScale;
-            
-            bassTrack[binscale] = fmax(fmin(bassTrack[binscale]-0.1618033988749894f, 1.618033988749894f),0.0f); //decrement speed
-            sinScale = fmax(sin(((float)binscale/(float)totalBins)*(float)M_PI),0.0f);
-            //sin(3.1415) does a sine weighting on zero cross meter, but resists overweighting midrange sections
-            bassScore += (float)sin(bassTrack[binscale]) * sinScale;
-        }
-        if (count < dataPosition && count > dataPosition-2) {
-            outputB += peakScore;
-            outputR += slewScore;
-            outputG += bassScore;
-            outputVol = sqrt(fmax(fmax(dataPL[count],dataPR[count]),fmax(dataSL[count],dataSR[count])));
-            //our volume measurement gets kicked up towards 0 by peak or slew
-        }
-        if (dataPosition == count) {
-            float applyCurve = (float)fmin(fmin(outputR,outputG),outputB) / (float)fmax(fmax(outputR+0.000001f,outputG),outputB);
-            applyCurve = 1.0f-pow(1.0f-applyCurve,1.618033988749894f);
-            cumulative += applyCurve * outputVol;
-            duration += outputVol;
-            //when loudness rises it will be paying proportionally more attention to the balance.
-            //that means on varying tracks it'll care more about the main part than intros/outros.
-        }
         if (count == (unsigned long)dataPosition-1) { //only update text score display more infrequently
-            if (pow(peakScore, 1.618033988749894f) > peakPrevGrade) peakPrevGrade = (peakPrevGrade*0.9)+(pow(peakScore, 1.618033988749894f)*0.1);
-            if (pow(slewScore, 1.618033988749894f) > slewPrevGrade) slewPrevGrade = (slewPrevGrade*0.9)+(pow(slewScore, 1.618033988749894f)*0.1);
-            if (pow(bassScore, 1.618033988749894f) > bassPrevGrade) bassPrevGrade = (bassPrevGrade*0.9)+(pow(bassScore, 1.618033988749894f)*0.1);
-            peakGrade = (int)peakPrevGrade; //directly store the value so we can
-            slewGrade = (int)slewPrevGrade; //always check to see if it's been higher
-            bassGrade = (int)bassPrevGrade; //for two measurements in a row.
             
             if (peakGrade < 0) peakGrade = 0;
             if (peakGrade > 28) peakGrade = 28;
@@ -688,14 +739,6 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     totalPackage = juce::String("A"); break;
             } //this is our letter score, incorporating all the measurements
             
-            durationPlus += 1.0;
-            double cumulativeAmount = 1.0;
-            double blackLine = fmax(0.0f,5.0f-(dataDL[count]+dataDR[count])*1500.0f) * 100.0f * fmax(dataBL[count],dataBR[count])*0.2;
-            cumulativeAmount = fmax(fabs((peakPrevGrade) - (slewPrevGrade-3.0)),cumulativeAmount);
-            cumulativeAmount = fmax(fabs((bassPrevGrade) - (slewPrevGrade-3.0)),cumulativeAmount);
-            cumulativeAmount = fmax(fabs((peakPrevGrade) - (bassPrevGrade)),cumulativeAmount);
-            cumulativePlus += (blackLine/(cumulativeAmount*cumulativeAmount));
-            if (cumulativePlus > durationPlus) cumulativePlus = durationPlus;
             
             bonusScore = juce::String(100-(int)fmin((cumulativePlus/durationPlus)*100.0,99.0));
             if (bonusScore.compare("100") < 1 && !(bonusScore.compare("10") < 1)) bonusScore = juce::String();

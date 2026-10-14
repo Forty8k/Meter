@@ -257,7 +257,12 @@ struct AirwindowsMeter : public juce::Component
     void pushBeamR(float X) {dataBR[dataPosition] = X; dataBR[dataPosition+1] = X;}
     void pushDeptL(float X) {dataDL[dataPosition] = X; dataDL[dataPosition+1] = X;}
     void pushDeptR(float X) {dataDR[dataPosition] = X; dataDR[dataPosition+1] = X;}
+    struct ColumnMetrics {float peakL, peakR, slewL, slewR, bassL, bassR, meterZeroL, meterZeroR, psDotSizeL, psDotSizeR, slewDotSizeL, slewDotSizeR, bassDotSizeL, bassDotSizeR;};
+    ColumnMetrics columnMetrics(unsigned long col) const;
+    void scoreColumn(unsigned long col); //scores one finished audio window, once, as it arrives
+    double scoreSustainedClip = 180.0;
     void pushIncrement() {
+        scoreColumn(dataPosition); //the window that just finished is scored here, not while painting
         dataPosition++;
         if (dataPosition >= (unsigned long)fmin(displayWidth,5150)) dataPosition = 0;
     }
@@ -304,6 +309,7 @@ struct AirwindowsMeter : public juce::Component
         gradientMin = 0.0f;
         outputVol = 0.0f;
         sustainedClip = 180.0f;
+        scoreSustainedClip = 180.0;
         meterPlaying = true;
         backdropColour = juce::Colours::white;
         cachedColour = juce::Colours::white;
