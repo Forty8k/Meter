@@ -207,13 +207,17 @@ struct AirwindowsMeter : public juce::Component
     float trimDragStart = 0.0f;
     //HINT TUNING (a small "tune" label at the bottom right shows or hides it): where each hint switches on, 0-1. Index = section*2 + (0 = the "more" hint
     //light / headroom / dark, 1 = the "less" hint heavy / squashed / bright). Saved with the project, defaults are the calibrated values.
+    //tune[7] = detail fill gate: a hot slew bin only fills at full strength if it was also hit in the window before; lone hits count for less (0 = the original)
     //tune[6] = detail bin decay: hot slew bins empty faster, so brief overslews fade quickly and sustained ones stay full (0 = the original decay)
-    float tune[7] = {0.30f, 0.65f, 0.25f, 0.15f, 0.70f, 0.25f, 0.50f};
-    static constexpr float tuneDefault[7] = {0.30f, 0.65f, 0.25f, 0.15f, 0.70f, 0.25f, 0.50f};
+    float tune[8] = {0.30f, 0.65f, 0.25f, 0.25f, 0.70f, 0.25f, 0.15f, 0.50f};
+    static constexpr float tuneDefault[8] = {0.30f, 0.65f, 0.25f, 0.25f, 0.70f, 0.25f, 0.15f, 0.50f};
     bool tuneOpen = false;
     int tuneDragging = -1;
     float tuneDragStart = 0.0f;
-    float hintDeepAvg = 0.0f; //low end: share of recent dots reaching below about 60 Hz
+    float hintDeepAvg = 0.0f;     //low end: share of recent dots reaching below about 60 Hz
+    float peakCeil = 0.0f;       //dynamics: slow envelope of the loudest peak position, the track's own ceiling (a limited master piles up just under it, whatever level that is)
+    float hintCeilAvg = 0.0f;    //dynamics: share of recent windows sitting within a hair of that ceiling
+    bool slewHitNow[totalBins+2] = {}, slewHitPrev[totalBins+2] = {}; //which slew bins were hit this window / last window (for the fill gate)
     //LIVE HINT DETECTORS, one per meter (zero crosses, peaks, slews). Slow averages of how often the dots reach the upper half of the meter
     //(under target if rarely) and how often they overshoot the top, where the scoring mirrors them back down (over target).
     float hintUpperAvg[3] = {0.5f, 0.5f, 0.5f};
@@ -290,6 +294,9 @@ struct AirwindowsMeter : public juce::Component
         hintRedAvg = 0.0f;
         hintGreenAvg = 0.0f;
         hintDeepAvg = 0.0f;
+        peakCeil = 0.0f;
+        hintCeilAvg = 0.0f;
+        for (unsigned long b = 0; b < totalBins+2; ++b) {slewHitNow[b] = false; slewHitPrev[b] = false;}
         hintRedRun = 0.0f;
         hintGreenRun = 0.0f;
         cumulative = 0.0000001;

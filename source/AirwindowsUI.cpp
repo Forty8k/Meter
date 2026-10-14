@@ -27,13 +27,16 @@ static bool onTuneToggle(const juce::MouseEvent &event, int displayWidth, int di
 
 //Geometry shared by drawing and clicking: the tune labels scale with the text size, so the numbers never get cut off.
 static float tuneFont(float vS) {return (float)sqrt(vS*64.0f)*1.618f;}
-static int tuneLabelW(float vS) {return (int)(tuneFont(vS)*10.0f);}
+static int tuneLabelW(float vS) {return (int)(tuneFont(vS)*11.0f);}
 static int tuneLabelX(int displayWidth, float vS, int k) {return displayWidth/2 + (int)(tuneFont(vS)*5.0f) + k*(tuneLabelW(vS)+(int)(tuneFont(vS)*0.4f));}
 
 static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, int displayHeight, float vS)
 {
     if (displayWidth < 700 || tuneFont(vS) <= 10.0f) return -1;
-    if (event.y >= displayHeight-28 && event.x >= displayWidth-70-tuneLabelW(vS) && event.x < displayWidth-70) return 6; //detail bin decay, bottom right
+    if (event.y >= displayHeight-28) { //detail bin decay (6) and fill gate (7), bottom right
+        if (event.x >= displayWidth-70-tuneLabelW(vS) && event.x < displayWidth-70) return 6;
+        if (event.x >= displayWidth-80-2*tuneLabelW(vS) && event.x < displayWidth-80-tuneLabelW(vS)) return 7;
+    }
     for (int sec = 0; sec < 3; ++sec) {
         const float bottom = 200.0f*(float)sec + (sec == 0 ? AirwindowsMeter::stripTopUnits : AirwindowsMeter::stripMidUnits);
         if (event.y < (int)((bottom-14.0f)*vS) || event.y >= (int)(bottom*vS)) continue;
@@ -73,7 +76,7 @@ void AirwindowsMeter::mouseDrag(const juce::MouseEvent &event)
     if (tuneDragging >= 0) {
         float v = tuneDragStart - (float)event.getDistanceFromDragStartY() * 0.004f; //drag up = higher
         v = std::round(v * 100.0f) / 100.0f;
-        if (v < (tuneDragging == 6 ? 0.0f : 0.02f)) v = (tuneDragging == 6 ? 0.0f : 0.02f);
+        if (v < (tuneDragging >= 6 ? 0.0f : 0.02f)) v = (tuneDragging >= 6 ? 0.0f : 0.02f);
         if (v > 0.98f) v = 0.98f;
         if (v != tune[tuneDragging]) {tune[tuneDragging] = v; repaint();}
         return;
@@ -159,6 +162,10 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                     const float top = fmax(pos[m][0], pos[m][1]);
                     hintOverAvg[m] += ((top >= overAt[m] ? 1.0f : 0.0f) - hintOverAvg[m]) * avgRate;
                     hintUpperAvg[m] += ((top >= (m == 1 ? 140.0f : 100.0f) ? 1.0f : 0.0f) - hintUpperAvg[m]) * avgRate; //peaks: does a cloud reach the top 6 dB? the others: the upper half
+                    if (m == 1 && top > 70.0f) { //dynamics: the track's own ceiling. A limited master piles up just under it, even when it is exported well below 0 dB.
+                        if (top > peakCeil) peakCeil = top; else peakCeil -= (peakCeil - top) * 0.001f;
+                        hintCeilAvg += (((peakCeil >= 150.0f && top >= peakCeil - 3.0f) ? 1.0f : 0.0f) - hintCeilAvg) * avgRate;
+                    }
                     if (m == 0) hintDeepAvg += ((top >= 150.0f ? 1.0f : 0.0f) - hintDeepAvg) * avgRate; //low end: how often the bass reaches below about 60 Hz
                     if (top >= 160.0f) { //spread of the dots in the top band: a cloud varies, a flat line does not
                         hintBandMean[m] += (top - hintBandMean[m]) * avgRate;
@@ -183,6 +190,15 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
             }
         }
         unsigned long bintracker;
+        //FILL GATE: a hot slew bin fills at full strength only if it was also hit in the window before. A lone hit counts for less (more so the hotter the bin),
+        //a run counts fully. tune[7] sets how much less (0 = the original, every hit counts fully).
+        auto addSlew = [&](unsigned long b, float size) {
+            if (b > 0 && b <= totalBins) {
+                const float up = (float)b/(float)totalBins;
+                slewTrack[b] += size * (slewHitPrev[b] ? 1.0f : 1.0f - 0.6f*tune[7]*up);
+                slewHitNow[b] = true;
+            }
+        };
         bintracker = (unsigned long)((peakL-((180.0f-scoreSustainedClip)*1.618033988749894f)) * (0.005f*(float)totalBins));
         //converts 0-200 to 0-bin number for textscore bins, and the peak measurement will also try to incorporate varying clip lengths
         //on the grounds that FOR loudenated stuff, variety in the length of total clip registers for our purposes.
@@ -194,10 +210,10 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
         //peak textscore bins
         bintracker = (unsigned long)(slewL * (0.005f*(float)totalBins));//converts 0-200 to 0-bin number for textscore bins
         bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins))); //mirror around max value so it reflects
-        if (bintracker > 0 && bintracker <= totalBins) slewTrack[bintracker] += slewDotSizeL;
+        addSlew(bintracker, slewDotSizeL);
         bintracker = (unsigned long)(slewR * (0.005f*(float)totalBins));
         bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins)));
-        if (bintracker > 0 && bintracker <= totalBins) slewTrack[bintracker] += slewDotSizeR;
+        addSlew(bintracker, slewDotSizeR);
         //slew textscore bins
         bintracker = (unsigned long)(bassL * (0.005f*(float)totalBins));//converts 0-200 to 0-bin number for textscore bins
         bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins))); //mirror around max value so it reflects
@@ -230,6 +246,7 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
             bassScore += (float)sin(bassTrack[binscale]) * sinScale;
         }
         {
+            for (unsigned long b = 0; b < totalBins+2; ++b) {slewHitPrev[b] = slewHitNow[b]; slewHitNow[b] = false;}
             outputB += peakScore;
             outputR += slewScore;
             outputG += bassScore;
@@ -765,7 +782,6 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             //then comes from fixing whichever is off. Thresholds have hysteresis (they enter at one level and leave at another) so hints don't flicker,
             //and quiet passages are gated out, as the tone color is.
             {
-                const float lineEnter = 4.0f, lineLeave = 8.0f;     //peaks "squashed" also needs the top-band spread to be tiny (a flat line). A cloud, even a narrow one, is fine.
                 //Where each hint switches on is set by the tune controls (tune[0..5], see AirwindowsUI.h). It leaves a little before it entered, so hints don't flicker.
                 const float quietGate = (float)fmin(outputVol*outputVol*8.0, 1.0);
                 //The hints name a state, not an order: a dominant sub, a bright top or a dark record can all be deliberate.
@@ -780,8 +796,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                         overNow = hintRedAvg > tune[5];    overKeep = hintRedAvg > fmax(tune[5]-0.06f, 0.0f);
                         underNow = hintGreenAvg > tune[4]; underKeep = hintGreenAvg > fmax(tune[4]-0.10f, 0.0f);
                     } else if (hint == 1) { //peaks: a flat line at the top is squashed, a cloud that rarely reaches the top 6 dB has headroom
-                        overNow = hintOverAvg[1] > tune[3] && hintBandDev[1] < lineEnter;
-                        overKeep = hintOverAvg[1] >= fmax(tune[3]-0.05f, 0.0f) && hintBandDev[1] <= lineLeave;
+                        overNow = hintCeilAvg > tune[3];
+                        overKeep = hintCeilAvg >= fmax(tune[3]-0.07f, 0.0f);
                         underNow = hintUpperAvg[1] < tune[2];
                         underKeep = hintUpperAvg[1] <= tune[2]+0.07f;
                     } else { //low end: how often the bass reaches below ~60 Hz is heavy, how rarely it reaches the upper half is light
@@ -805,7 +821,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         }
     }
     
-    const juce::String scoreStr = bonusScore+totalPackage+authority+power+detail+(tune[6] > 0.005f ? juce::String("*") : juce::String()); //* = the detail bin decay is on, so the grades are no longer the original Meter's
+    const juce::String scoreStr = bonusScore+totalPackage+authority+power+detail+(tune[6] > 0.005f || tune[7] > 0.005f ? juce::String("*") : juce::String()); //* = the detail bin decay is on, so the grades are no longer the original Meter's
     float scaleFont = (sqrt(vS*64.0f)*1.618f);
     if (scaleFont > 10.0f) {
         g.setFont(scaleFont*1.618f);
@@ -875,16 +891,27 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             g.setFont(scaleFont*0.95f);
             if (tuneOpen) {
                 const char* tuneNames[6] = {"light<", "heavy>", "headroom<", "squashed>", "dark>", "bright>"};
-                const float live[6] = {hintUpperAvg[0], hintDeepAvg, hintUpperAvg[1], hintOverAvg[1], hintGreenAvg, hintRedAvg};
+                const float live[6] = {hintUpperAvg[0], hintDeepAvg, hintUpperAvg[1], hintCeilAvg, hintGreenAvg, hintRedAvg};
                 auto fmt = [](float v) { juce::String t = juce::String(v, 2); return t.startsWith("0.") ? t.substring(1) : t; };
                 for (int i = 0; i < 6; ++i) {
                     const int sec = i/2;
+                    const bool active = (i%2 == 0) ? (hintState[sec] == -1) : (hintState[sec] == 1); //this label's hint is showing now
                     const float bottom = 200.0f*(float)sec + (sec == 0 ? stripTopUnits : stripMidUnits);
-                    stripText(juce::String(tuneNames[i]) + fmt(tune[i]) + " [" + fmt(live[i]) + "]",
-                              tuneLabelX(displayWidth, vS, i%2), (int)((bottom-28.0f)*vS), tuneLabelW(vS), (int)(26.0f*vS), juce::Justification::bottomLeft, 0.85f);
+                    const int lx = tuneLabelX(displayWidth, vS, i%2), lw = tuneLabelW(vS);
+                    stripText(juce::String(active ? "* " : "") + juce::String(tuneNames[i]) + fmt(tune[i]) + " [" + fmt(live[i]) + "]",
+                              lx, (int)((bottom-30.0f)*vS), lw, (int)(24.0f*vS), juce::Justification::bottomLeft, active ? 1.0f : 0.8f);
+                    //a small gauge under the text: the tick is the level, the dot is the live measurement. The hint shows when the dot crosses the tick in the arrow's direction.
+                    const float gy = (bottom-3.0f)*vS;
+                    g.setColour(stripTextCol); g.setOpacity(0.25f);
+                    g.fillRect((float)lx, gy, (float)lw*0.9f, 1.0f);
+                    g.setOpacity(0.9f);
+                    g.fillRect((float)lx + (float)lw*0.9f*tune[i] - 1.0f, gy - 3.0f, 2.0f, 7.0f);
+                    g.setColour(active ? juce::Colour(255, 70, 60) : stripTextCol);
+                    g.fillEllipse((float)lx + (float)lw*0.9f*fmin(live[i],1.0f) - 3.0f, gy - 3.0f, 6.0f, 6.0f);
                 }
                 g.setColour(labelCol);
                 g.setOpacity(0.9f);
+                g.drawText(juce::String("fill gate ") + fmt(tune[7]), displayWidth-80-2*tuneLabelW(vS), displayHeight-24, tuneLabelW(vS), 20, juce::Justification::bottomRight);
                 g.drawText(juce::String("detail decay ") + fmt(tune[6]), displayWidth-70-tuneLabelW(vS), displayHeight-24, tuneLabelW(vS), 20, juce::Justification::bottomRight);
             }
             g.setColour(labelCol);

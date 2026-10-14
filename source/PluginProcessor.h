@@ -144,7 +144,7 @@ public:
     int windowCount = 0;
     bool audioPlaying = true;
     bool playheadMoving = false;
-    float hintTune[7] = {0.30f, 0.65f, 0.25f, 0.15f, 0.70f, 0.25f, 0.50f}; //where each hint switches on (see the meter's tune controls), saved with the project
+    float hintTune[8] = {0.30f, 0.65f, 0.25f, 0.25f, 0.70f, 0.25f, 0.15f, 0.50f}; //where each hint switches on (see the meter's tune controls), saved with the project
     float peakTrimDb = 0.0f; //display-only level trim for the peak meter, same idea as slewTrimDb
     float slewTrimDb = 0.0f; //display-only zoom for the slew meter (0 = original). Saved with the project, never touches the audio or the scoring
 
