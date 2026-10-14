@@ -65,10 +65,23 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
 {
     float vS = displayHeight/600.0f;
     if (onTuneToggle(event, displayWidth, displayHeight)) {tuneOpen = !tuneOpen; repaint(); return;}
+    if (tuneOpen && displayWidth >= 700 && event.y >= displayHeight-58 && event.y < displayHeight-38) {
+        if (event.x >= displayWidth-120 && event.x < displayWidth-6) { //save the current tune values and trims as the default for new instances
+            if (onSaveDefault) onSaveDefault();
+            savedAtMs = juce::Time::getMillisecondCounter();
+            repaint();
+            return;
+        }
+        if (event.x >= displayWidth-210 && event.x < displayWidth-126) { //back to the built-in values
+            for (int i = 0; i < 11; ++i) tune[i] = tuneDefault[i];
+            repaint();
+            return;
+        }
+    }
     if (tuneOpen) {
         const int t = onTuneLabel(event, displayWidth, displayHeight, vS);
         if (t >= 0) {
-            if (event.getNumberOfClicks() > 1) {tune[t] = tuneDefault[t]; tuneDragging = -1; repaint();}
+            if (event.getNumberOfClicks() > 1) {tune[t] = tuneUser[t]; tuneDragging = -1; repaint();}
             else {tuneDragging = t; tuneDragStart = tune[t];}
             return;
         }
@@ -464,8 +477,15 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         } else sustainedClip = 180.0f;
         
         if (dark) { g.setColour(beamBand); g.fillRect((float)count, meterY(2, 600.0f-beam)-4.0f*vS, 1.0f, meterH(2, departure)+8.0f*vS); } //darker band behind the trace
-        g.setColour(beamCol);
-        g.fillRect((float)count, meterY(2, 600.0f-beam), 1.0f, meterH(2, departure)); //draw beam
+        {   //the trace is white while the slew is steady enough to give it a body. When the slew is too fast for that the body collapses to nothing and
+            //only the dark band showed, so it now turns yellow (the same yellow as clipping = overload) and keeps a minimum height so it is always visible.
+            const float bodyPx = meterH(2, departure);
+            const float fastness = 1.0f - fmin(bodyPx/1.5f, 1.0f);
+            const float minPx = 2.0f;
+            const float drawPx = fmax(bodyPx, minPx);
+            g.setColour(dark ? beamCol.interpolatedWith(clipCol, fastness).withAlpha(0.88f+0.12f*fastness) : beamCol);
+            g.fillRect((float)count, meterY(2, 600.0f-beam) - (drawPx-bodyPx)*0.5f*(dark ? 1.0f : 0.0f), 1.0f, dark ? drawPx : bodyPx); //draw beam
+        }
         
         psDotSizeL = (dataPL[count]*64.0f) / (fabs((peakL*0.945433426957143f)-slewL)+6.18033988749894f);
         slewDotSizeL = (sin(0.1618f/psDotSizeL)*6.18f)+(sqrt(slewL)*0.1618f);
@@ -858,7 +878,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             g.setOpacity(opacity);
             g.drawText(text, x, y, w, h, just);
         };
-        stripText("body "+authority, (int)scaleFont/2, (int)(21.0f*vS), displayWidth/2, (int)(29.0f*vS), juce::Justification::centredLeft, 1.0f);
+        stripText("weight "+authority, (int)scaleFont/2, (int)(21.0f*vS), displayWidth/2, (int)(29.0f*vS), juce::Justification::centredLeft, 1.0f);
         stripText("zero crosses", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(21.0f*vS), displayWidth/2, (int)(29.0f*vS), juce::Justification::centredRight, 1.0f);
         stripText(hintText[0], 0, (int)(23.0f*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[0],1.0f));
          //authority is the amount of varying zero cross energy, between maximum and minimum.
@@ -912,10 +932,10 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         }
         if (displayWidth >= 700) { //TUNING: drag a label up or down to move where that hint switches on; the number in brackets is the live measurement
             g.setFont(scaleFont*0.95f);
-            if (tuneOpen) {
+            auto fmt = [](float v) { juce::String t = juce::String(v, 2); return t.startsWith("0.") ? t.substring(1) : t; };
+            {   //the six hint gauges stay up when the tune section is closed, locked at their settings (only a click on "tune" unlocks them)
                 const char* tuneNames[6] = {"light<", "heavy>", "headroom<", "squashed>", "dark>", "bright>"};
                 const float live[6] = {hintUpperAvg[0], hintDeepAvg, hintUpperAvg[1], hintCeilAvg, hintGreenAvg, 1.0f - expf(-4.0f*hintRedAvg)};
-                auto fmt = [](float v) { juce::String t = juce::String(v, 2); return t.startsWith("0.") ? t.substring(1) : t; };
                 for (int i = 0; i < 6; ++i) {
                     const int sec = i/2;
                     const bool active = (i%2 == 0) ? (hintState[sec] == -1) : (hintState[sec] == 1); //this label's hint is showing now
@@ -932,6 +952,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     g.setColour(active ? juce::Colour(255, 70, 60) : stripTextCol);
                     g.fillEllipse((float)lx + (float)lw*0.9f*fmin(live[i],1.0f) - 3.0f, gy - 3.0f, 6.0f, 6.0f);
                 }
+            }
+            if (tuneOpen) {
                 {   //the two body lines, to the left of the body hint controls: a tick shows where the line is, the label says which frequency that is
                     const float bBottom = stripTopUnits;
                     for (int k = -2; k < 0; ++k) {
@@ -967,6 +989,14 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     g.fillRect((float)bottom[k].x + (float)bw*0.9f*tune[bottom[k].idx] - 1.0f, gy - 3.0f, 2.0f, 7.0f);
                     if (bottom[k].hasLive) g.fillEllipse((float)bottom[k].x + (float)bw*0.9f*fmin(bottom[k].live,1.0f) - 3.0f, gy - 3.0f, 6.0f, 6.0f);
                 }
+                {   //DEFAULT PRESET: "save default" keeps the current tune values and trims for every new instance, "factory" puts the built-in values back (here only)
+                    const bool justSaved = (juce::Time::getMillisecondCounter() - savedAtMs) < 1600u;
+                    g.setColour(labelCol);
+                    g.setOpacity(0.9f);
+                    g.drawText(justSaved ? "saved" : "save default", displayWidth-120, displayHeight-58, 114, 20, juce::Justification::bottomRight);
+                    g.setOpacity(0.7f);
+                    g.drawText("factory", displayWidth-210, displayHeight-58, 84, 20, juce::Justification::bottomRight);
+                }
             }
             g.setColour(labelCol);
             g.setOpacity(tuneOpen ? 0.9f : 0.4f);
@@ -1001,7 +1031,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             const float keyFont = scaleFont*0.95f;
             g.setFont(keyFont);
             const float chip = fmin(fmax(11.0f*vS*1.6f, 8.0f), 14.0f);
-            const juce::String keyWords[3] = {juce::String("body"), juce::String("dynamics"), juce::String("detail")};
+            const juce::String keyWords[3] = {juce::String("weight"), juce::String("dynamics"), juce::String("detail")};
             float kx = (float)((int)scaleFont/2);
             const float ky = (19.5f*vS - chip) * 0.5f;
             for (int k = 0; k < 3; ++k) {

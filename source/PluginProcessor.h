@@ -144,9 +144,17 @@ public:
     int windowCount = 0;
     bool audioPlaying = true;
     bool playheadMoving = false;
-    float hintTune[11] = {0.15f, 0.50f, 0.20f, 0.70f, 0.20f, 0.30f, 0.35f, 0.75f, 0.20f, 0.86f, 0.11f}; //where each hint switches on (see the meter's tune controls), saved with the project
+    float hintTune[11] = {0.20f, 0.50f, 0.20f, 0.70f, 0.20f, 0.30f, 0.35f, 0.80f, 0.20f, 0.54f, 0.31f}; //where each hint switches on (see the meter's tune controls), saved with the project
     float peakTrimDb = 0.0f; //display-only level trim for the peak meter, same idea as slewTrimDb
     float slewTrimDb = 0.0f; //display-only zoom for the slew meter (0 = original). Saved with the project, never touches the audio or the scoring
+    //YOUR DEFAULT PRESET: the tune values and the two display trims, kept in a small file in the user's application data folder. New instances
+    //start from it, and a project that lacks a value falls back to it. (The numbers in the code are the factory ones, used when there is no file.)
+    float userTune[11] = {0.20f, 0.50f, 0.20f, 0.70f, 0.20f, 0.30f, 0.35f, 0.80f, 0.20f, 0.54f, 0.31f};
+    float userPeakTrim = 0.0f;
+    float userSlewTrim = 0.0f;
+    static juce::File userDefaultsFile();
+    void loadUserDefaults();
+    void saveUserDefaults(const float* tuneIn, float peakTrimIn, float slewTrimIn);
 
 private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)

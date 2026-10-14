@@ -3,6 +3,7 @@
 
 #ifndef AIRWINDOWSUI_H
 #define AIRWINDOWSUI_H
+#include <functional>
 #include "PluginProcessor.h"
 
 
@@ -211,8 +212,11 @@ struct AirwindowsMeter : public juce::Component
     //tune[8] = hint speed: how fast all the hint averages rise and fall (rate = 0.01 + 0.07*value)
     //tune[7] = detail fill gate: a hot slew bin only fills at full strength if it was also hit in the window before; lone hits count for less (0 = the original)
     //tune[6] = detail bin decay: hot slew bins empty faster, so brief overslews fade quickly and sustained ones stay full (0 = the original decay)
-    float tune[11] = {0.15f, 0.50f, 0.20f, 0.70f, 0.20f, 0.30f, 0.35f, 0.75f, 0.20f, 0.86f, 0.11f};
-    static constexpr float tuneDefault[11] = {0.15f, 0.50f, 0.20f, 0.70f, 0.20f, 0.30f, 0.35f, 0.75f, 0.20f, 0.86f, 0.11f};
+    float tune[11] = {0.20f, 0.50f, 0.20f, 0.70f, 0.20f, 0.30f, 0.35f, 0.80f, 0.20f, 0.54f, 0.31f};
+    static constexpr float tuneDefault[11] = {0.20f, 0.50f, 0.20f, 0.70f, 0.20f, 0.30f, 0.35f, 0.80f, 0.20f, 0.54f, 0.31f};
+    float tuneUser[11] = {0.20f, 0.50f, 0.20f, 0.70f, 0.20f, 0.30f, 0.35f, 0.80f, 0.20f, 0.54f, 0.31f}; //the saved default preset (double-click on a label goes back to this)
+    std::function<void()> onSaveDefault; //set by the editor: writes tune and trims to the preset file
+    juce::uint32 savedAtMs = 0;
     bool tuneOpen = false;
     int tuneDragging = -1;
     float tuneDragStart = 0.0f;

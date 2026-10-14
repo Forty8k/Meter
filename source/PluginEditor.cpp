@@ -22,7 +22,11 @@ PluginEditor::PluginEditor (PluginProcessor& p)
     meter.pluginColour = airwindowsLookAndFeel.defaultColour;
     meter.peakTrimDb = lastPeakTrimSeen = processorRef.peakTrimDb;
     meter.slewTrimDb = lastSlewTrimSeen = processorRef.slewTrimDb; //pick up the slew trim saved with the project
-    for (int i = 0; i < 11; ++i) meter.tune[i] = lastTuneSeen[i] = processorRef.hintTune[i];
+    for (int i = 0; i < 11; ++i) {meter.tune[i] = lastTuneSeen[i] = processorRef.hintTune[i]; meter.tuneUser[i] = processorRef.userTune[i];}
+    meter.onSaveDefault = [this]() {
+        processorRef.saveUserDefaults(meter.tune, meter.peakTrimDb, meter.slewTrimDb);
+        for (int i = 0; i < 11; ++i) meter.tuneUser[i] = processorRef.userTune[i];
+    };
     meter.setOpaque(true);
     meter.resetArrays();
     meter.addMouseListener(this, false);

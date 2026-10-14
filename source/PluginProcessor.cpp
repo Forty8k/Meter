@@ -18,7 +18,46 @@ PluginProcessor::PluginProcessor():AudioProcessor (
                      #endif
 ){
     // (internal ID, how it's shown in DAW generic view, {min, max}, default)
+    loadUserDefaults(); //a new instance starts from the saved default preset, if there is one
+    for (int i = 0; i < 11; ++i) hintTune[i] = userTune[i];
+    peakTrimDb = userPeakTrim;
+    slewTrimDb = userSlewTrim;
  }
+
+juce::File PluginProcessor::userDefaultsFile()
+{
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("Meter F8K").getChildFile("defaults.xml");
+}
+
+void PluginProcessor::loadUserDefaults()
+{
+    const juce::File f = userDefaultsFile();
+    if (!f.existsAsFile()) return;
+    std::unique_ptr<juce::XmlElement> xml(juce::XmlDocument::parse(f));
+    if (xml == nullptr || !xml->hasTagName("meterdefaults")) return;
+    for (int i = 0; i < 11; ++i) {
+        const double v = xml->getDoubleAttribute(juce::String("tune")+juce::String(i), (double)userTune[i]);
+        if (v >= 0.0 && v <= 1.0) userTune[i] = (float)v;
+    }
+    const double pt = xml->getDoubleAttribute("peaktrim", 0.0);
+    const double st = xml->getDoubleAttribute("slewtrim", 0.0);
+    userPeakTrim = (pt <= 0.0 && pt >= -24.0) ? (float)pt : 0.0f;
+    userSlewTrim = (st <= 0.0 && st >= -24.0) ? (float)st : 0.0f;
+}
+
+void PluginProcessor::saveUserDefaults(const float* tuneIn, float peakTrimIn, float slewTrimIn)
+{
+    for (int i = 0; i < 11; ++i) userTune[i] = tuneIn[i];
+    userPeakTrim = peakTrimIn;
+    userSlewTrim = slewTrimIn;
+    juce::XmlElement xml("meterdefaults");
+    for (int i = 0; i < 11; ++i) xml.setAttribute(juce::String("tune")+juce::String(i), (double)userTune[i]);
+    xml.setAttribute("peaktrim", (double)userPeakTrim);
+    xml.setAttribute("slewtrim", (double)userSlewTrim);
+    const juce::File f = userDefaultsFile();
+    f.getParentDirectory().createDirectory();
+    xml.writeTo(f);
+}
 
 PluginProcessor::~PluginProcessor() {}
 void PluginProcessor::parameterValueChanged(int parameterIndex, float newValue)
@@ -142,14 +181,13 @@ void PluginProcessor::setStateInformation (const void* data, int sizeInBytes)
             auto h = xmlState->getIntAttribute(juce::String("awm_height"));
             if (h < 8 || h > 16386) h = 720;
             updatePluginSize(w, h);
-            slewTrimDb = (float)xmlState->getDoubleAttribute(juce::String("awm_slewtrim"), 0.0);
-            if (slewTrimDb > 0.0f || slewTrimDb < -24.0f) slewTrimDb = 0.0f;
-            peakTrimDb = (float)xmlState->getDoubleAttribute(juce::String("awm_peaktrim"), 0.0);
-            if (peakTrimDb > 0.0f || peakTrimDb < -24.0f) peakTrimDb = 0.0f;
-            const float tuneDefaults[11] = {0.15f, 0.50f, 0.20f, 0.70f, 0.20f, 0.30f, 0.35f, 0.75f, 0.20f, 0.86f, 0.11f};
+            slewTrimDb = (float)xmlState->getDoubleAttribute(juce::String("awm_slewtrim"), (double)userSlewTrim);
+            if (slewTrimDb > 0.0f || slewTrimDb < -24.0f) slewTrimDb = userSlewTrim;
+            peakTrimDb = (float)xmlState->getDoubleAttribute(juce::String("awm_peaktrim"), (double)userPeakTrim);
+            if (peakTrimDb > 0.0f || peakTrimDb < -24.0f) peakTrimDb = userPeakTrim;
             for (int i = 0; i < 11; ++i) {
-                hintTune[i] = (float)xmlState->getDoubleAttribute(juce::String("awm_tune")+juce::String(i), (double)tuneDefaults[i]);
-                if (!(hintTune[i] >= 0.0f && hintTune[i] <= 1.0f)) hintTune[i] = tuneDefaults[i];
+                hintTune[i] = (float)xmlState->getDoubleAttribute(juce::String("awm_tune")+juce::String(i), (double)userTune[i]);
+                if (!(hintTune[i] >= 0.0f && hintTune[i] <= 1.0f)) hintTune[i] = userTune[i];
             }
         }
         updateHostDisplay();
