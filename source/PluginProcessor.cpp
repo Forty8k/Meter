@@ -123,7 +123,7 @@ void PluginProcessor::getStateInformation (juce::MemoryBlock& destData)
     xml->setAttribute(juce::String("awm_height"), pluginHeight);
     xml->setAttribute(juce::String("awm_slewtrim"), (double)slewTrimDb);
     xml->setAttribute(juce::String("awm_peaktrim"), (double)peakTrimDb);
-    for (int i = 0; i < 6; ++i) xml->setAttribute(juce::String("awm_tune")+juce::String(i), (double)hintTune[i]);
+    for (int i = 0; i < 7; ++i) xml->setAttribute(juce::String("awm_tune")+juce::String(i), (double)hintTune[i]);
     copyXmlToBinary(*xml, destData);
 }
 
@@ -146,8 +146,8 @@ void PluginProcessor::setStateInformation (const void* data, int sizeInBytes)
             if (slewTrimDb > 0.0f || slewTrimDb < -24.0f) slewTrimDb = 0.0f;
             peakTrimDb = (float)xmlState->getDoubleAttribute(juce::String("awm_peaktrim"), 0.0);
             if (peakTrimDb > 0.0f || peakTrimDb < -24.0f) peakTrimDb = 0.0f;
-            const float tuneDefaults[6] = {0.30f, 0.65f, 0.25f, 0.15f, 0.70f, 0.25f};
-            for (int i = 0; i < 6; ++i) {
+            const float tuneDefaults[7] = {0.30f, 0.65f, 0.25f, 0.15f, 0.70f, 0.25f, 0.50f};
+            for (int i = 0; i < 7; ++i) {
                 hintTune[i] = (float)xmlState->getDoubleAttribute(juce::String("awm_tune")+juce::String(i), (double)tuneDefaults[i]);
                 if (!(hintTune[i] >= 0.0f && hintTune[i] <= 1.0f)) hintTune[i] = tuneDefaults[i];
             }

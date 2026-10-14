@@ -207,8 +207,9 @@ struct AirwindowsMeter : public juce::Component
     float trimDragStart = 0.0f;
     //HINT TUNING (a small "tune" label at the bottom right shows or hides it): where each hint switches on, 0-1. Index = section*2 + (0 = the "more" hint
     //light / headroom / dark, 1 = the "less" hint heavy / squashed / bright). Saved with the project, defaults are the calibrated values.
-    float tune[6] = {0.30f, 0.65f, 0.25f, 0.15f, 0.70f, 0.25f};
-    static constexpr float tuneDefault[6] = {0.30f, 0.65f, 0.25f, 0.15f, 0.70f, 0.25f};
+    //tune[6] = detail bin decay: hot slew bins empty faster, so brief overslews fade quickly and sustained ones stay full (0 = the original decay)
+    float tune[7] = {0.30f, 0.65f, 0.25f, 0.15f, 0.70f, 0.25f, 0.50f};
+    static constexpr float tuneDefault[7] = {0.30f, 0.65f, 0.25f, 0.15f, 0.70f, 0.25f, 0.50f};
     bool tuneOpen = false;
     int tuneDragging = -1;
     float tuneDragStart = 0.0f;

@@ -25,15 +25,21 @@ static bool onTuneToggle(const juce::MouseEvent &event, int displayWidth, int di
     return displayWidth >= 700 && event.x >= displayWidth-70 && event.y >= displayHeight-28;
 }
 
-static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, float vS)
+//Geometry shared by drawing and clicking: the tune labels scale with the text size, so the numbers never get cut off.
+static float tuneFont(float vS) {return (float)sqrt(vS*64.0f)*1.618f;}
+static int tuneLabelW(float vS) {return (int)(tuneFont(vS)*10.0f);}
+static int tuneLabelX(int displayWidth, float vS, int k) {return displayWidth/2 + (int)(tuneFont(vS)*5.0f) + k*(tuneLabelW(vS)+(int)(tuneFont(vS)*0.4f));}
+
+static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, int displayHeight, float vS)
 {
-    if (displayWidth < 700 || (sqrt(vS*61.8f)*1.618f) <= 10.0f) return -1;
+    if (displayWidth < 700 || tuneFont(vS) <= 10.0f) return -1;
+    if (event.y >= displayHeight-28 && event.x >= displayWidth-70-tuneLabelW(vS) && event.x < displayWidth-70) return 6; //detail bin decay, bottom right
     for (int sec = 0; sec < 3; ++sec) {
         const float bottom = 200.0f*(float)sec + (sec == 0 ? AirwindowsMeter::stripTopUnits : AirwindowsMeter::stripMidUnits);
         if (event.y < (int)((bottom-14.0f)*vS) || event.y >= (int)(bottom*vS)) continue;
         for (int k = 0; k < 2; ++k) {
-            const int x0 = displayWidth/2 + 110 + k*150;
-            if (event.x >= x0 && event.x < x0+145) return sec*2 + k;
+            const int x0 = tuneLabelX(displayWidth, vS, k);
+            if (event.x >= x0 && event.x < x0+tuneLabelW(vS)) return sec*2 + k;
         }
     }
     return -1;
@@ -44,7 +50,7 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
     float vS = displayHeight/600.0f;
     if (onTuneToggle(event, displayWidth, displayHeight)) {tuneOpen = !tuneOpen; repaint(); return;}
     if (tuneOpen) {
-        const int t = onTuneLabel(event, displayWidth, vS);
+        const int t = onTuneLabel(event, displayWidth, displayHeight, vS);
         if (t >= 0) {
             if (event.getNumberOfClicks() > 1) {tune[t] = tuneDefault[t]; tuneDragging = -1; repaint();}
             else {tuneDragging = t; tuneDragStart = tune[t];}
@@ -67,7 +73,7 @@ void AirwindowsMeter::mouseDrag(const juce::MouseEvent &event)
     if (tuneDragging >= 0) {
         float v = tuneDragStart - (float)event.getDistanceFromDragStartY() * 0.004f; //drag up = higher
         v = std::round(v * 100.0f) / 100.0f;
-        if (v < 0.02f) v = 0.02f;
+        if (v < (tuneDragging == 6 ? 0.0f : 0.02f)) v = (tuneDragging == 6 ? 0.0f : 0.02f);
         if (v > 0.98f) v = 0.98f;
         if (v != tune[tuneDragging]) {tune[tuneDragging] = v; repaint();}
         return;
@@ -164,11 +170,13 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                 const float redNow = ((psDotSizeL <= 1.0f && slewL > peakL) ? 0.5f : 0.0f) + ((psDotSizeR <= 1.0f && slewR > peakR) ? 0.5f : 0.0f);
                 const float greenNow = ((psDotSizeL <= 1.0f && slewL <= peakL) ? 0.5f : 0.0f) + ((psDotSizeR <= 1.0f && slewR <= peakR) ? 0.5f : 0.0f);
                 if (fmax(peakL, peakR) > 70.0f) { //quiet gaps between notes (peak below about -18 dB) say nothing about balance, so they are skipped
-                    //Consecutive windows count more: a lone hi-hat hit is often fine, a sustained run is not. The weight ramps up over 6 windows in a row.
-                    hintRedRun = (redNow > 0.5f) ? hintRedRun + 1.0f : 0.0f;
-                    hintGreenRun = (greenNow > 0.5f) ? hintGreenRun + 1.0f : 0.0f;
-                    const float redWeighted = redNow * fmin(hintRedRun / 6.0f, 1.0f);
-                    const float greenWeighted = greenNow * fmin(hintGreenRun / 6.0f, 1.0f);
+                    //Consecutive windows count more: a lone hi-hat hit is often fine, a sustained run is not. The weight ramps up (squared) over 16 windows in a row, and an off window only halves the run.
+                    hintRedRun = (redNow > 0.5f) ? hintRedRun + 1.0f : hintRedRun*0.5f; //a single off window halves the run instead of ending it
+                    hintGreenRun = (greenNow > 0.5f) ? hintGreenRun + 1.0f : hintGreenRun*0.5f;
+                    const float redRamp = fmin(hintRedRun / 16.0f, 1.0f);
+                    const float redWeighted = redNow * redRamp * redRamp; //brief bursts count for little, sustained runs fully
+                    const float greenRamp = fmin(hintGreenRun / 16.0f, 1.0f);
+                    const float greenWeighted = greenNow * greenRamp * greenRamp;
                     hintRedAvg += (redWeighted - hintRedAvg) * avgRate;
                     hintGreenAvg += (greenWeighted - hintGreenAvg) * avgRate;
                 }
@@ -210,7 +218,10 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
             //sin(1.57) weighting means big red dots in good places, ignore green slews at bottom
             peakScore += (float)sin(peakTrack[binscale]) * sinScale;
             
-            slewTrack[binscale] = fmax(fmin(slewTrack[binscale]-0.1618033988749894f, 1.618033988749894f),0.0f); //decrement speed
+            {   //hot slew bins (high up the meter) empty faster when the detail bin decay is raised, so a brief overslew fades quickly while a sustained one keeps refilling
+                const float binUp = (float)binscale/(float)totalBins;
+                slewTrack[binscale] = fmax(fmin(slewTrack[binscale]-0.1618033988749894f*(1.0f+tune[6]*4.0f*binUp*binUp), 1.618033988749894f),0.0f); //decrement speed
+            }
             slewScore += (float)sin(slewTrack[binscale]) * sinScale;
             
             bassTrack[binscale] = fmax(fmin(bassTrack[binscale]-0.1618033988749894f, 1.618033988749894f),0.0f); //decrement speed
@@ -794,6 +805,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         }
     }
     
+    const juce::String scoreStr = bonusScore+totalPackage+authority+power+detail+(tune[6] > 0.005f ? juce::String("*") : juce::String()); //* = the detail bin decay is on, so the grades are no longer the original Meter's
     float scaleFont = (sqrt(vS*64.0f)*1.618f);
     if (scaleFont > 10.0f) {
         g.setFont(scaleFont*1.618f);
@@ -860,16 +872,20 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             g.setFont(scaleFont*1.618f);
         }
         if (displayWidth >= 700) { //TUNING: drag a label up or down to move where that hint switches on; the number in brackets is the live measurement
-            g.setFont(scaleFont*1.1f);
+            g.setFont(scaleFont*0.95f);
             if (tuneOpen) {
-                const char* tuneNames[6] = {"light <", "heavy >", "headroom <", "squashed >", "dark >", "bright >"};
+                const char* tuneNames[6] = {"light<", "heavy>", "headroom<", "squashed>", "dark>", "bright>"};
                 const float live[6] = {hintUpperAvg[0], hintDeepAvg, hintUpperAvg[1], hintOverAvg[1], hintGreenAvg, hintRedAvg};
+                auto fmt = [](float v) { juce::String t = juce::String(v, 2); return t.startsWith("0.") ? t.substring(1) : t; };
                 for (int i = 0; i < 6; ++i) {
                     const int sec = i/2;
                     const float bottom = 200.0f*(float)sec + (sec == 0 ? stripTopUnits : stripMidUnits);
-                    stripText(juce::String(tuneNames[i]) + juce::String(tune[i], 2) + " (" + juce::String(live[i], 2) + ")",
-                              displayWidth/2 + 110 + (i%2)*150, (int)((bottom-28.0f)*vS), 145, (int)(26.0f*vS), juce::Justification::bottomLeft, 0.85f);
+                    stripText(juce::String(tuneNames[i]) + fmt(tune[i]) + " [" + fmt(live[i]) + "]",
+                              tuneLabelX(displayWidth, vS, i%2), (int)((bottom-28.0f)*vS), tuneLabelW(vS), (int)(26.0f*vS), juce::Justification::bottomLeft, 0.85f);
                 }
+                g.setColour(labelCol);
+                g.setOpacity(0.9f);
+                g.drawText(juce::String("detail decay ") + fmt(tune[6]), displayWidth-70-tuneLabelW(vS), displayHeight-24, tuneLabelW(vS), 20, juce::Justification::bottomRight);
             }
             g.setColour(labelCol);
             g.setOpacity(tuneOpen ? 0.9f : 0.4f);
@@ -891,11 +907,11 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         
         g.setOpacity(0.618f);
         g.setColour(juce::Colours::white);
-        g.drawText(bonusScore+totalPackage+authority+power+detail, 1, 1, displayWidth, (int)(20.0f*vS), juce::Justification::centred);
+        g.drawText(scoreStr, 1, 1, displayWidth, (int)(20.0f*vS), juce::Justification::centred);
         //underdrawing in white for areas prone to get covered up with dots
         g.setOpacity(1.0f);
         g.setColour(juce::Colours::black);
-        g.drawText(bonusScore+totalPackage+authority+power+detail, 0, 0, displayWidth, (int)(20.0f*vS), juce::Justification::centred);
+        g.drawText(scoreStr, 0, 0, displayWidth, (int)(20.0f*vS), juce::Justification::centred);
         
         //KEYS on the top bar. The bar is the three meters' scores mixed as color. Each meter has its own color (the same one that tints its strip
         //and colors the playhead as it crosses that strip): green = low end, blue = dynamics, red = detail. Chips and words, so the colors can't be
@@ -1017,14 +1033,14 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         g.setFont(scaleFont*11.0f); //larger font for the tiny window, and the style seen in ConsoleX3
         g.setOpacity(0.21f);
         g.setColour(juce::Colours::white);
-        g.drawText(bonusScore+totalPackage+authority+power+detail, 0, 1, displayWidth, displayHeight+1, juce::Justification::centred, false);
-        g.drawText(bonusScore+totalPackage+authority+power+detail, 1, 0, displayWidth+1, displayHeight, juce::Justification::centred, false);
+        g.drawText(scoreStr, 0, 1, displayWidth, displayHeight+1, juce::Justification::centred, false);
+        g.drawText(scoreStr, 1, 0, displayWidth+1, displayHeight, juce::Justification::centred, false);
         g.setOpacity(0.51f);
         g.setColour(juce::Colours::white);
-        g.drawText(bonusScore+totalPackage+authority+power+detail, 1, 1, displayWidth+1, displayHeight+1, juce::Justification::centred, false);
+        g.drawText(scoreStr, 1, 1, displayWidth+1, displayHeight+1, juce::Justification::centred, false);
         g.setOpacity(1.0f);
         g.setColour(juce::Colours::black);
-        g.drawText(bonusScore+totalPackage+authority+power+detail, 0, 0, displayWidth, displayHeight, juce::Justification::centred, false);
+        g.drawText(scoreStr, 0, 0, displayWidth, displayHeight, juce::Justification::centred, false);
     }
     
     g.setColour(juce::Colours::grey);
