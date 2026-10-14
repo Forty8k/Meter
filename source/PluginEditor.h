@@ -37,6 +37,7 @@ private:
     
    std::unique_ptr<IdleTimer> idleTimer;
    float lastPeakTrimSeen = 0.0f;
+   float lastTuneSeen[6] = {0.30f, 0.65f, 0.25f, 0.15f, 0.70f, 0.25f};
    float lastSlewTrimSeen = 0.0f; //keeps the on-screen slew trim and the saved one in step, in both directions
     AirwindowsLookAndFeel airwindowsLookAndFeel;
     AirwindowsMeter meter;

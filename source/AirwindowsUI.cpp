@@ -19,9 +19,38 @@ static int onTrimLabel(const juce::MouseEvent &event, int displayWidth, float vS
     return 0;
 }
 
+//The tune controls: a "tune" label at the bottom right, and when open two drag labels at the bottom of each strip (index = section*2 + 0/1).
+static bool onTuneToggle(const juce::MouseEvent &event, int displayWidth, int displayHeight)
+{
+    return displayWidth >= 700 && event.x >= displayWidth-70 && event.y >= displayHeight-28;
+}
+
+static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, float vS)
+{
+    if (displayWidth < 700 || (sqrt(vS*61.8f)*1.618f) <= 10.0f) return -1;
+    for (int sec = 0; sec < 3; ++sec) {
+        const float bottom = 200.0f*(float)sec + (sec == 0 ? AirwindowsMeter::stripTopUnits : AirwindowsMeter::stripMidUnits);
+        if (event.y < (int)((bottom-14.0f)*vS) || event.y >= (int)(bottom*vS)) continue;
+        for (int k = 0; k < 2; ++k) {
+            const int x0 = displayWidth/2 + 110 + k*150;
+            if (event.x >= x0 && event.x < x0+145) return sec*2 + k;
+        }
+    }
+    return -1;
+}
+
 void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
 {
     float vS = displayHeight/600.0f;
+    if (onTuneToggle(event, displayWidth, displayHeight)) {tuneOpen = !tuneOpen; repaint(); return;}
+    if (tuneOpen) {
+        const int t = onTuneLabel(event, displayWidth, vS);
+        if (t >= 0) {
+            if (event.getNumberOfClicks() > 1) {tune[t] = tuneDefault[t]; tuneDragging = -1; repaint();}
+            else {tuneDragging = t; tuneDragStart = tune[t];}
+            return;
+        }
+    }
     const int which = onTrimLabel(event, displayWidth, vS);
     if (which != 0) {
         float& trim = (which == 1) ? peakTrimDb : slewTrimDb;
@@ -35,6 +64,14 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
 
 void AirwindowsMeter::mouseDrag(const juce::MouseEvent &event)
 {
+    if (tuneDragging >= 0) {
+        float v = tuneDragStart - (float)event.getDistanceFromDragStartY() * 0.004f; //drag up = higher
+        v = std::round(v * 100.0f) / 100.0f;
+        if (v < 0.02f) v = 0.02f;
+        if (v > 0.98f) v = 0.98f;
+        if (v != tune[tuneDragging]) {tune[tuneDragging] = v; repaint();}
+        return;
+    }
     if (trimDragging == 0) return;
     float& trim = (trimDragging == 1) ? peakTrimDb : slewTrimDb;
     float newTrim = trimDragStart - (float)event.getDistanceFromDragStartY() * 0.12f; //dragging up lowers the zoom, down raises it
@@ -47,6 +84,7 @@ void AirwindowsMeter::mouseDrag(const juce::MouseEvent &event)
 void AirwindowsMeter::mouseUp(const juce::MouseEvent &)
 {
     trimDragging = 0;
+    tuneDragging = -1;
 }
 
 void AirwindowsMeter::paint(juce::Graphics &g)
@@ -115,6 +153,9 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         const float base = 200.0f*(float)sec;
         return (base + stripH[sec] + (yv-base)*((200.0f-stripH[sec])/200.0f))*vS;
     };
+    auto pk = [&](float yv) -> float { //a position in the peak meter, moved the way the peak trim moves the dots (so the dB lines and labels follow the trim)
+        return 400.0f - (400.0f - yv)*peakDisplayScale;
+    };
     auto meterH = [&](int sec, float hv) -> float { //a height in the original layout, as pixels
         return hv*((200.0f-stripH[sec])/200.0f)*vS;
     };
@@ -136,12 +177,13 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         g.fillRect(0, (int)meterY(0, 164.9f), getWidth(),1); //-30dB markings
         g.fillRect(0, (int)meterY(0, 175.2f), getWidth(),1); //-36dB markings
         
-        g.fillRect(0,  (int)meterY(1, 260.0f), getWidth(),1); // -6dB markings
-        g.fillRect(0, (int)meterY(1, 301.02f), getWidth(),1); //-12dB markings
-        g.fillRect(0, (int)meterY(1, 330.02f), getWidth(),1); //-18dB markings
-        g.fillRect(0, (int)meterY(1, 350.2f), getWidth(),1); //-24dB markings
-        g.fillRect(0, (int)meterY(1, 364.9f), getWidth(),1); //-30dB markings
-        g.fillRect(0, (int)meterY(1, 375.2f), getWidth(),1); //-36dB markings
+        if (peakDisplayScale < 0.97f) g.fillRect(0, (int)meterY(1, pk(200.0f)), getWidth(),1); //0dB: where the yellow overshoots start once the peaks are trimmed
+        g.fillRect(0, (int)meterY(1, pk(260.0f)), getWidth(),1); // -6dB markings
+        g.fillRect(0, (int)meterY(1, pk(301.02f)), getWidth(),1); //-12dB markings
+        g.fillRect(0, (int)meterY(1, pk(330.02f)), getWidth(),1); //-18dB markings
+        g.fillRect(0, (int)meterY(1, pk(350.2f)), getWidth(),1); //-24dB markings
+        g.fillRect(0, (int)meterY(1, pk(364.9f)), getWidth(),1); //-30dB markings
+        g.fillRect(0, (int)meterY(1, pk(375.2f)), getWidth(),1); //-36dB markings
         
         g.fillRect(0,  (int)meterY(2, 460.0f), getWidth(),1); // -6dB markings
         g.fillRect(0, (int)meterY(2, 501.02f), getWidth(),1); //-12dB markings
@@ -261,6 +303,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     const float top = fmax(pos[m][0], pos[m][1]);
                     hintOverAvg[m] += ((top >= overAt[m] ? 1.0f : 0.0f) - hintOverAvg[m]) * avgRate;
                     hintUpperAvg[m] += ((top >= (m == 1 ? 140.0f : 100.0f) ? 1.0f : 0.0f) - hintUpperAvg[m]) * avgRate; //peaks: does a cloud reach the top 6 dB? the others: the upper half
+                    if (m == 0) hintDeepAvg += ((top >= 150.0f ? 1.0f : 0.0f) - hintDeepAvg) * avgRate; //low end: how often the bass reaches below about 60 Hz
                     if (top >= 160.0f) { //spread of the dots in the top band: a cloud varies, a flat line does not
                         hintBandMean[m] += (top - hintBandMean[m]) * avgRate;
                         hintBandDev[m] += (fabsf(top - hintBandMean[m]) - hintBandDev[m]) * avgRate;
@@ -668,9 +711,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             //then comes from fixing whichever is off. Thresholds have hysteresis (they enter at one level and leave at another) so hints don't flicker,
             //and quiet passages are gated out, as the tone color is.
             {
-                const float overEnter = 0.15f, overLeave = 0.10f;   //share of recent dots that overshoot the top...
-                const float lineEnter = 4.0f, lineLeave = 8.0f;     //...AND whose top-band spread is tiny (a flat line). A cloud, even a narrow one, is fine.
-                const float underEnter = 0.30f, underLeave = 0.38f; //share of recent dots that reach the upper half
+                const float lineEnter = 4.0f, lineLeave = 8.0f;     //peaks "squashed" also needs the top-band spread to be tiny (a flat line). A cloud, even a narrow one, is fine.
+                //Where each hint switches on is set by the tune controls (tune[0..5], see AirwindowsUI.h). It leaves a little before it entered, so hints don't flicker.
                 const float quietGate = (float)fmin(outputVol*outputVol*8.0, 1.0);
                 //The hints name a state, not an order: a dominant sub, a bright top or a dark record can all be deliberate.
                 //(hintTextMore = under target, hintTextLess = over target)
@@ -680,16 +722,19 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                 for (int hint = 0; hint < 3; ++hint) {
                     int state = hintState[hint];
                     bool overNow, overKeep, underNow, underKeep;
-                    if (hint == 2) { //slews: colour balance
-                        overNow = hintRedAvg > 0.25f;    overKeep = hintRedAvg > 0.19f;
-                        underNow = hintGreenAvg > 0.70f; underKeep = hintGreenAvg > 0.60f;
-                    } else { //low end and peaks: a flat line at the extreme (not a cloud) is over, rarely reaching the upper half is under
-                        const float uEnter = (hint == 1) ? 0.25f : underEnter; //peaks: "raise peaks" when a cloud rarely reaches the top 6 dB, i.e. there is headroom to use
-                        const float uLeave = (hint == 1) ? 0.32f : underLeave;
-                        overNow = hintOverAvg[hint] > overEnter && hintBandDev[hint] < lineEnter;
-                        overKeep = hintOverAvg[hint] >= overLeave && hintBandDev[hint] <= lineLeave;
-                        underNow = hintUpperAvg[hint] < uEnter;
-                        underKeep = hintUpperAvg[hint] <= uLeave;
+                    if (hint == 2) { //slews: colour balance. over = bright (red share), under = dark (green share)
+                        overNow = hintRedAvg > tune[5];    overKeep = hintRedAvg > fmax(tune[5]-0.06f, 0.0f);
+                        underNow = hintGreenAvg > tune[4]; underKeep = hintGreenAvg > fmax(tune[4]-0.10f, 0.0f);
+                    } else if (hint == 1) { //peaks: a flat line at the top is squashed, a cloud that rarely reaches the top 6 dB has headroom
+                        overNow = hintOverAvg[1] > tune[3] && hintBandDev[1] < lineEnter;
+                        overKeep = hintOverAvg[1] >= fmax(tune[3]-0.05f, 0.0f) && hintBandDev[1] <= lineLeave;
+                        underNow = hintUpperAvg[1] < tune[2];
+                        underKeep = hintUpperAvg[1] <= tune[2]+0.07f;
+                    } else { //low end: how often the bass reaches below ~60 Hz is heavy, how rarely it reaches the upper half is light
+                        overNow = hintDeepAvg > tune[1];
+                        overKeep = hintDeepAvg > fmax(tune[1]-0.07f, 0.0f);
+                        underNow = hintUpperAvg[0] < tune[0];
+                        underKeep = hintUpperAvg[0] <= tune[0]+0.08f;
                     }
                     if (state == 1 && !overKeep) state = 0;
                     if (state == -1 && !underKeep) state = 0;
@@ -769,6 +814,23 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                       220, (int)((stripMidUnits-2.0f)*vS), juce::Justification::bottomLeft, 0.6f);
             stripText(trimText(peakTrimDb), 190, (int)(202.0f*vS),
                       220, (int)((stripMidUnits-2.0f)*vS), juce::Justification::bottomLeft, 0.6f);
+            g.setFont(scaleFont*1.618f);
+        }
+        if (displayWidth >= 700) { //TUNING: drag a label up or down to move where that hint switches on; the number in brackets is the live measurement
+            g.setFont(scaleFont*1.1f);
+            if (tuneOpen) {
+                const char* tuneNames[6] = {"light <", "heavy >", "headroom <", "squashed >", "dark >", "bright >"};
+                const float live[6] = {hintUpperAvg[0], hintDeepAvg, hintUpperAvg[1], hintOverAvg[1], hintGreenAvg, hintRedAvg};
+                for (int i = 0; i < 6; ++i) {
+                    const int sec = i/2;
+                    const float bottom = 200.0f*(float)sec + (sec == 0 ? stripTopUnits : stripMidUnits);
+                    stripText(juce::String(tuneNames[i]) + juce::String(tune[i], 2) + " (" + juce::String(live[i], 2) + ")",
+                              displayWidth/2 + 110 + (i%2)*150, (int)((bottom-28.0f)*vS), 145, (int)(26.0f*vS), juce::Justification::bottomLeft, 0.85f);
+                }
+            }
+            g.setColour(labelCol);
+            g.setOpacity(tuneOpen ? 0.9f : 0.4f);
+            g.drawText("tune", displayWidth-62, displayHeight-24, 56, 20, juce::Justification::bottomRight);
             g.setFont(scaleFont*1.618f);
         }
         //detail is the intensity of varying slew energy, between maximum and minimum.
@@ -865,12 +927,17 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         axisLabel("45 Hz", (int)meterY(0, 164.9f)-7);
         axisLabel("35 Hz", (int)meterY(0, 175.2f)-7);
         
-        axisLabel("-6 dB", (int)meterY(1, 260.0f)-7);
-        axisLabel("-12 dB", (int)meterY(1, 301.02f)-7);
-        axisLabel("-18 dB", (int)meterY(1, 330.02f)-7);
-        axisLabel("-24 dB", (int)meterY(1, 350.2f)-7);
-        axisLabel("-30 dB", (int)meterY(1, 364.9f)-7);
-        axisLabel("-36 dB", (int)meterY(1, 375.2f)-7);
+        {   //peak dB labels follow the peak trim, so 0 dB sits at the bottom of the yellow overshoots; labels that would crowd are skipped
+            struct DbMark {const char* text; float yv;};
+            const DbMark marks[7] = {{"0 dB", 200.0f}, {"-6 dB", 260.0f}, {"-12 dB", 301.02f}, {"-18 dB", 330.02f}, {"-24 dB", 350.2f}, {"-30 dB", 364.9f}, {"-36 dB", 375.2f}};
+            float lastY = -1000.0f;
+            for (int k = (peakDisplayScale < 0.97f ? 0 : 1); k < 7; ++k) {
+                const float yy = meterY(1, pk(marks[k].yv));
+                if (yy - lastY < scaleFont*0.95f) continue;
+                axisLabel(juce::String(marks[k].text), (int)yy-7);
+                lastY = yy;
+            }
+        }
 
         axisLabel("exciting", (int)meterY(2, 455.0f)-7);
         axisLabel("present", (int)meterY(2, 496.0f)-7);

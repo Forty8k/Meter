@@ -22,6 +22,7 @@ PluginEditor::PluginEditor (PluginProcessor& p)
     meter.pluginColour = airwindowsLookAndFeel.defaultColour;
     meter.peakTrimDb = lastPeakTrimSeen = processorRef.peakTrimDb;
     meter.slewTrimDb = lastSlewTrimSeen = processorRef.slewTrimDb; //pick up the slew trim saved with the project
+    for (int i = 0; i < 6; ++i) meter.tune[i] = lastTuneSeen[i] = processorRef.hintTune[i];
     meter.setOpaque(true);
     meter.resetArrays();
     meter.addMouseListener(this, false);
@@ -189,6 +190,10 @@ void PluginEditor::idle()
     } else if (processorRef.slewTrimDb != lastSlewTrimSeen) {
         meter.slewTrimDb = lastSlewTrimSeen = processorRef.slewTrimDb; //a project or preset loaded a different one
         meter.repaint();
+    }
+    for (int i = 0; i < 6; ++i) { //hint tuning: same two-way sync as the trims
+        if (meter.tune[i] != lastTuneSeen[i]) processorRef.hintTune[i] = lastTuneSeen[i] = meter.tune[i];
+        else if (processorRef.hintTune[i] != lastTuneSeen[i]) {meter.tune[i] = lastTuneSeen[i] = processorRef.hintTune[i]; meter.repaint();}
     }
     if (repaintTS) {
         if (airwindowsLookAndFeel.useToneColor && meter.backdropColour.operator!=(meter.cachedColour)) {
