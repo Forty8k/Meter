@@ -33,9 +33,10 @@ static int tuneLabelX(int displayWidth, float vS, int k) {return displayWidth/2 
 static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, int displayHeight, float vS)
 {
     if (displayWidth < 700 || tuneFont(vS) <= 10.0f) return -1;
-    if (event.y >= displayHeight-28) { //detail bin decay (6) and fill gate (7), bottom right
+    if (event.y >= displayHeight-36) { //detail bin decay (6), fill gate (7) and hint speed (8), bottom right
         if (event.x >= displayWidth-70-tuneLabelW(vS) && event.x < displayWidth-70) return 6;
         if (event.x >= displayWidth-80-2*tuneLabelW(vS) && event.x < displayWidth-80-tuneLabelW(vS)) return 7;
+        if (event.x >= displayWidth-90-3*tuneLabelW(vS) && event.x < displayWidth-90-2*tuneLabelW(vS)) return 8;
     }
     for (int sec = 0; sec < 3; ++sec) {
         const float bottom = 200.0f*(float)sec + (sec == 0 ? AirwindowsMeter::stripTopUnits : AirwindowsMeter::stripMidUnits);
@@ -157,7 +158,7 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                 //called "under" when it rarely reaches the upper half at all.
                 const float pos[3][2] = {{bassL, bassR}, {peakL, peakR}, {slewL, slewR}};
                 const float overAt[3] = {190.0f, 197.0f, 194.0f};
-                const float avgRate = 0.02f;
+                const float avgRate = 0.01f + 0.07f*tune[8]; //how fast the hint averages move (the hint speed control)
                 for (int m = 0; m < 3; ++m) {
                     const float top = fmax(pos[m][0], pos[m][1]);
                     hintOverAvg[m] += ((top >= overAt[m] ? 1.0f : 0.0f) - hintOverAvg[m]) * avgRate;
@@ -177,13 +178,13 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                 const float redNow = ((psDotSizeL <= 1.0f && slewL > peakL) ? 0.5f : 0.0f) + ((psDotSizeR <= 1.0f && slewR > peakR) ? 0.5f : 0.0f);
                 const float greenNow = ((psDotSizeL <= 1.0f && slewL <= peakL) ? 0.5f : 0.0f) + ((psDotSizeR <= 1.0f && slewR <= peakR) ? 0.5f : 0.0f);
                 if (fmax(peakL, peakR) > 70.0f) { //quiet gaps between notes (peak below about -18 dB) say nothing about balance, so they are skipped
-                    //Consecutive windows count more: a lone hi-hat hit is often fine, a sustained run is not. The weight ramps up (squared) over 16 windows in a row, and an off window only halves the run.
+                    //Consecutive windows count more: a lone hi-hat hit is often fine, a sustained run is not. A lone window counts 40%, rising to full over 8 in a row, and an off window only halves the run.
                     hintRedRun = (redNow > 0.5f) ? hintRedRun + 1.0f : hintRedRun*0.5f; //a single off window halves the run instead of ending it
                     hintGreenRun = (greenNow > 0.5f) ? hintGreenRun + 1.0f : hintGreenRun*0.5f;
-                    const float redRamp = fmin(hintRedRun / 16.0f, 1.0f);
-                    const float redWeighted = redNow * redRamp * redRamp; //brief bursts count for little, sustained runs fully
-                    const float greenRamp = fmin(hintGreenRun / 16.0f, 1.0f);
-                    const float greenWeighted = greenNow * greenRamp * greenRamp;
+                    const float redRamp = 0.4f + 0.6f*fmin(hintRedRun / 8.0f, 1.0f); //a lone hot window counts 40%, a run of 8 in a row counts fully
+                    const float redWeighted = redNow * redRamp;
+                    const float greenRamp = 0.4f + 0.6f*fmin(hintGreenRun / 8.0f, 1.0f);
+                    const float greenWeighted = greenNow * greenRamp;
                     hintRedAvg += (redWeighted - hintRedAvg) * avgRate;
                     hintGreenAvg += (greenWeighted - hintGreenAvg) * avgRate;
                 }
@@ -195,7 +196,9 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
         auto addSlew = [&](unsigned long b, float size) {
             if (b > 0 && b <= totalBins) {
                 const float up = (float)b/(float)totalBins;
-                slewTrack[b] += size * (slewHitPrev[b] ? 1.0f : 1.0f - 0.6f*tune[7]*up);
+                const float mult = slewHitPrev[b] ? 1.0f : 1.0f - 0.6f*tune[7]*up;
+                slewTrack[b] += size * mult;
+                gateKept += size * mult; gateAll += size;
                 slewHitNow[b] = true;
             }
         };
@@ -247,6 +250,13 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
         }
         {
             for (unsigned long b = 0; b < totalBins+2; ++b) {slewHitPrev[b] = slewHitNow[b]; slewHitNow[b] = false;}
+            if (gateAll > 0.0001f) gateEffectAvg += ((1.0f - gateKept/gateAll) - gateEffectAvg) * 0.05f; else gateEffectAvg *= 0.95f;
+            gateKept = 0.0f; gateAll = 0.0f;
+            {   //how full the hottest slew bins are (top 5 of 14), for the decay indicator
+                float hot = 0.0f;
+                for (unsigned long b = totalBins-4; b <= totalBins; ++b) hot += slewTrack[b];
+                slewHotFill += (fmin(hot/(5.0f*1.618f), 1.0f) - slewHotFill) * 0.3f;
+            }
             outputB += peakScore;
             outputR += slewScore;
             outputG += bassScore;
@@ -909,10 +919,25 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     g.setColour(active ? juce::Colour(255, 70, 60) : stripTextCol);
                     g.fillEllipse((float)lx + (float)lw*0.9f*fmin(live[i],1.0f) - 3.0f, gy - 3.0f, 6.0f, 6.0f);
                 }
-                g.setColour(labelCol);
-                g.setOpacity(0.9f);
-                g.drawText(juce::String("fill gate ") + fmt(tune[7]), displayWidth-80-2*tuneLabelW(vS), displayHeight-24, tuneLabelW(vS), 20, juce::Justification::bottomRight);
-                g.drawText(juce::String("detail decay ") + fmt(tune[6]), displayWidth-70-tuneLabelW(vS), displayHeight-24, tuneLabelW(vS), 20, juce::Justification::bottomRight);
+                const int bw = tuneLabelW(vS);
+                const int by = displayHeight-32;
+                const struct {const char* name; int idx; int x; float live; bool hasLive;} bottom[3] = {
+                    {"detail decay ", 6, displayWidth-70-bw, slewHotFill, true},
+                    {"fill gate ", 7, displayWidth-80-2*bw, gateEffectAvg, true},
+                    {"hint speed ", 8, displayWidth-90-3*bw, 0.0f, false}};
+                for (int k = 0; k < 3; ++k) {
+                    g.setColour(labelCol);
+                    g.setOpacity(0.9f);
+                    g.drawText(juce::String(bottom[k].name) + fmt(tune[bottom[k].idx]) + (bottom[k].hasLive ? juce::String(" [") + fmt(bottom[k].live) + "]" : juce::String()),
+                               bottom[k].x, by, bw, 20, juce::Justification::bottomLeft);
+                    //the same kind of gauge: tick = setting, dot = live effect (decay: how full the hot bins are; gate: share of detail fill held back)
+                    const float gy = (float)(by + 26);
+                    g.setOpacity(0.3f);
+                    g.fillRect((float)bottom[k].x, gy, (float)bw*0.9f, 1.0f);
+                    g.setOpacity(0.9f);
+                    g.fillRect((float)bottom[k].x + (float)bw*0.9f*tune[bottom[k].idx] - 1.0f, gy - 3.0f, 2.0f, 7.0f);
+                    if (bottom[k].hasLive) g.fillEllipse((float)bottom[k].x + (float)bw*0.9f*fmin(bottom[k].live,1.0f) - 3.0f, gy - 3.0f, 6.0f, 6.0f);
+                }
             }
             g.setColour(labelCol);
             g.setOpacity(tuneOpen ? 0.9f : 0.4f);
