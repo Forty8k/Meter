@@ -207,15 +207,17 @@ struct AirwindowsMeter : public juce::Component
     float trimDragStart = 0.0f;
     //HINT TUNING (a small "tune" label at the bottom right shows or hides it): where each hint switches on, 0-1. Index = section*2 + (0 = the "more" hint
     //light / headroom / dark, 1 = the "less" hint heavy / squashed / bright). Saved with the project, defaults are the calibrated values.
+    //tune[10] = heavy line and tune[9] = light line: where on the body meter the heavy / light shares are measured (the labels show the Hz)
     //tune[8] = hint speed: how fast all the hint averages rise and fall (rate = 0.01 + 0.07*value)
     //tune[7] = detail fill gate: a hot slew bin only fills at full strength if it was also hit in the window before; lone hits count for less (0 = the original)
     //tune[6] = detail bin decay: hot slew bins empty faster, so brief overslews fade quickly and sustained ones stay full (0 = the original decay)
-    float tune[9] = {0.30f, 0.65f, 0.25f, 0.25f, 0.70f, 0.35f, 0.15f, 0.50f, 0.14f};
-    static constexpr float tuneDefault[9] = {0.30f, 0.65f, 0.25f, 0.25f, 0.70f, 0.35f, 0.15f, 0.50f, 0.14f};
+    float tune[11] = {0.30f, 0.50f, 0.25f, 0.25f, 0.70f, 0.35f, 0.15f, 0.50f, 0.14f, 0.42f, 0.56f};
+    static constexpr float tuneDefault[11] = {0.30f, 0.50f, 0.25f, 0.25f, 0.70f, 0.35f, 0.15f, 0.50f, 0.14f, 0.42f, 0.56f};
     bool tuneOpen = false;
     int tuneDragging = -1;
     float tuneDragStart = 0.0f;
-    float hintDeepAvg = 0.0f;     //low end: share of recent dots reaching below about 60 Hz
+    float hintDeepAvg = 0.0f;     //low end: share of recent bass dot size below the heavy line
+    float bassAccTotal = 0.0f, bassAccLow = 0.0f, bassAccDeep = 0.0f; //slow averages of the bass dot size in total / below the light line / below the heavy line
     float slewHotFill = 0.0f;    //detail: how full the hottest slew bins are right now, 0-1 (shown next to the decay setting)
     float gateEffectAvg = 0.0f;  //detail: share of slew fill the gate is currently holding back (shown next to the gate setting)
     float gateKept = 0.0f, gateAll = 0.0f; //this window's slew fill after / before the gate
@@ -292,6 +294,7 @@ struct AirwindowsMeter : public juce::Component
         hintRedAvg = 0.0f;
         hintGreenAvg = 0.0f;
         hintDeepAvg = 0.0f;
+        bassAccTotal = 0.0f; bassAccLow = 0.0f; bassAccDeep = 0.0f;
         peakCeil = 0.0f;
         slewHotFill = 0.0f; gateEffectAvg = 0.0f; gateKept = 0.0f; gateAll = 0.0f;
         hintCeilAvg = 0.0f;

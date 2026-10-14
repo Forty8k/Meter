@@ -8,6 +8,18 @@
 #  define M_PI_2 (1.57079632679489661923)
 #endif
 
+//BODY LINES: where on the body meter (position 0-200, 0 = top) the light and heavy shares are measured. The tune values 0-1 map onto these ranges.
+static float bodyLightPos(float v) {return 80.0f + 50.0f*v;}   //about 420 Hz down to 100 Hz (default 210 Hz)
+static float bodyHeavyPos(float v) {return 125.0f + 45.0f*v;}  //about 100 Hz down to 40 Hz (default 60 Hz)
+static float bodyHzFromPos(float p) {                          //the meter's own frequency lines, interpolated
+    static const float posA[6] = {60.0f, 101.02f, 130.02f, 150.2f, 164.9f, 175.2f};
+    static const float hzA[6] = {900.0f, 210.0f, 100.0f, 60.0f, 45.0f, 35.0f};
+    int i = 0;
+    while (i < 4 && p > posA[i+1]) ++i;
+    const float t = (p - posA[i]) / (posA[i+1] - posA[i]);
+    return expf(logf(hzA[i]) + t*(logf(hzA[i+1]) - logf(hzA[i])));
+}
+
 //The trim labels live in the peaks strip (1) and the slews strip (2). Returns which one a click at this position is on, or 0 for neither.
 static int onTrimLabel(const juce::MouseEvent &event, int displayWidth, float vS)
 {
@@ -41,9 +53,9 @@ static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, int disp
     for (int sec = 0; sec < 3; ++sec) {
         const float bottom = 200.0f*(float)sec + (sec == 0 ? AirwindowsMeter::stripTopUnits : AirwindowsMeter::stripMidUnits);
         if (event.y < (int)((bottom-32.0f)*vS) || event.y >= (int)(bottom*vS)) continue; //the whole label, text and gauge
-        for (int k = 0; k < 2; ++k) {
+        for (int k = (sec == 0 ? -2 : 0); k < 2; ++k) { //the body strip also has the two line controls to the left of its hint controls
             const int x0 = tuneLabelX(displayWidth, vS, k);
-            if (event.x >= x0 && event.x < x0+tuneLabelW(vS)) return sec*2 + k;
+            if (event.x >= x0 && event.x < x0+tuneLabelW(vS)) return k < 0 ? 11 + k : sec*2 + k; //k=-2 -> 9 (light line), k=-1 -> 10 (heavy line)
         }
     }
     return -1;
@@ -158,10 +170,17 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                 const float avgRate = 0.01f + 0.07f*tune[8]; //how fast the hint averages move (the hint speed control)
                 const bool audible = fmax(peakL, peakR) > 70.0f;
                 if (audible) {
-                    const float topBass = fmax(bassL, bassR);
+                    //LOW END: how much of the bass (by dot size, so loud sustained bass counts more than stray low notes) sits below the light line and the heavy line
+                    const float lightPos = bodyLightPos(tune[9]), heavyPos = bodyHeavyPos(tune[10]);
+                    const float bassTotal = bassDotSizeL + bassDotSizeR;
+                    const float bassLow = (bassL >= lightPos ? bassDotSizeL : 0.0f) + (bassR >= lightPos ? bassDotSizeR : 0.0f);
+                    const float bassDeep = (bassL >= heavyPos ? bassDotSizeL : 0.0f) + (bassR >= heavyPos ? bassDotSizeR : 0.0f);
+                    bassAccTotal += (bassTotal - bassAccTotal) * avgRate;
+                    bassAccLow += (bassLow - bassAccLow) * avgRate;
+                    bassAccDeep += (bassDeep - bassAccDeep) * avgRate;
+                    hintUpperAvg[0] = bassAccLow / fmax(bassAccTotal, 0.0001f);   //share of the bass below the light line (light = rarely much)
+                    hintDeepAvg = bassAccDeep / fmax(bassAccTotal, 0.0001f);      //share of the bass below the heavy line
                     const float topPeak = fmax(peakL, peakR);
-                    hintUpperAvg[0] += ((topBass >= 100.0f ? 1.0f : 0.0f) - hintUpperAvg[0]) * avgRate; //low end: does the bass reach the lower half (below ~210 Hz)?
-                    hintDeepAvg += ((topBass >= 150.0f ? 1.0f : 0.0f) - hintDeepAvg) * avgRate;         //low end: how often it reaches below about 60 Hz
                     hintUpperAvg[1] += ((topPeak >= 140.0f ? 1.0f : 0.0f) - hintUpperAvg[1]) * avgRate; //dynamics: does a cloud reach the top 6 dB?
                     //dynamics: the track's own ceiling, which follows where peaks keep landing (it rises gradually, so one stray over does not lift it past a plateau).
                     //A limited master piles up just under it, even when it is exported well below 0 dB.
@@ -912,6 +931,22 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     g.fillRect((float)lx + (float)lw*0.9f*tune[i] - 1.0f, gy - 3.0f, 2.0f, 7.0f);
                     g.setColour(active ? juce::Colour(255, 70, 60) : stripTextCol);
                     g.fillEllipse((float)lx + (float)lw*0.9f*fmin(live[i],1.0f) - 3.0f, gy - 3.0f, 6.0f, 6.0f);
+                }
+                {   //the two body lines, to the left of the body hint controls: a tick shows where the line is, the label says which frequency that is
+                    const float bBottom = stripTopUnits;
+                    for (int k = -2; k < 0; ++k) {
+                        const int idx = 11 + k;
+                        const float pos = (idx == 9) ? bodyLightPos(tune[9]) : bodyHeavyPos(tune[10]);
+                        const int hz = (int)(bodyHzFromPos(pos) + 0.5f);
+                        const int lx = tuneLabelX(displayWidth, vS, k), lw = tuneLabelW(vS);
+                        stripText(juce::String(idx == 9 ? "light line " : "heavy line ") + juce::String(hz) + "Hz",
+                                  lx, (int)((bBottom-30.0f)*vS), lw, (int)(24.0f*vS), juce::Justification::bottomLeft, 0.8f);
+                        const float gy = (bBottom-3.0f)*vS;
+                        g.setColour(stripTextCol); g.setOpacity(0.25f);
+                        g.fillRect((float)lx, gy, (float)lw*0.9f, 1.0f);
+                        g.setOpacity(0.9f);
+                        g.fillRect((float)lx + (float)lw*0.9f*tune[idx] - 1.0f, gy - 3.0f, 2.0f, 7.0f);
+                    }
                 }
                 const int bw = tuneLabelW(vS);
                 const int by = displayHeight-32;
