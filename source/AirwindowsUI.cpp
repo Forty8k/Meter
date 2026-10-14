@@ -254,7 +254,7 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
             gateKept = 0.0f; gateAll = 0.0f;
             {   //how full the hottest slew bins are (top 5 of 14), for the decay indicator
                 float hot = 0.0f;
-                for (unsigned long b = totalBins-4; b <= totalBins; ++b) hot += slewTrack[b];
+                for (unsigned long b = totalBins-5; b < totalBins; ++b) hot += slewTrack[b]; //bins 9-13: the top bin (14) is never drained or scored, so it is left out
                 slewHotFill += (fmin(hot/(5.0f*1.618f), 1.0f) - slewHotFill) * 0.3f;
             }
             outputB += peakScore;
@@ -803,7 +803,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     int state = hintState[hint];
                     bool overNow, overKeep, underNow, underKeep;
                     if (hint == 2) { //slews: colour balance. over = bright (red share), under = dark (green share)
-                        overNow = hintRedAvg > tune[5];    overKeep = hintRedAvg > fmax(tune[5]-0.06f, 0.0f);
+                        const float brightLive = 1.0f - expf(-4.0f*hintRedAvg); //spreads the red share (rarely above 0.5, usually under 0.15) over the whole 0-1 range so it can be tuned
+                        overNow = brightLive > tune[5];    overKeep = brightLive > fmax(tune[5]-0.06f, 0.0f);
                         underNow = hintGreenAvg > tune[4]; underKeep = hintGreenAvg > fmax(tune[4]-0.10f, 0.0f);
                     } else if (hint == 1) { //peaks: a flat line at the top is squashed, a cloud that rarely reaches the top 6 dB has headroom
                         overNow = hintCeilAvg > tune[3];
@@ -818,10 +819,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     }
                     if (state == 1 && !overKeep) state = 0;
                     if (state == -1 && !underKeep) state = 0;
-                    if (state == 0) {
-                        if (overNow) state = 1;
-                        else if (underNow) state = -1;
-                    }
+                    if (overNow) state = 1;                    //"over" can take over from "under" directly (e.g. heavy replaces light), it does not have to wait for it to clear
+                    else if (state == 0 && underNow) state = -1;
                     hintState[hint] = state;
                     hintText[hint] = (state > 0) ? hintTextLess[hint] : hintTextMore[hint]; //the text keeps its last wording while it fades out
                     const float target = (state != 0) ? quietGate : 0.0f;
@@ -901,7 +900,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             g.setFont(scaleFont*0.95f);
             if (tuneOpen) {
                 const char* tuneNames[6] = {"light<", "heavy>", "headroom<", "squashed>", "dark>", "bright>"};
-                const float live[6] = {hintUpperAvg[0], hintDeepAvg, hintUpperAvg[1], hintCeilAvg, hintGreenAvg, hintRedAvg};
+                const float live[6] = {hintUpperAvg[0], hintDeepAvg, hintUpperAvg[1], hintCeilAvg, hintGreenAvg, 1.0f - expf(-4.0f*hintRedAvg)};
                 auto fmt = [](float v) { juce::String t = juce::String(v, 2); return t.startsWith("0.") ? t.substring(1) : t; };
                 for (int i = 0; i < 6; ++i) {
                     const int sec = i/2;
