@@ -1055,7 +1055,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                 g.setOpacity(1.0f);
                 kx += chip + 4.0f + (float)tw + 8.0f;
             }
-            const juce::String keyRight("white = balanced | tint = focus area");
+            const juce::String keyRight("colour tint = focus area");
             g.setColour(juce::Colours::white);
             g.setOpacity(0.618f);
             g.drawText(keyRight, displayWidth-321-(int)scaleFont/2, 1, 320, (int)(20.0f*vS), juce::Justification::centredRight);
