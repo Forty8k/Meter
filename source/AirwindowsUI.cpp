@@ -856,7 +856,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     int state = hintState[hint];
                     bool overNow, overKeep, underNow, underKeep;
                     if (hint == 2) { //slews: colour balance. over = bright (red share), under = dark (green share)
-                        const float brightLive = 1.0f - expf(-4.0f*hintRedAvg); //spreads the red share (rarely above 0.5, usually under 0.15) over the whole 0-1 range so it can be tuned
+                        const float brightLive = 1.0f - expf(-brightSpread*hintRedAvg); //spreads the red share (rarely above 0.5, usually under 0.15) over the whole 0-1 range so it can be tuned
                         overNow = brightLive > tune[5];    overKeep = brightLive > fmax(tune[5]-0.06f, 0.0f);
                         const float darkRead = 1.0f - hintGreenAvg; //1 = nothing dark, 0 = fully dark, so dark sits on the left like light and headroom
                         underNow = darkRead < tune[4]; underKeep = darkRead < fmin(tune[4]+0.10f, 1.0f);
@@ -988,7 +988,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             }
             {   //DYNAMICS and DETAIL: a pair of gauges each. The hint shows when the dot crosses the tick in the arrow's direction.
                 const char* tuneNames[4] = {"headroom<", "squashed>", "dark<", "bright>"};
-                const float live[4] = {hintUpperAvg[1], hintCeilAvg, 1.0f - hintGreenAvg, 1.0f - expf(-4.0f*hintRedAvg)};
+                const float live[4] = {hintUpperAvg[1], hintCeilAvg, 1.0f - hintGreenAvg, 1.0f - expf(-brightSpread*hintRedAvg)};
                 for (int j = 0; j < 4; ++j) {
                     const int i = j + 2, sec = i/2;
                     const bool active = (i%2 == 0) ? (hintState[sec] == -1) : (hintState[sec] == 1); //this label's hint is showing now
