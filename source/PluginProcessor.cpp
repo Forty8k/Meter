@@ -39,6 +39,7 @@ void PluginProcessor::loadUserDefaults()
         const double v = xml->getDoubleAttribute(juce::String("tune")+juce::String(i), (double)userTune[i]);
         if (v >= 0.0 && v <= 1.0) userTune[i] = (float)v;
     }
+    if (xml->getIntAttribute("ver", 1) < 2) userTune[4] = 1.0f - userTune[4]; //older file: the dark level used to be measured the other way (dark>)
     const double pt = xml->getDoubleAttribute("peaktrim", 0.0);
     const double st = xml->getDoubleAttribute("slewtrim", 0.0);
     userPeakTrim = (pt <= 0.0 && pt >= -24.0) ? (float)pt : 0.0f;
@@ -52,6 +53,7 @@ void PluginProcessor::saveUserDefaults(const float* tuneIn, float peakTrimIn, fl
     userSlewTrim = slewTrimIn;
     juce::XmlElement xml("meterdefaults");
     for (int i = 0; i < 11; ++i) xml.setAttribute(juce::String("tune")+juce::String(i), (double)userTune[i]);
+    xml.setAttribute("ver", 2); //version 2: the dark level (tune 4) reads the other way round (dark<), so older files are converted when loaded
     xml.setAttribute("peaktrim", (double)userPeakTrim);
     xml.setAttribute("slewtrim", (double)userSlewTrim);
     const juce::File f = userDefaultsFile();
@@ -163,6 +165,7 @@ void PluginProcessor::getStateInformation (juce::MemoryBlock& destData)
     xml->setAttribute(juce::String("awm_slewtrim"), (double)slewTrimDb);
     xml->setAttribute(juce::String("awm_peaktrim"), (double)peakTrimDb);
     for (int i = 0; i < 11; ++i) xml->setAttribute(juce::String("awm_tune")+juce::String(i), (double)hintTune[i]);
+    xml->setAttribute("awm_tunever", 2); //version 2: dark level reads dark< (older projects are converted when loaded)
     copyXmlToBinary(*xml, destData);
 }
 
@@ -189,6 +192,7 @@ void PluginProcessor::setStateInformation (const void* data, int sizeInBytes)
                 hintTune[i] = (float)xmlState->getDoubleAttribute(juce::String("awm_tune")+juce::String(i), (double)userTune[i]);
                 if (!(hintTune[i] >= 0.0f && hintTune[i] <= 1.0f)) hintTune[i] = userTune[i];
             }
+            if (xmlState->hasAttribute("awm_tune4") && xmlState->getIntAttribute("awm_tunever", 1) < 2) hintTune[4] = 1.0f - hintTune[4]; //older project: dark> level becomes dark<
         }
         updateHostDisplay();
     }

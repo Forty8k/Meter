@@ -40,7 +40,15 @@ static bool onTuneToggle(const juce::MouseEvent &event, int displayWidth, int di
 //Geometry shared by drawing and clicking: the tune labels scale with the text size, so the numbers never get cut off.
 static float tuneFont(float vS) {return (float)sqrt(vS*64.0f)*1.618f;}
 static int tuneLabelW(float vS) {return (int)(tuneFont(vS)*11.0f);}
-static int tuneLabelX(int displayWidth, float vS, int k) {return displayWidth/2 + (int)(tuneFont(vS)*5.0f) + k*(tuneLabelW(vS)+(int)(tuneFont(vS)*0.4f));}
+static int tuneGap(float vS) {return (int)(tuneFont(vS)*0.2f);}
+static int tuneLineW(float vS) {return (int)(tuneFont(vS)*9.0f);} //the two body line labels are a little narrower
+//The hint pair (k = 0, 1) is centred on the strip so the two gauges meet in the middle and read as one scale. The two body line controls (k = -1, -2) sit to its left.
+static int tuneLabelX(int displayWidth, float vS, int k)
+{
+    const int x0 = displayWidth/2 - tuneLabelW(vS) - tuneGap(vS)/2;
+    if (k >= 0) return x0 + k*(tuneLabelW(vS)+tuneGap(vS));
+    return x0 + k*(tuneLineW(vS)+tuneGap(vS));
+}
 
 static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, int displayHeight, float vS)
 {
@@ -55,7 +63,7 @@ static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, int disp
         if (event.y < (int)((bottom-32.0f)*vS) || event.y >= (int)(bottom*vS)) continue; //the whole label, text and gauge
         for (int k = (sec == 0 ? -2 : 0); k < 2; ++k) { //the body strip also has the two line controls to the left of its hint controls
             const int x0 = tuneLabelX(displayWidth, vS, k);
-            if (event.x >= x0 && event.x < x0+tuneLabelW(vS)) return k < 0 ? 11 + k : sec*2 + k; //k=-2 -> 9 (light line), k=-1 -> 10 (heavy line)
+            if (event.x >= x0 && event.x < x0+(k < 0 ? tuneLineW(vS) : tuneLabelW(vS))) return k < 0 ? 11 + k : sec*2 + k; //k=-2 -> 9 (light line), k=-1 -> 10 (heavy line)
         }
     }
     return -1;
@@ -839,7 +847,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     if (hint == 2) { //slews: colour balance. over = bright (red share), under = dark (green share)
                         const float brightLive = 1.0f - expf(-4.0f*hintRedAvg); //spreads the red share (rarely above 0.5, usually under 0.15) over the whole 0-1 range so it can be tuned
                         overNow = brightLive > tune[5];    overKeep = brightLive > fmax(tune[5]-0.06f, 0.0f);
-                        underNow = hintGreenAvg > tune[4]; underKeep = hintGreenAvg > fmax(tune[4]-0.10f, 0.0f);
+                        const float darkRead = 1.0f - hintGreenAvg; //1 = nothing dark, 0 = fully dark, so dark sits on the left like light and headroom
+                        underNow = darkRead < tune[4]; underKeep = darkRead < fmin(tune[4]+0.10f, 1.0f);
                     } else if (hint == 1) { //peaks: a flat line at the top is squashed, a cloud that rarely reaches the top 6 dB has headroom
                         overNow = hintCeilAvg > tune[3];
                         overKeep = hintCeilAvg >= fmax(tune[3]-0.07f, 0.0f);
@@ -864,7 +873,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         }
     }
     
-    const juce::String scoreStr = bonusScore+totalPackage+authority+power+detail+(tune[6] > 0.005f || tune[7] > 0.005f ? juce::String("*") : juce::String()); //* = the detail bin decay is on, so the grades are no longer the original Meter's
+    const juce::String scoreStr = bonusScore+totalPackage+authority+power+detail;
     float scaleFont = (sqrt(vS*64.0f)*1.618f);
     if (scaleFont > 10.0f) {
         g.setFont(scaleFont*1.618f);
@@ -934,8 +943,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             g.setFont(scaleFont*0.95f);
             auto fmt = [](float v) { juce::String t = juce::String(v, 2); return t.startsWith("0.") ? t.substring(1) : t; };
             {   //the six hint gauges stay up when the tune section is closed, locked at their settings (only a click on "tune" unlocks them)
-                const char* tuneNames[6] = {"light<", "heavy>", "headroom<", "squashed>", "dark>", "bright>"};
-                const float live[6] = {hintUpperAvg[0], hintDeepAvg, hintUpperAvg[1], hintCeilAvg, hintGreenAvg, 1.0f - expf(-4.0f*hintRedAvg)};
+                const char* tuneNames[6] = {"light<", "heavy>", "headroom<", "squashed>", "dark<", "bright>"};
+                const float live[6] = {hintUpperAvg[0], hintDeepAvg, hintUpperAvg[1], hintCeilAvg, 1.0f - hintGreenAvg, 1.0f - expf(-4.0f*hintRedAvg)};
                 for (int i = 0; i < 6; ++i) {
                     const int sec = i/2;
                     const bool active = (i%2 == 0) ? (hintState[sec] == -1) : (hintState[sec] == 1); //this label's hint is showing now
@@ -946,11 +955,11 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     //a small gauge under the text: the tick is the level, the dot is the live measurement. The hint shows when the dot crosses the tick in the arrow's direction.
                     const float gy = (bottom-3.0f)*vS;
                     g.setColour(stripTextCol); g.setOpacity(0.25f);
-                    g.fillRect((float)lx, gy, (float)lw*0.9f, 1.0f);
+                    g.fillRect((float)lx, gy, (float)lw*0.98f, 1.0f);
                     g.setOpacity(0.9f);
-                    g.fillRect((float)lx + (float)lw*0.9f*tune[i] - 1.0f, gy - 3.0f, 2.0f, 7.0f);
+                    g.fillRect((float)lx + (float)lw*0.98f*tune[i] - 1.0f, gy - 3.0f, 2.0f, 7.0f);
                     g.setColour(active ? juce::Colour(255, 70, 60) : stripTextCol);
-                    g.fillEllipse((float)lx + (float)lw*0.9f*fmin(live[i],1.0f) - 3.0f, gy - 3.0f, 6.0f, 6.0f);
+                    g.fillEllipse((float)lx + (float)lw*0.98f*fmin(live[i],1.0f) - 3.0f, gy - 3.0f, 6.0f, 6.0f);
                 }
             }
             if (tuneOpen) {
@@ -960,7 +969,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                         const int idx = 11 + k;
                         const float pos = (idx == 9) ? bodyLightPos(tune[9]) : bodyHeavyPos(tune[10]);
                         const int hz = (int)(bodyHzFromPos(pos) + 0.5f);
-                        const int lx = tuneLabelX(displayWidth, vS, k), lw = tuneLabelW(vS);
+                        const int lx = tuneLabelX(displayWidth, vS, k), lw = tuneLineW(vS);
                         stripText(juce::String(idx == 9 ? "light line " : "heavy line ") + juce::String(hz) + "Hz",
                                   lx, (int)((bBottom-30.0f)*vS), lw, (int)(24.0f*vS), juce::Justification::bottomLeft, 0.8f);
                         const float gy = (bBottom-3.0f)*vS;
@@ -1046,13 +1055,13 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                 g.setOpacity(1.0f);
                 kx += chip + 4.0f + (float)tw + 8.0f;
             }
-            const juce::String keyRight("tinted strip = that meter leads");
+            const juce::String keyRight("white = balanced | tint = focus area");
             g.setColour(juce::Colours::white);
             g.setOpacity(0.618f);
-            g.drawText(keyRight, displayWidth-261-(int)scaleFont/2, 1, 260, (int)(20.0f*vS), juce::Justification::centredRight);
+            g.drawText(keyRight, displayWidth-321-(int)scaleFont/2, 1, 320, (int)(20.0f*vS), juce::Justification::centredRight);
             g.setColour(juce::Colours::black);
             g.setOpacity(0.85f);
-            g.drawText(keyRight, displayWidth-260-(int)scaleFont/2, 0, 260, (int)(20.0f*vS), juce::Justification::centredRight);
+            g.drawText(keyRight, displayWidth-320-(int)scaleFont/2, 0, 320, (int)(20.0f*vS), juce::Justification::centredRight);
         }
         g.setOpacity(1.0f);
        //the Hit Record Letter Grade is 'totalPackage' followed by Power, Detail and Scale in order. If you have different priorities,
