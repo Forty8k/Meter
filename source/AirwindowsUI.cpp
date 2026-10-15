@@ -8,62 +8,56 @@
 #  define M_PI_2 (1.57079632679489661923)
 #endif
 
-//BODY LINES: where on the body meter (position 0-200, 0 = top) the light and heavy shares are measured. The tune values 0-1 map onto these ranges.
-static float bodyLightPos(float v) {return 80.0f + 50.0f*v;}   //about 420 Hz down to 100 Hz (default 210 Hz)
-static float bodyHeavyPos(float v) {return 125.0f + 45.0f*v;}  //about 100 Hz down to 40 Hz (default 60 Hz)
-static float bodyHzFromPos(float p) {                          //the meter's own frequency lines, interpolated
-    static const float posA[6] = {60.0f, 101.02f, 130.02f, 150.2f, 164.9f, 175.2f};
-    static const float hzA[6] = {900.0f, 210.0f, 100.0f, 60.0f, 45.0f, 35.0f};
-    int i = 0;
-    while (i < 4 && p > posA[i+1]) ++i;
-    const float t = (p - posA[i]) / (posA[i+1] - posA[i]);
-    return expf(logf(hzA[i]) + t*(logf(hzA[i+1]) - logf(hzA[i])));
-}
+//THE CONTROL RAILS: a thin dark strip along the bottom of each header strip holds that meter's hint gauge, its display trim and, when tune is open,
+//its extra settings. These helpers are shared by the drawing and the clicking, so the two always agree.
+static float tuneFont(float vS) {return (float)sqrt(vS*64.0f)*1.618f;}
+static float railBottomUnits(int sec) {return 200.0f*(float)sec + (sec == 0 ? AirwindowsMeter::stripTopUnits : AirwindowsMeter::stripMidUnits);}
+static float railTopPx(int sec, float vS) {return (railBottomUnits(sec) - AirwindowsMeter::railUnits)*vS;}
+static float railHeightPx(float vS) {return AirwindowsMeter::railUnits*vS;}
+static bool onRail(const juce::MouseEvent &event, int sec, float vS) {return event.y >= (int)railTopPx(sec, vS) && event.y < (int)(railTopPx(sec, vS)+railHeightPx(vS));}
+static int tuneLabelW(float vS) {return (int)(tuneFont(vS)*11.0f);}
+static int tuneGap(float vS) {return (int)(tuneFont(vS)*0.2f);}
+static int tuneCentreX(int displayWidth, float vS) {return displayWidth/2 - tuneLabelW(vS) - tuneGap(vS)/2;} //left edge of the centred gauge pair
+static int tunePairX(int displayWidth, float vS, int k) {return tuneCentreX(displayWidth, vS) + k*(tuneLabelW(vS)+tuneGap(vS));}
+static int tuneRightX(int displayWidth, float vS, int k) {return displayWidth - (k+1)*(tuneLabelW(vS)+tuneGap(vS)) - (int)(tuneFont(vS)*0.5f);} //k = 0 is the rightmost label
 
-//The trim labels live in the peaks strip (1) and the slews strip (2). Returns which one a click at this position is on, or 0 for neither.
+//The trim labels live on the left of the peaks rail (1) and the slews rail (2). Returns which one a click at this position is on, or 0 for neither.
 static int onTrimLabel(const juce::MouseEvent &event, int displayWidth, float vS)
 {
     const bool bigLayout = (sqrt(vS*61.8f)*1.618f) > 10.0f;
-    if (!bigLayout || displayWidth < 700 || event.x < 190 || event.x >= 410) return 0;
-    for (int sec = 1; sec <= 2; ++sec) {
-        if (event.y >= (int)(200.0f*(float)sec*vS) && event.y < (int)((200.0f*(float)sec+AirwindowsMeter::stripMidUnits)*vS)) return sec;
-    }
+    if (!bigLayout || displayWidth < 700 || event.x >= (int)(tuneFont(vS)*14.0f)) return 0;
+    for (int sec = 1; sec <= 2; ++sec) if (onRail(event, sec, vS)) return sec;
     return 0;
 }
 
-//The tune controls: a "tune" label at the bottom right, and when open two drag labels at the bottom of each strip (index = section*2 + 0/1).
+//The tune controls: a "tune" label at the bottom right opens the settings that live on the rails.
 static bool onTuneToggle(const juce::MouseEvent &event, int displayWidth, int displayHeight)
 {
     return displayWidth >= 700 && event.x >= displayWidth-70 && event.y >= displayHeight-28;
 }
 
-//Geometry shared by drawing and clicking: the tune labels scale with the text size, so the numbers never get cut off.
-static float tuneFont(float vS) {return (float)sqrt(vS*64.0f)*1.618f;}
-static int tuneLabelW(float vS) {return (int)(tuneFont(vS)*11.0f);}
-static int tuneGap(float vS) {return (int)(tuneFont(vS)*0.2f);}
-static int tuneLineW(float vS) {return (int)(tuneFont(vS)*9.0f);} //the two body line labels are a little narrower
-//The hint pair (k = 0, 1) is centred on the strip so the two gauges meet in the middle and read as one scale. The two body line controls (k = -1, -2) sit to its left.
-static int tuneLabelX(int displayWidth, float vS, int k)
-{
-    const int x0 = displayWidth/2 - tuneLabelW(vS) - tuneGap(vS)/2;
-    if (k >= 0) return x0 + k*(tuneLabelW(vS)+tuneGap(vS));
-    return x0 + k*(tuneLineW(vS)+tuneGap(vS));
-}
-
 static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, int displayHeight, float vS)
 {
     if (displayWidth < 700 || tuneFont(vS) <= 10.0f) return -1;
-    if (event.y >= displayHeight-36) { //detail bin decay (6), fill gate (7) and hint speed (8), bottom right
-        if (event.x >= displayWidth-70-tuneLabelW(vS) && event.x < displayWidth-70) return 6;
-        if (event.x >= displayWidth-80-2*tuneLabelW(vS) && event.x < displayWidth-80-tuneLabelW(vS)) return 7;
-        if (event.x >= displayWidth-90-3*tuneLabelW(vS) && event.x < displayWidth-90-2*tuneLabelW(vS)) return 8;
+    if (onRail(event, 0, vS)) {
+        const int x0 = tuneCentreX(displayWidth, vS), span = 2*tuneLabelW(vS) + tuneGap(vS);
+        if (event.x >= x0 && event.x < x0+span) { //the weight gauge is one control in three parts: light distance, balance point, heavy distance
+            const int third = (event.x-x0)*3/span;
+            return third == 0 ? 0 : (third == 1 ? 9 : 1);
+        }
+        const int xr = tuneRightX(displayWidth, vS, 0);
+        if (event.x >= xr && event.x < xr+tuneLabelW(vS)) return 8; //hint speed
+        return -1;
     }
-    for (int sec = 0; sec < 3; ++sec) {
-        const float bottom = 200.0f*(float)sec + (sec == 0 ? AirwindowsMeter::stripTopUnits : AirwindowsMeter::stripMidUnits);
-        if (event.y < (int)((bottom-32.0f)*vS) || event.y >= (int)(bottom*vS)) continue; //the whole label, text and gauge
-        for (int k = (sec == 0 ? -2 : 0); k < 2; ++k) { //the body strip also has the two line controls to the left of its hint controls
-            const int x0 = tuneLabelX(displayWidth, vS, k);
-            if (event.x >= x0 && event.x < x0+(k < 0 ? tuneLineW(vS) : tuneLabelW(vS))) return k < 0 ? 11 + k : sec*2 + k; //k=-2 -> 9 (light line), k=-1 -> 10 (heavy line)
+    for (int sec = 1; sec < 3; ++sec) {
+        if (!onRail(event, sec, vS)) continue;
+        for (int k = 0; k < 2; ++k) {
+            const int x0 = tunePairX(displayWidth, vS, k);
+            if (event.x >= x0 && event.x < x0+tuneLabelW(vS)) return sec*2 + k;
+        }
+        if (sec == 2) for (int k = 0; k < 2; ++k) { //detail decay (6) at the far right, fill gate (7) beside it
+            const int x0 = tuneRightX(displayWidth, vS, k);
+            if (event.x >= x0 && event.x < x0+tuneLabelW(vS)) return k == 0 ? 6 : 7;
         }
     }
     return -1;
@@ -73,14 +67,14 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
 {
     float vS = displayHeight/600.0f;
     if (onTuneToggle(event, displayWidth, displayHeight)) {tuneOpen = !tuneOpen; repaint(); return;}
-    if (tuneOpen && displayWidth >= 700 && event.y >= displayHeight-58 && event.y < displayHeight-38) {
-        if (event.x >= displayWidth-120 && event.x < displayWidth-6) { //save the current tune values and trims as the default for new instances
+    if (tuneOpen && displayWidth >= 700 && event.y >= displayHeight-28) {
+        if (event.x >= displayWidth-190 && event.x < displayWidth-76) { //save the current tune values and trims as the default for new instances
             if (onSaveDefault) onSaveDefault();
             savedAtMs = juce::Time::getMillisecondCounter();
             repaint();
             return;
         }
-        if (event.x >= displayWidth-210 && event.x < displayWidth-126) { //back to the built-in values
+        if (event.x >= displayWidth-270 && event.x < displayWidth-196) { //back to the built-in values
             for (int i = 0; i < 11; ++i) tune[i] = tuneDefault[i];
             repaint();
             return;
@@ -190,17 +184,25 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                 //as "never reaching the top", so quiet gaps, breaks and fades would otherwise bend the averages.
                 const float avgRate = 0.01f + 0.07f*tune[8]; //how fast the hint averages move (the hint speed control)
                 const bool audible = fmax(peakL, peakR) > 70.0f;
+                //WEIGHT (mass): the size of the weight dots as they are drawn (long zero-cross gaps and strong peaks both make them bigger), with the peak part measured
+                //against the track's own ceiling, so a rough mix and a full master read on the same scale. Big, dense clusters read high (heavy), small sparse ones read low (light).
+                //This has its own quiet gate, relative to that ceiling (about 9 dB under it) instead of the fixed level the other hints use.
+                {
+                    const float topPeakM = fmax(peakL, peakR);
+                    if (topPeakM > 8.0f) {
+                        if (topPeakM > massCeil) massCeil += (topPeakM - massCeil) * 0.04f; else massCeil -= (massCeil - topPeakM) * 0.002f;
+                        if (topPeakM > 0.355f*massCeil) {
+                            const float f = fmin(fmax(170.0f/fmax(massCeil, 40.0f), 0.8f), 4.0f); //brings the track's ceiling to about -1.5 dB
+                            auto dotMass = [&](float meterZero, float peak, float dataP) {
+                                return sqrtf(fmax(meterZero, 0.0f)*0.1f*dataP*f) + powf(fmin(peak*f, 200.0f)/140.0f, 4.0f);
+                            };
+                            const float massNow = 0.5f*(dotMass(m.meterZeroL, peakL, dataPL[col]) + dotMass(m.meterZeroR, peakR, dataPR[col]));
+                            massAvg += (massNow - massAvg) * avgRate;
+                            hintUpperAvg[0] = fmin(fmax((massAvg - 1.0f)/6.0f, 0.0f), 1.0f); //the live weight reading, 0 = light, 1 = heavy
+                        }
+                    }
+                }
                 if (audible) {
-                    //LOW END: how much of the bass (by dot size, so loud sustained bass counts more than stray low notes) sits below the light line and the heavy line
-                    const float lightPos = bodyLightPos(tune[9]), heavyPos = bodyHeavyPos(tune[10]);
-                    const float bassTotal = bassDotSizeL + bassDotSizeR;
-                    const float bassLow = (bassL >= lightPos ? bassDotSizeL : 0.0f) + (bassR >= lightPos ? bassDotSizeR : 0.0f);
-                    const float bassDeep = (bassL >= heavyPos ? bassDotSizeL : 0.0f) + (bassR >= heavyPos ? bassDotSizeR : 0.0f);
-                    bassAccTotal += (bassTotal - bassAccTotal) * avgRate;
-                    bassAccLow += (bassLow - bassAccLow) * avgRate;
-                    bassAccDeep += (bassDeep - bassAccDeep) * avgRate;
-                    hintUpperAvg[0] = bassAccLow / fmax(bassAccTotal, 0.0001f);   //share of the bass below the light line (light = rarely much)
-                    hintDeepAvg = bassAccDeep / fmax(bassAccTotal, 0.0001f);      //share of the bass below the heavy line
                     const float topPeak = fmax(peakL, peakR);
                     hintUpperAvg[1] += ((topPeak >= 140.0f ? 1.0f : 0.0f) - hintUpperAvg[1]) * avgRate; //dynamics: does a cloud reach the top 6 dB?
                     //dynamics: the track's own ceiling, which follows where peaks keep landing (it rises gradually, so one stray over does not lift it past a plateau).
@@ -854,11 +856,12 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                         overKeep = hintCeilAvg >= fmax(tune[3]-0.07f, 0.0f);
                         underNow = hintUpperAvg[1] < tune[2];
                         underKeep = hintUpperAvg[1] <= tune[2]+0.07f;
-                    } else { //low end: how often the bass reaches below ~60 Hz is heavy, how rarely it reaches the upper half is light
-                        overNow = hintDeepAvg > tune[1];
-                        overKeep = hintDeepAvg > fmax(tune[1]-0.07f, 0.0f);
-                        underNow = hintUpperAvg[0] < tune[0];
-                        underKeep = hintUpperAvg[0] <= tune[0]+0.08f;
+                    } else { //weight: the mass reading against the balance point. Below it by the light distance is light, above it by the heavy distance is heavy
+                        const float lightLevel = tune[9] - tune[0], heavyLevel = tune[9] + tune[1];
+                        overNow = hintUpperAvg[0] > heavyLevel;
+                        overKeep = hintUpperAvg[0] > heavyLevel - 0.04f;
+                        underNow = hintUpperAvg[0] < lightLevel;
+                        underKeep = hintUpperAvg[0] < lightLevel + 0.04f;
                     }
                     if (state == 1 && !overKeep) state = 0;
                     if (state == -1 && !underKeep) state = 0;
@@ -930,81 +933,77 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         stripText("detail "+detail, (int)scaleFont/2, (int)(402*vS), displayWidth/2, (int)(28.0f*vS), juce::Justification::centredLeft, 1.0f);
         stripText("slews", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(402*vS), displayWidth/2, (int)(28.0f*vS), juce::Justification::centredRight, 1.0f);
         stripText(hintText[2], 0, (int)(403*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[2],1.0f));
-        if (displayWidth >= 700) { //TRIMS: press and drag up or down on the label to shift that meter's picture, double-click to reset
-            g.setFont(scaleFont*1.1f);
-            auto trimText = [](float db) { return juce::String("display trim ") + juce::String(db > -0.05f ? 0.0f : db, 1) + " dB"; };
-            stripText(trimText(slewTrimDb), 190, (int)(402.0f*vS),
-                      220, (int)((stripMidUnits-2.0f)*vS), juce::Justification::bottomLeft, 0.6f);
-            stripText(trimText(peakTrimDb), 190, (int)(202.0f*vS),
-                      220, (int)((stripMidUnits-2.0f)*vS), juce::Justification::bottomLeft, 0.6f);
-            g.setFont(scaleFont*1.618f);
-        }
-        if (displayWidth >= 700) { //TUNING: drag a label up or down to move where that hint switches on; the number in brackets is the live measurement
+        if (displayWidth >= 700) { //THE CONTROL RAILS: hint gauges always visible; settings (greyed ticks) only respond once tune is open
             g.setFont(scaleFont*0.95f);
             auto fmt = [](float v) { juce::String t = juce::String(v, 2); return t.startsWith("0.") ? t.substring(1) : t; };
-            {   //the six hint gauges stay up when the tune section is closed, locked at their settings (only a click on "tune" unlocks them)
-                const char* tuneNames[6] = {"light<", "heavy>", "headroom<", "squashed>", "dark<", "bright>"};
-                const float live[6] = {hintUpperAvg[0], hintDeepAvg, hintUpperAvg[1], hintCeilAvg, 1.0f - hintGreenAvg, 1.0f - expf(-4.0f*hintRedAvg)};
-                for (int i = 0; i < 6; ++i) {
-                    const int sec = i/2;
+            const int rw = tuneLabelW(vS), gap = tuneGap(vS);
+            const juce::Colour railCol = dark ? juce::Colour(24, 27, 33) : juce::Colour(232, 234, 240);
+            const juce::Colour railText = dark ? labelCol : juce::Colours::black;
+            for (int sec = 0; sec < 3; ++sec) { //the dark rail itself
+                g.setColour(railCol);
+                g.fillRect(0.0f, railTopPx(sec, vS), (float)displayWidth, railHeightPx(vS));
+                g.setColour(gridCol);
+                g.fillRect(0.0f, railTopPx(sec, vS), (float)displayWidth, 1.0f);
+            }
+            auto railLabel = [&](const juce::String& t, int x, int sec, int w, juce::Justification just, float opacity) {
+                g.setColour(railText);
+                g.setOpacity(opacity);
+                g.drawText(t, x, (int)railTopPx(sec, vS) + 1, w, (int)(railHeightPx(vS)*0.68f), just);
+            };
+            //a gauge under a label: ticks are settings, the dot is the live reading
+            auto railGauge = [&](int sec, int x, float width, const float* ticks, int numTicks, float midTick, float liveV, bool hasLive, bool active) {
+                const float gy = railTopPx(sec, vS) + railHeightPx(vS) - 5.0f;
+                g.setColour(railText); g.setOpacity(0.3f);
+                g.fillRect((float)x, gy, width, 1.0f);
+                g.setOpacity(0.9f);
+                for (int t = 0; t < numTicks; ++t) g.fillRect((float)x + width*fmin(fmax(ticks[t], 0.0f), 1.0f) - 1.0f, gy - 3.0f, 2.0f, 7.0f);
+                if (midTick >= 0.0f) g.fillRect((float)x + width*fmin(fmax(midTick, 0.0f), 1.0f) - 1.0f, gy - 5.0f, 2.0f, 11.0f);
+                if (hasLive) {
+                    g.setColour(active ? juce::Colour(255, 70, 60) : railText);
+                    g.fillEllipse((float)x + width*fmin(fmax(liveV, 0.0f), 1.0f) - 3.0f, gy - 3.0f, 6.0f, 6.0f);
+                }
+            };
+            //DISPLAY TRIMS: press and drag up or down on the label to shift that meter's picture, double-click to reset
+            auto trimText = [](float db) { return juce::String("display trim ") + juce::String(db > -0.05f ? 0.0f : db, 1) + " dB"; };
+            railLabel(trimText(peakTrimDb), (int)scaleFont/2, 1, (int)(tuneFont(vS)*14.0f), juce::Justification::centredLeft, 0.6f);
+            railLabel(trimText(slewTrimDb), (int)scaleFont/2, 2, (int)(tuneFont(vS)*14.0f), juce::Justification::centredLeft, 0.6f);
+            {   //WEIGHT: one gauge with three points. The dot is the mass of the weight dots, 0 = small and sparse (light), 1 = big and dense (heavy).
+                const int x0 = tuneCentreX(displayWidth, vS), span = 2*rw + gap, third = span/3;
+                const bool lightOn = hintState[0] == -1, heavyOn = hintState[0] == 1;
+                const float bal = tune[9];
+                railLabel(juce::String(lightOn ? "* " : "") + "light -" + fmt(tune[0]), x0, 0, third, juce::Justification::centredLeft, lightOn ? 1.0f : 0.8f);
+                railLabel("balance " + fmt(bal) + " [" + fmt(hintUpperAvg[0]) + "]", x0 + third, 0, third, juce::Justification::centred, 0.9f);
+                railLabel(juce::String(heavyOn ? "* " : "") + "heavy +" + fmt(tune[1]), x0 + 2*third, 0, third, juce::Justification::centredRight, heavyOn ? 1.0f : 0.8f);
+                const float ticks[2] = {bal - tune[0], bal + tune[1]};
+                railGauge(0, x0, (float)span*0.98f, ticks, 2, bal, hintUpperAvg[0], true, lightOn || heavyOn);
+            }
+            {   //DYNAMICS and DETAIL: a pair of gauges each. The hint shows when the dot crosses the tick in the arrow's direction.
+                const char* tuneNames[4] = {"headroom<", "squashed>", "dark<", "bright>"};
+                const float live[4] = {hintUpperAvg[1], hintCeilAvg, 1.0f - hintGreenAvg, 1.0f - expf(-4.0f*hintRedAvg)};
+                for (int j = 0; j < 4; ++j) {
+                    const int i = j + 2, sec = i/2;
                     const bool active = (i%2 == 0) ? (hintState[sec] == -1) : (hintState[sec] == 1); //this label's hint is showing now
-                    const float bottom = 200.0f*(float)sec + (sec == 0 ? stripTopUnits : stripMidUnits);
-                    const int lx = tuneLabelX(displayWidth, vS, i%2), lw = tuneLabelW(vS);
-                    stripText(juce::String(active ? "* " : "") + juce::String(tuneNames[i]) + fmt(tune[i]) + " [" + fmt(live[i]) + "]",
-                              lx, (int)((bottom-30.0f)*vS), lw, (int)(24.0f*vS), juce::Justification::bottomLeft, active ? 1.0f : 0.8f);
-                    //a small gauge under the text: the tick is the level, the dot is the live measurement. The hint shows when the dot crosses the tick in the arrow's direction.
-                    const float gy = (bottom-3.0f)*vS;
-                    g.setColour(stripTextCol); g.setOpacity(0.25f);
-                    g.fillRect((float)lx, gy, (float)lw*0.98f, 1.0f);
-                    g.setOpacity(0.9f);
-                    g.fillRect((float)lx + (float)lw*0.98f*tune[i] - 1.0f, gy - 3.0f, 2.0f, 7.0f);
-                    g.setColour(active ? juce::Colour(255, 70, 60) : stripTextCol);
-                    g.fillEllipse((float)lx + (float)lw*0.98f*fmin(live[i],1.0f) - 3.0f, gy - 3.0f, 6.0f, 6.0f);
+                    const int lx = tunePairX(displayWidth, vS, i%2);
+                    railLabel(juce::String(active ? "* " : "") + juce::String(tuneNames[j]) + fmt(tune[i]) + " [" + fmt(live[j]) + "]", lx, sec, rw, juce::Justification::centredLeft, active ? 1.0f : 0.8f);
+                    railGauge(sec, lx, (float)rw*0.98f, &tune[i], 1, -1.0f, live[j], true, active);
                 }
             }
-            if (tuneOpen) {
-                {   //the two body lines, to the left of the body hint controls: a tick shows where the line is, the label says which frequency that is
-                    const float bBottom = stripTopUnits;
-                    for (int k = -2; k < 0; ++k) {
-                        const int idx = 11 + k;
-                        const float pos = (idx == 9) ? bodyLightPos(tune[9]) : bodyHeavyPos(tune[10]);
-                        const int hz = (int)(bodyHzFromPos(pos) + 0.5f);
-                        const int lx = tuneLabelX(displayWidth, vS, k), lw = tuneLineW(vS);
-                        stripText(juce::String(idx == 9 ? "light line " : "heavy line ") + juce::String(hz) + "Hz",
-                                  lx, (int)((bBottom-30.0f)*vS), lw, (int)(24.0f*vS), juce::Justification::bottomLeft, 0.8f);
-                        const float gy = (bBottom-3.0f)*vS;
-                        g.setColour(stripTextCol); g.setOpacity(0.25f);
-                        g.fillRect((float)lx, gy, (float)lw*0.9f, 1.0f);
-                        g.setOpacity(0.9f);
-                        g.fillRect((float)lx + (float)lw*0.9f*tune[idx] - 1.0f, gy - 3.0f, 2.0f, 7.0f);
-                    }
-                }
-                const int bw = tuneLabelW(vS);
-                const int by = displayHeight-32;
-                const struct {const char* name; int idx; int x; float live; bool hasLive;} bottom[3] = {
-                    {"detail decay ", 6, displayWidth-70-bw, slewHotFill, true},
-                    {"fill gate ", 7, displayWidth-80-2*bw, gateEffectAvg, true},
-                    {"hint speed ", 8, displayWidth-90-3*bw, 0.0f, false}};
-                for (int k = 0; k < 3; ++k) {
-                    g.setColour(labelCol);
-                    g.setOpacity(0.9f);
-                    g.drawText(juce::String(bottom[k].name) + fmt(tune[bottom[k].idx]) + (bottom[k].hasLive ? juce::String(" [") + fmt(bottom[k].live) + "]" : juce::String()),
-                               bottom[k].x, by, bw, 20, juce::Justification::bottomLeft);
-                    //the same kind of gauge: tick = setting, dot = live effect (decay: how full the hot bins are; gate: share of detail fill held back)
-                    const float gy = (float)(by + 26);
-                    g.setOpacity(0.3f);
-                    g.fillRect((float)bottom[k].x, gy, (float)bw*0.9f, 1.0f);
-                    g.setOpacity(0.9f);
-                    g.fillRect((float)bottom[k].x + (float)bw*0.9f*tune[bottom[k].idx] - 1.0f, gy - 3.0f, 2.0f, 7.0f);
-                    if (bottom[k].hasLive) g.fillEllipse((float)bottom[k].x + (float)bw*0.9f*fmin(bottom[k].live,1.0f) - 3.0f, gy - 3.0f, 6.0f, 6.0f);
-                }
+            if (tuneOpen) {   //the extra settings sit at the right of their rails
+                auto setting = [&](int sec, int k, const char* name, int idx, float liveV, bool hasLive) {
+                    const int x = tuneRightX(displayWidth, vS, k);
+                    railLabel(juce::String(name) + fmt(tune[idx]) + (hasLive ? juce::String(" [") + fmt(liveV) + "]" : juce::String()), x, sec, rw, juce::Justification::centredLeft, 0.9f);
+                    railGauge(sec, x, (float)rw*0.9f, &tune[idx], 1, -1.0f, liveV, hasLive, false);
+                };
+                setting(0, 0, "hint speed ", 8, 0.0f, false);
+                setting(2, 0, "detail decay ", 6, slewHotFill, true);   //decay: how full the hot bins are
+                setting(2, 1, "fill gate ", 7, gateEffectAvg, true);    //gate: share of detail fill held back
                 {   //DEFAULT PRESET: "save default" keeps the current tune values and trims for every new instance, "factory" puts the built-in values back (here only)
                     const bool justSaved = (juce::Time::getMillisecondCounter() - savedAtMs) < 1600u;
                     g.setColour(labelCol);
                     g.setOpacity(0.9f);
-                    g.drawText(justSaved ? "saved" : "save default", displayWidth-120, displayHeight-58, 114, 20, juce::Justification::bottomRight);
+                    g.drawText(justSaved ? "saved" : "save default", displayWidth-190, displayHeight-24, 114, 20, juce::Justification::bottomRight);
                     g.setOpacity(0.7f);
-                    g.drawText("factory", displayWidth-210, displayHeight-58, 84, 20, juce::Justification::bottomRight);
+                    g.drawText("factory", displayWidth-270, displayHeight-24, 74, 20, juce::Justification::bottomRight);
                 }
             }
             g.setColour(labelCol);
