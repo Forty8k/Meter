@@ -41,7 +41,11 @@ void PluginProcessor::loadUserDefaults()
     }
     const int fileVer = xml->getIntAttribute("ver", 1);
     if (fileVer < 2) userTune[4] = 1.0f - userTune[4]; //older file: the dark level used to be measured the other way (dark>)
-    if (fileVer < 3) {userTune[0] = 0.20f; userTune[1] = 0.20f; userTune[9] = 0.50f; userTune[10] = 0.50f;} //older file: the weight settings measured something else, so they restart from the new defaults
+    if (fileVer < 3) {userTune[0] = 0.18f; userTune[1] = 0.18f; userTune[9] = 0.50f; userTune[10] = 0.50f;} //older file: the weight settings measured something else, so they restart from the new defaults
+    else if (fileVer < 4) { //version 3 used a narrower scale with balance at .45: stretch it so the same trigger points are kept
+        userTune[0] = fmin(userTune[0]*1.765f, 0.98f); userTune[1] = fmin(userTune[1]*1.765f, 0.98f);
+        userTune[9] = fmin(fmax(0.5f + (userTune[9] - 0.45f)*1.765f, 0.0f), 0.98f);
+    }
     const double pt = xml->getDoubleAttribute("peaktrim", 0.0);
     const double st = xml->getDoubleAttribute("slewtrim", 0.0);
     userPeakTrim = (pt <= 0.0 && pt >= -24.0) ? (float)pt : 0.0f;
@@ -55,7 +59,7 @@ void PluginProcessor::saveUserDefaults(const float* tuneIn, float peakTrimIn, fl
     userSlewTrim = slewTrimIn;
     juce::XmlElement xml("meterdefaults");
     for (int i = 0; i < 11; ++i) xml.setAttribute(juce::String("tune")+juce::String(i), (double)userTune[i]);
-    xml.setAttribute("ver", 3); //version 2: dark level reads dark<. Version 3: weight is a mass reading with a balance point (tune 0, 1, 9, 10 mean something new)
+    xml.setAttribute("ver", 4); //version 2: dark level reads dark<. Version 3: weight is a mass reading with a balance point. Version 4: the mass scale is stretched and balanced reads .50
     xml.setAttribute("peaktrim", (double)userPeakTrim);
     xml.setAttribute("slewtrim", (double)userSlewTrim);
     const juce::File f = userDefaultsFile();
@@ -167,7 +171,7 @@ void PluginProcessor::getStateInformation (juce::MemoryBlock& destData)
     xml->setAttribute(juce::String("awm_slewtrim"), (double)slewTrimDb);
     xml->setAttribute(juce::String("awm_peaktrim"), (double)peakTrimDb);
     for (int i = 0; i < 11; ++i) xml->setAttribute(juce::String("awm_tune")+juce::String(i), (double)hintTune[i]);
-    xml->setAttribute("awm_tunever", 3); //version 3: weight mass gauge (older projects are converted or reset when loaded)
+    xml->setAttribute("awm_tunever", 4); //version 4: stretched weight mass scale (older projects are converted or reset when loaded)
     copyXmlToBinary(*xml, destData);
 }
 
@@ -196,7 +200,11 @@ void PluginProcessor::setStateInformation (const void* data, int sizeInBytes)
             }
             const int stateVer = xmlState->getIntAttribute("awm_tunever", 1);
             if (xmlState->hasAttribute("awm_tune4") && stateVer < 2) hintTune[4] = 1.0f - hintTune[4]; //older project: dark> level becomes dark<
-            if (xmlState->hasAttribute("awm_tune0") && stateVer < 3) {hintTune[0] = 0.20f; hintTune[1] = 0.20f; hintTune[9] = 0.50f; hintTune[10] = 0.50f;} //older project: weight settings restart from the new defaults
+            if (xmlState->hasAttribute("awm_tune0") && stateVer < 3) {hintTune[0] = 0.18f; hintTune[1] = 0.18f; hintTune[9] = 0.50f; hintTune[10] = 0.50f;} //older project: weight settings restart from the new defaults
+            else if (xmlState->hasAttribute("awm_tune0") && stateVer < 4) { //version 3 used a narrower scale with balance at .45: stretch it so the same trigger points are kept
+                hintTune[0] = fmin(hintTune[0]*1.765f, 0.98f); hintTune[1] = fmin(hintTune[1]*1.765f, 0.98f);
+                hintTune[9] = fmin(fmax(0.5f + (hintTune[9] - 0.45f)*1.765f, 0.0f), 0.98f);
+            }
         }
         updateHostDisplay();
     }

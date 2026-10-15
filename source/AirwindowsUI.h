@@ -209,19 +209,19 @@ struct AirwindowsMeter : public juce::Component
     //HINT TUNING (a small "tune" label at the bottom right shows or hides it): where each hint switches on, 0-1. Index = section*2 + (0 = the "more" hint
     //light / headroom / dark, 1 = the "less" hint heavy / squashed / bright). Saved with the project, defaults are the calibrated values.
     //WEIGHT: one reading (the mass of the weight dots, 0-1) on one gauge with three points: tune[9] = the balance point, tune[0] = how far BELOW it counts as light,
-    //tune[1] = how far ABOVE it counts as heavy. tune[10] is unused.
+    //tune[1] = how far ABOVE it counts as heavy. tune[10] = frequency push: how much dots below ~80 Hz count extra (heavier) and dots above ~180 Hz count less (lighter).
     //tune[8] = hint speed: how fast all the hint averages rise and fall (rate = 0.01 + 0.07*value)
     //tune[7] = detail fill gate: a hot slew bin only fills at full strength if it was also hit in the window before; lone hits count for less (0 = the original)
     //tune[6] = detail bin decay: hot slew bins empty faster, so brief overslews fade quickly and sustained ones stay full (0 = the original decay)
-    float tune[11] = {0.20f, 0.20f, 0.20f, 0.70f, 0.80f, 0.30f, 0.35f, 0.80f, 0.20f, 0.50f, 0.50f};
-    static constexpr float tuneDefault[11] = {0.20f, 0.20f, 0.20f, 0.70f, 0.80f, 0.30f, 0.35f, 0.80f, 0.20f, 0.50f, 0.50f};
-    float tuneUser[11] = {0.20f, 0.20f, 0.20f, 0.70f, 0.80f, 0.30f, 0.35f, 0.80f, 0.20f, 0.50f, 0.50f}; //the saved default preset (double-click on a label goes back to this)
+    float tune[11] = {0.18f, 0.18f, 0.30f, 0.70f, 0.30f, 0.30f, 0.30f, 0.80f, 0.10f, 0.50f, 0.50f};
+    static constexpr float tuneDefault[11] = {0.18f, 0.18f, 0.30f, 0.70f, 0.30f, 0.30f, 0.30f, 0.80f, 0.10f, 0.50f, 0.50f};
+    float tuneUser[11] = {0.18f, 0.18f, 0.30f, 0.70f, 0.30f, 0.30f, 0.30f, 0.80f, 0.10f, 0.50f, 0.50f}; //the saved default preset (double-click on a label goes back to this)
     std::function<void()> onSaveDefault; //set by the editor: writes tune and trims to the preset file
     juce::uint32 savedAtMs = 0;
     bool tuneOpen = false;
     int tuneDragging = -1;
     float tuneDragStart = 0.0f;
-    float massAvg = 4.0f;        //weight: slow average of the weight dot size (peak part measured against the track's own ceiling), see scoreColumn
+    float massAvg = 3.7f;        //weight: slow average of the weight dot size (peak part measured against the track's own ceiling), see scoreColumn
     float massCeil = 0.0f;       //weight: the track's own peak ceiling for that measure, so rough mixes and full masters read on the same scale
     float slewHotFill = 0.0f;    //detail: how full the hottest slew bins are right now, 0-1 (shown next to the decay setting)
     float gateEffectAvg = 0.0f;  //detail: share of slew fill the gate is currently holding back (shown next to the gate setting)
@@ -299,7 +299,7 @@ struct AirwindowsMeter : public juce::Component
         }
         hintRedAvg = 0.0f;
         hintGreenAvg = 0.0f;
-        massAvg = 4.0f; massCeil = 0.0f;
+        massAvg = 3.7f; massCeil = 0.0f;
         peakCeil = 0.0f;
         slewHotFill = 0.0f; gateEffectAvg = 0.0f; gateKept = 0.0f; gateAll = 0.0f;
         hintCeilAvg = 0.0f;

@@ -47,6 +47,8 @@ static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, int disp
         }
         const int xr = tuneRightX(displayWidth, vS, 0);
         if (event.x >= xr && event.x < xr+tuneLabelW(vS)) return 8; //hint speed
+        const int xp = tuneRightX(displayWidth, vS, 1);
+        if (event.x >= xp && event.x < xp+tuneLabelW(vS)) return 10; //frequency push
         return -1;
     }
     for (int sec = 1; sec < 3; ++sec) {
@@ -193,12 +195,19 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                         if (topPeakM > massCeil) massCeil += (topPeakM - massCeil) * 0.04f; else massCeil -= (massCeil - topPeakM) * 0.002f;
                         if (topPeakM > 0.355f*massCeil) {
                             const float f = fmin(fmax(170.0f/fmax(massCeil, 40.0f), 0.8f), 4.0f); //brings the track's ceiling to about -1.5 dB
-                            auto dotMass = [&](float meterZero, float peak, float dataP) {
-                                return sqrtf(fmax(meterZero, 0.0f)*0.1f*dataP*f) + powf(fmin(peak*f, 200.0f)/140.0f, 4.0f);
+                            //FREQUENCY PUSH: dots low on the meter (below about 80 Hz, positions past 139) count extra, dots high on it (above about 180 Hz, positions under 107)
+                            //count less. It ramps in smoothly rather than cutting off, and tune[10] sets how strong it is (0 = pure mass).
+                            auto dotMass = [&](float meterZero, float peak, float dataP, float bassPos) {
+                                float x = fmin(fmax((bassPos - 139.0f)/21.0f, 0.0f), 1.0f);
+                                const float lowPush = x*x*(3.0f - 2.0f*x);
+                                x = fmin(fmax((107.0f - bassPos)/25.0f, 0.0f), 1.0f);
+                                const float highPush = x*x*(3.0f - 2.0f*x);
+                                const float push = 1.0f + tune[10]*(0.6f*lowPush - 0.5f*highPush);
+                                return (sqrtf(fmax(meterZero, 0.0f)*0.1f*dataP*f) + powf(fmin(peak*f, 200.0f)/140.0f, 4.0f)) * push;
                             };
-                            const float massNow = 0.5f*(dotMass(m.meterZeroL, peakL, dataPL[col]) + dotMass(m.meterZeroR, peakR, dataPR[col]));
+                            const float massNow = 0.5f*(dotMass(m.meterZeroL, peakL, dataPL[col], bassL) + dotMass(m.meterZeroR, peakR, dataPR[col], bassR));
                             massAvg += (massNow - massAvg) * avgRate;
-                            hintUpperAvg[0] = fmin(fmax((massAvg - 1.0f)/6.0f, 0.0f), 1.0f); //the live weight reading, 0 = light, 1 = heavy
+                            hintUpperAvg[0] = fmin(fmax((massAvg - 2.0f)/3.4f, 0.0f), 1.0f); //the live weight reading, 0 = light, 0.5 = balanced, 1 = heavy
                         }
                     }
                 }
@@ -995,6 +1004,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     railGauge(sec, x, (float)rw*0.9f, &tune[idx], 1, -1.0f, liveV, hasLive, false);
                 };
                 setting(0, 0, "hint speed ", 8, 0.0f, false);
+                setting(0, 1, "push ", 10, 0.0f, false);                 //frequency push: low dots count heavier, high dots lighter
                 setting(2, 0, "detail decay ", 6, slewHotFill, true);   //decay: how full the hot bins are
                 setting(2, 1, "fill gate ", 7, gateEffectAvg, true);    //gate: share of detail fill held back
                 {   //DEFAULT PRESET: "save default" keeps the current tune values and trims for every new instance, "factory" puts the built-in values back (here only)
