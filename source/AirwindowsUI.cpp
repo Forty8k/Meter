@@ -998,8 +998,10 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                 railLabel(juce::String(lowName) + " -" + fmt(tune[idxLow]), x0, sec, third, juce::Justification::centredLeft, lowOn ? 1.0f : 0.8f);
                 railLabel("balance " + fmt(bal) + " [" + fmt(liveV) + "]", x0 + third, sec, third, juce::Justification::centred, 0.9f);
                 railLabel(juce::String(highName) + " +" + fmt(tune[idxHigh]), x0 + 2*third, sec, third, juce::Justification::centredRight, highOn ? 1.0f : 0.8f);
-                const float ticks[2] = {bal - tune[idxLow], bal + tune[idxHigh]};
-                railGauge(sec, x0, (float)span*0.98f, ticks, 2, bal, liveV, true, lowOn || highOn);
+                //The balance line stays in the middle of the gauge. The dot is drawn relative to it (the reading minus the balance point), and the two ticks sit that far either side,
+                //so changing the balance value pulls the dot toward the middle without moving anything else. The number in brackets is always the raw reading.
+                const float ticks[2] = {0.5f - tune[idxLow], 0.5f + tune[idxHigh]};
+                railGauge(sec, x0, (float)span*0.98f, ticks, 2, 0.5f, 0.5f + (liveV - bal), true, lowOn || highOn);
             };
             threePoint(0, 0, 9, 1, "light", "heavy", hintUpperAvg[0], 0);
             threePoint(1, 2, 11, 3, "headroom", "squashed", hintUpperAvg[1], 1);
