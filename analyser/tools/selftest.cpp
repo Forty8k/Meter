@@ -5,6 +5,9 @@
 #include <cstdio>
 #include <random>
 #include <functional>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 using namespace f8k;
 
 static CoreWindow mergeFine(const Capture& c, size_t firstBlock, size_t numBlocks, double sr)

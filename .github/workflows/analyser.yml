@@ -44,7 +44,12 @@ jobs:
       - name: Configure
         run: cmake -S analyser -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
       - name: Build
-        run: cmake --build build --config Release --parallel 4
+        run: |
+          set -o pipefail
+          cmake --build build --config Release --parallel 4 2>&1 | tee build.log
+      - name: Report build errors
+        if: failure()
+        run: grep -iE "error|fatal" build.log | head -40 | while IFS= read -r l; do echo "::error::${l:0:900}"; done
       - name: Self-test (capture and original scoring)
         run: ./build/F8KSelfTest
       - name: Package
