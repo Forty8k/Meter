@@ -919,17 +919,20 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                         const float darkRead = 1.0f - hintGreenAvg; //1 = nothing dark, 0 = fully dark, so dark sits on the left like light and headroom
                         underNow = darkRead < tune[4]; underKeep = darkRead < fmin(tune[4]+0.10f, 1.0f);
                     } else if (hint == 1) { //dynamics: the spread reading against the balance point. Peaks that all land in one place are squashed, peaks that swing about have headroom
-                        const float headLevel = tune[11] - tune[2], squashLevel = tune[11] + tune[3];
+                        //the two distances are shares of the room on their own side of the balance point (1.0 = the very end of the range)
+                        const float bal = tune[11], sideLo = fmax(bal, 0.01f), sideHi = fmax(1.0f - bal, 0.01f);
+                        const float headLevel = bal - tune[2]*sideLo, squashLevel = bal + tune[3]*sideHi;
                         overNow = hintReading[1] > squashLevel;
-                        overKeep = hintReading[1] > squashLevel - 0.04f;
+                        overKeep = hintReading[1] > squashLevel - 0.08f*sideHi;
                         underNow = hintReading[1] < headLevel;
-                        underKeep = hintReading[1] < headLevel + 0.04f;
+                        underKeep = hintReading[1] < headLevel + 0.08f*sideLo;
                     } else { //weight: the mass reading against the balance point. Below it by the light distance is light, above it by the heavy distance is heavy
-                        const float lightLevel = tune[9] - tune[0], heavyLevel = tune[9] + tune[1];
+                        const float bal = tune[9], sideLo = fmax(bal, 0.01f), sideHi = fmax(1.0f - bal, 0.01f);
+                        const float lightLevel = bal - tune[0]*sideLo, heavyLevel = bal + tune[1]*sideHi; //shares of the room on each side of the balance point
                         overNow = hintReading[0] > heavyLevel;
-                        overKeep = hintReading[0] > heavyLevel - 0.04f;
+                        overKeep = hintReading[0] > heavyLevel - 0.08f*sideHi;
                         underNow = hintReading[0] < lightLevel;
-                        underKeep = hintReading[0] < lightLevel + 0.04f;
+                        underKeep = hintReading[0] < lightLevel + 0.08f*sideLo;
                     }
                     if (state == 1 && !overKeep) state = 0;
                     if (state == -1 && !underKeep) state = 0;
@@ -1041,13 +1044,16 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                 const int x0 = tuneCentreX(displayWidth, vS), span = 2*rw + gap, third = span/3;
                 const bool lowOn = hintState[hint] == -1, highOn = hintState[hint] == 1;
                 const float bal = tune[idxBal];
-                railLabel(juce::String(lowName) + " -" + fmt(tune[idxLow]), x0, sec, third, juce::Justification::centredLeft, lowOn ? 1.0f : 0.8f);
+                auto pct = [](float v) {return juce::String((int)std::lround(v*100.0f)) + "%";};
+                railLabel(juce::String(lowName) + " -" + pct(tune[idxLow]), x0, sec, third, juce::Justification::centredLeft, lowOn ? 1.0f : 0.8f);
                 railLabel("balance " + fmt(bal) + " [" + fmt(liveV) + "]", x0 + third, sec, third, juce::Justification::centred, 0.9f);
-                railLabel(juce::String(highName) + " +" + fmt(tune[idxHigh]), x0 + 2*third, sec, third, juce::Justification::centredRight, highOn ? 1.0f : 0.8f);
+                railLabel(juce::String(highName) + " +" + pct(tune[idxHigh]), x0 + 2*third, sec, third, juce::Justification::centredRight, highOn ? 1.0f : 0.8f);
                 //The balance line stays in the middle of the gauge. The dot is drawn relative to it (the reading minus the balance point), and the two ticks sit that far either side,
                 //so changing the balance value pulls the dot toward the middle without moving anything else. The number in brackets is always the raw reading.
-                const float ticks[2] = {0.5f - tune[idxLow], 0.5f + tune[idxHigh]};
-                railGauge(sec, x0, (float)span*0.98f, ticks, 2, 0.5f, 0.5f + (liveV - bal), true, lowOn || highOn);
+                //Each half of the gauge is stretched to its own side of the balance point, so a setting of 30% is always 30% of the way out and can always be reached.
+                const float ticks[2] = {0.5f - 0.5f*tune[idxLow], 0.5f + 0.5f*tune[idxHigh]};
+                const float pos = (liveV >= bal) ? 0.5f + 0.5f*(liveV - bal)/fmax(1.0f - bal, 0.01f) : 0.5f - 0.5f*(bal - liveV)/fmax(bal, 0.01f);
+                railGauge(sec, x0, (float)span*0.98f, ticks, 2, 0.5f, pos, true, lowOn || highOn);
             };
             threePoint(0, 0, 9, 1, "light", "heavy", hintReading[0], 0);
             threePoint(1, 2, 11, 3, "headroom", "squashed", hintReading[1], 1);

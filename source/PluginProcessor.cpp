@@ -48,6 +48,7 @@ void PluginProcessor::loadUserDefaults()
     }
     if (fileVer < 5) userTune[5] = fmin(1.0f - powf(1.0f - userTune[5], 3.375f), 0.98f); //version 5 spread the bright reading (13.5 instead of 4): same trigger point, new number
     if (fileVer < 6) {userTune[2] = 0.30f; userTune[3] = 0.30f; userTune[11] = 0.50f;} //older file: the dynamics settings measured something else, so they restart from the new defaults
+    if (fileVer < 8) {userTune[0] = userTune[1] = userTune[2] = userTune[3] = 0.50f;} //version 8: the light/heavy/headroom/squashed distances are shares of each side of the balance point
     const double pt = xml->getDoubleAttribute("peaktrim", 0.0);
     const double st = xml->getDoubleAttribute("slewtrim", 0.0);
     userPeakTrim = (pt <= 0.0 && pt >= -24.0) ? (float)pt : 0.0f;
@@ -61,7 +62,7 @@ void PluginProcessor::saveUserDefaults(const float* tuneIn, float peakTrimIn, fl
     userSlewTrim = slewTrimIn;
     juce::XmlElement xml("meterdefaults");
     for (int i = 0; i < kNumTune; ++i) xml.setAttribute(juce::String("tune")+juce::String(i), (double)userTune[i]);
-    xml.setAttribute("ver", 7); //version 2: dark level reads dark<. Version 3: weight is a mass reading with a balance point. Version 4: the mass scale is stretched and balanced reads .50. Version 5: the bright reading is spread so its threshold sits like squashed (bright>.70). Version 6: dynamics is a spread reading with a balance point (tune 2, 3, 11)
+    xml.setAttribute("ver", 8); //version 2: dark level reads dark<. Version 3: weight is a mass reading with a balance point. Version 4: the mass scale is stretched and balanced reads .50. Version 5: the bright reading is spread so its threshold sits like squashed (bright>.70). Version 6: dynamics is a spread reading with a balance point (tune 2, 3, 11)
     xml.setAttribute("peaktrim", (double)userPeakTrim);
     xml.setAttribute("slewtrim", (double)userSlewTrim);
     const juce::File f = userDefaultsFile();
@@ -173,7 +174,7 @@ void PluginProcessor::getStateInformation (juce::MemoryBlock& destData)
     xml->setAttribute(juce::String("awm_slewtrim"), (double)slewTrimDb);
     xml->setAttribute(juce::String("awm_peaktrim"), (double)peakTrimDb);
     for (int i = 0; i < kNumTune; ++i) xml->setAttribute(juce::String("awm_tune")+juce::String(i), (double)hintTune[i]);
-    xml->setAttribute("awm_tunever", 7); //version 5: bright reading spread so its level sits like squashed. Version 6: dynamics spread reading (older projects are converted or reset when loaded)
+    xml->setAttribute("awm_tunever", 8); //version 5: bright reading spread so its level sits like squashed. Version 6: dynamics spread reading (older projects are converted or reset when loaded)
     copyXmlToBinary(*xml, destData);
 }
 
@@ -208,6 +209,7 @@ void PluginProcessor::setStateInformation (const void* data, int sizeInBytes)
                 hintTune[9] = fmin(fmax(0.5f + (hintTune[9] - 0.45f)*1.765f, 0.0f), 0.98f);
             }
             if (xmlState->hasAttribute("awm_tune2") && stateVer < 6) {hintTune[2] = 0.30f; hintTune[3] = 0.30f; hintTune[11] = 0.50f;} //older project: dynamics settings restart from the new defaults
+            if (stateVer < 8) {hintTune[0] = hintTune[1] = hintTune[2] = hintTune[3] = 0.50f;} //version 8: those distances are now shares of each side of the balance point
             if (xmlState->hasAttribute("awm_tune5") && stateVer < 5) hintTune[5] = fmin(1.0f - powf(1.0f - hintTune[5], 3.375f), 0.98f); //older project: same trigger point on the spread bright scale
         }
         updateHostDisplay();

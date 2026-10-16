@@ -210,7 +210,7 @@ struct AirwindowsMeter : public juce::Component
     //HINT TUNING (a small "tune" label at the bottom right shows or hides it): where each hint switches on, 0-1. Index = section*2 + (0 = the "more" hint
     //light / headroom / dark, 1 = the "less" hint heavy / squashed / bright). Saved with the project, defaults are the calibrated values.
     //LIVE "MORE" CONTROLS: slots 12-24, defined in TuneConfig.h (name, range, unit). They shape the weight, dynamics and detail readings. Open with tune > more.
-    //WEIGHT: one reading (the mass of the weight dots, 0-1) on one gauge with three points: tune[9] = the balance point, tune[0] = how far BELOW it counts as light,
+    //WEIGHT: one reading (the mass of the weight dots, 0-1) on one gauge with three points: tune[9] = the balance point, tune[0] = how far BELOW it (a share of the room down to the light end) counts as light,
     //tune[1] = how far ABOVE it counts as heavy. tune[10] = RETIRED (unused; the push is now set by the live "more" controls 12-17). Old note: dots below ~80 Hz count extra (heavier) and dots above ~180 Hz count less (lighter).
     //tune[8] = hint speed: how fast all the hint averages rise and fall (rate = 0.01 + 0.07*value)
     //tune[7] = detail fill gate: a hot slew bin only fills at full strength if it was also hit in the window before; lone hits count for less (0 = the original)
@@ -218,9 +218,9 @@ struct AirwindowsMeter : public juce::Component
     //DYNAMICS: the same idea. The reading is how flat the peaks are (0 = peaks swing a lot, 1 = every window peaks at the same level), measured as how far each window's
     //peak lands from the slow mean peak level, so it does not depend on how loud the material is. tune[11] = the balance point, tune[2] = how far BELOW it counts as headroom
     //(undercompressed), tune[3] = how far ABOVE it counts as squashed (a flat line, a test tone, an over-compressed or saturated sound).
-    float tune[kNumTune] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.30f, 0.70f, 0.10f, 0.50f, 0.30f, 0.50f, 0.500f, 0.442f, 0.120f, 0.328f, 0.356f, 0.1667f, 0.500f, 0.343f, 0.4286f, 0.400f, 0.484f, 0.600f, 0.400f};
+    float tune[kNumTune] = {0.50f, 0.50f, 0.50f, 0.50f, 0.30f, 0.70f, 0.30f, 0.70f, 0.10f, 0.50f, 0.30f, 0.50f, 0.500f, 0.442f, 0.120f, 0.328f, 0.356f, 0.1667f, 0.500f, 0.343f, 0.4286f, 0.400f, 0.484f, 0.600f, 0.400f};
     static constexpr const float* tuneDefault = kTuneDefaults;
-    float tuneUser[kNumTune] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.30f, 0.70f, 0.10f, 0.50f, 0.30f, 0.50f, 0.500f, 0.442f, 0.120f, 0.328f, 0.356f, 0.1667f, 0.500f, 0.343f, 0.4286f, 0.400f, 0.484f, 0.600f, 0.400f}; //the saved default preset (double-click on a label goes back to this)
+    float tuneUser[kNumTune] = {0.50f, 0.50f, 0.50f, 0.50f, 0.30f, 0.70f, 0.30f, 0.70f, 0.10f, 0.50f, 0.30f, 0.50f, 0.500f, 0.442f, 0.120f, 0.328f, 0.356f, 0.1667f, 0.500f, 0.343f, 0.4286f, 0.400f, 0.484f, 0.600f, 0.400f}; //the saved default preset (double-click on a label goes back to this)
     std::function<void()> onSaveDefault; //set by the editor: writes tune and trims to the preset file
     juce::uint32 savedAtMs = 0;
     //The bright reading is 1 - exp(-brightSpread * red share). It is spread so that the bright threshold sits 30% in from the far right edge, like squashed (about .70).

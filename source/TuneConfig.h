@@ -4,7 +4,7 @@
 //gauges read the dot clouds. They are stored as 0-1 like the others and shown in real units through the table below.
 constexpr int kNumTune = 25;
 constexpr int kFirstMore = 12;
-constexpr float kTuneDefaults[kNumTune] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.30f, 0.70f, 0.10f, 0.50f, 0.30f, 0.50f,
+constexpr float kTuneDefaults[kNumTune] = {0.50f, 0.50f, 0.50f, 0.50f, 0.30f, 0.70f, 0.30f, 0.70f, 0.10f, 0.50f, 0.30f, 0.50f,
                                            0.500f, 0.442f, 0.120f, 0.328f, 0.356f, 0.1667f, 0.500f, 0.343f, 0.4286f, 0.400f, 0.484f, 0.600f, 0.400f};
 struct TuneSpec {const char* label; const char* unit; float lo; float hi; bool logScale; int decimals; int section;};
 constexpr TuneSpec kTuneSpecs[kNumTune - kFirstMore] = {
