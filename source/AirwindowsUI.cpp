@@ -21,6 +21,33 @@ static int tuneCentreX(int displayWidth, float vS) {return displayWidth/2 - tune
 static int tunePairX(int displayWidth, float vS, int k) {return tuneCentreX(displayWidth, vS) + k*(tuneLabelW(vS)+tuneGap(vS));}
 static int tuneRightX(int displayWidth, float vS, int k) {return displayWidth - (k+1)*(tuneLabelW(vS)+tuneGap(vS)) - (int)(tuneFont(vS)*0.5f);} //k = 0 is the rightmost label
 
+//Where a frequency sits on the weight (zero cross) meter, 0-200 from the top: the inverse of the meter's own zero-cross scaling.
+static float posFromHz(float hz) {return fmin(sqrtf(fmax(sqrtf(22050.0f/fmax(hz, 1.0f))*6.0f - 6.0f, 0.0f))*16.2f - 20.0f, 199.0f);}
+
+//THE "MORE" PANELS: rows of live controls (tune slots 12-24) that open below a meter's rail when tune and "more" are on. Shared by drawing and clicking.
+static bool moreRowRect(int idx, int displayWidth, float vS, float& x, float& y, float& w, float& h)
+{
+    const int local = idx - kFirstMore;
+    const int sec = kTuneSpecs[local].section;
+    int first = idx; while (first > kFirstMore && kTuneSpecs[first-1-kFirstMore].section == sec) --first;
+    int count = 0; for (int j = first; j < kNumTune && kTuneSpecs[j-kFirstMore].section == sec; ++j) ++count;
+    const int perCol = (count > 4) ? (count + 1)/2 : count, cols = (count + perCol - 1)/perCol;
+    const int k = idx - first, col = k / perCol, row = k % perCol;
+    w = tuneFont(vS)*15.0f; h = railHeightPx(vS);
+    x = (float)displayWidth - (float)(cols - col)*w - tuneFont(vS)*0.5f;
+    y = railTopPx(sec, vS) + railHeightPx(vS) + 4.0f + (float)row*h;
+    return true;
+}
+static int onMoreRow(const juce::MouseEvent &event, int displayWidth, float vS)
+{
+    if (displayWidth < 700 || tuneFont(vS) <= 10.0f) return -1;
+    for (int i = kFirstMore; i < kNumTune; ++i) {
+        float x, y, w, h; moreRowRect(i, displayWidth, vS, x, y, w, h);
+        if (event.x >= (int)x && event.x < (int)(x+w) && event.y >= (int)y && event.y < (int)(y+h)) return i;
+    }
+    return -1;
+}
+
 //The trim labels live on the left of the peaks rail (1) and the slews rail (2). Returns which one a click at this position is on, or 0 for neither.
 static int onTrimLabel(const juce::MouseEvent &event, int displayWidth, float vS)
 {
@@ -47,8 +74,6 @@ static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, int disp
         }
         const int xr = tuneRightX(displayWidth, vS, 0);
         if (event.x >= xr && event.x < xr+tuneLabelW(vS)) return 8; //hint speed
-        const int xp = tuneRightX(displayWidth, vS, 1);
-        if (event.x >= xp && event.x < xp+tuneLabelW(vS)) return 10; //frequency push
         return -1;
     }
     for (int sec = 1; sec < 3; ++sec) {
@@ -84,9 +109,22 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
             repaint();
             return;
         }
-        if (event.x >= displayWidth-270 && event.x < displayWidth-196) { //back to the built-in values
-            for (int i = 0; i < 12; ++i) tune[i] = tuneDefault[i];
+        if (event.x >= displayWidth-350 && event.x < displayWidth-276) { //show or hide the live "more" controls
+            tuneMore = !tuneMore;
             repaint();
+            return;
+        }
+        if (event.x >= displayWidth-270 && event.x < displayWidth-196) { //back to the built-in values
+            for (int i = 0; i < kNumTune; ++i) tune[i] = tuneDefault[i];
+            repaint();
+            return;
+        }
+    }
+    if (tuneOpen) {
+        const int t = tuneMore ? onMoreRow(event, displayWidth, vS) : -1;
+        if (t >= 0) {
+            if (event.getNumberOfClicks() > 1) {tune[t] = tuneUser[t]; tuneDragging = -1; repaint();}
+            else {tuneDragging = t; tuneDragStart = tune[t];}
             return;
         }
     }
@@ -105,6 +143,7 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
         else {trimDragging = which; trimDragStart = trim;} //press and drag up or down to set it
         return;
     }
+    if (displayWidth >= 700 && tuneFont(vS) > 10.0f && (onRail(event, 0, vS) || onRail(event, 1, vS) || onRail(event, 2, vS))) return; //the gauges are not play/pause buttons
     if (event.getNumberOfClicks() > 1) resetArrays();
     else meterPlaying = !meterPlaying;
 }
@@ -113,9 +152,11 @@ void AirwindowsMeter::mouseDrag(const juce::MouseEvent &event)
 {
     if (tuneDragging >= 0) {
         float v = tuneDragStart - (float)event.getDistanceFromDragStartY() * 0.004f; //drag up = higher
-        v = std::round(v * 100.0f) / 100.0f;
-        if (v < (tuneDragging >= 6 ? 0.0f : 0.02f)) v = (tuneDragging >= 6 ? 0.0f : 0.02f);
-        if (v > 0.98f) v = 0.98f;
+        const bool more = tuneDragging >= kFirstMore; //the "more" controls run the whole 0-1 range in finer steps
+        v = more ? std::round(v * 200.0f) / 200.0f : std::round(v * 100.0f) / 100.0f;
+        const float lo = more ? 0.0f : (tuneDragging >= 6 ? 0.0f : 0.02f), hi = more ? 1.0f : 0.98f;
+        if (v < lo) v = lo;
+        if (v > hi) v = hi;
         if (v != tune[tuneDragging]) {tune[tuneDragging] = v; repaint();}
         return;
     }
@@ -190,59 +231,65 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                 devS[col] = (ratioS - (ratioZ+ratioP)*0.5f) * quietGate;
             }
             {   //LIVE HINT DETECTORS (full-level values, never the trimmed display). Position 0-200 is how far up the meter's good zone a dot sits.
-                //Windows below about -18 dB (peak position under 70) are skipped by every hint: silence reads as the deepest bass (no zero crossings) and
-                //as "never reaching the top", so quiet gaps, breaks and fades would otherwise bend the averages.
+                //All three gauges share one RELATIVE quiet gate: windows more than "quiet gate" dB under the track's recent ceiling are skipped (silence reads as the deepest
+                //bass and as "never reaching the top", so gaps and fades would bend the averages). Being relative, it does not care how loud the material is.
+                //The live "more" controls (tune slots 12-24, see TuneConfig.h) shape every reading below.
                 const float avgRate = 0.01f + 0.07f*tune[8]; //how fast the hint averages move (the hint speed control)
-                //WEIGHT (mass): the size of the weight dots as they are drawn (long zero-cross gaps and strong peaks both make them bigger), with the peak part measured
-                //against the track's own running average peak level (the same slow mean the dynamics spread uses, which settles in about 2 seconds after any level change),
-                //so a rough mix, a normalised track and a full master read on the same scale. Big, dense clusters read high (heavy), small sparse ones read low (light).
-                //This has its own quiet gate, relative to the track's recent ceiling (about 18 dB under it, and the ceiling falls back in about 4 seconds) instead of the fixed level the other hints use.
-                {
-                    const float topPeakM = fmax(peakL, peakR);
-                    if (topPeakM > 8.0f) {
-                        if (topPeakM > massCeil) massCeil += (topPeakM - massCeil) * 0.04f; else massCeil -= (massCeil - topPeakM) * 0.01f;
-                        if (topPeakM > 0.355f*massCeil) {
-                            //the reference level: the running mean peak (in dB) plus 4.5 dB, which is where a typical master's ceiling sits above its mean peak, so the scale stays where it was.
-                            //Before the mean has started, the ceiling stands in for it.
-                            const float refLevel = spreadInit ? 200.0f*powf(10.0f, (spreadMean + 4.5f)/40.0f) : massCeil;
-                            const float f = fmin(fmax(170.0f/fmax(refLevel, 40.0f), 0.8f), 4.0f); //brings that reference level to about -1.5 dB
-                            //FREQUENCY PUSH: dots low on the meter (below about 80 Hz, positions past 139) count extra, dots high on it (above about 180 Hz, positions under 107)
-                            //count less. It ramps in smoothly rather than cutting off, and tune[10] sets how strong it is (0 = pure mass).
-                            auto dotMass = [&](float meterZero, float peak, float dataP, float bassPos) {
-                                float x = fmin(fmax((bassPos - 139.0f)/21.0f, 0.0f), 1.0f);
-                                const float lowPush = x*x*(3.0f - 2.0f*x);
-                                x = fmin(fmax((107.0f - bassPos)/25.0f, 0.0f), 1.0f);
-                                const float highPush = x*x*(3.0f - 2.0f*x);
-                                const float push = 1.0f + tune[10]*(0.6f*lowPush - 0.5f*highPush);
-                                return (sqrtf(fmax(meterZero, 0.0f)*0.1f*dataP*f) + powf(fmin(peak*f, 200.0f)/140.0f, 4.0f)) * push;
-                            };
-                            const float massNow = 0.5f*(dotMass(m.meterZeroL, peakL, dataPL[col], bassL) + dotMass(m.meterZeroR, peakR, dataPR[col], bassR));
-                            massAvg += (massNow - massAvg) * avgRate;
-                            hintUpperAvg[0] = fmin(fmax((massAvg - 2.0f)/3.4f, 0.0f), 1.0f); //the live weight reading, 0 = light, 0.5 = balanced, 1 = heavy
-                            //DYNAMICS (spread): how far each window's peak lands from the slow mean peak level, in dB (the peak position is a square root of the level, so 40 per decade).
-                            //Peaks that swing about give a wide spread (headroom, undercompressed). Peaks that all land in the same place give none (squashed). Level does not matter.
-                            const float dbNow = 40.0f*log10f(fmax(topPeakM, 1.0f)/200.0f);
-                            if (!spreadInit) {spreadMean = dbNow; spreadInit = true;}
-                            else {
-                                spreadAvg += (fabsf(dbNow - spreadMean) - spreadAvg) * avgRate;
-                                spreadMean += (dbNow - spreadMean) * 0.02f;
-                            }
-                            hintUpperAvg[1] = 1.0f - fmin(spreadAvg/8.0f, 1.0f); //the live dynamics reading, 0 = peaks swing 8 dB or more, 1 = a flat line
-                        }
-                    }
+                const float topPeakM = fmax(peakL, peakR);
+                bool gatedIn = false;
+                if (topPeakM > 8.0f) {
+                    if (topPeakM > massCeil) massCeil += (topPeakM - massCeil) * 0.04f; else massCeil -= (massCeil - topPeakM) * 0.01f;
+                    gatedIn = topPeakM > powf(10.0f, -tuneReal(tune, 21)/40.0f) * massCeil;
                 }
-                //SLEWS are judged by the dot colours, the meter's own balance measure: red = slews well ahead of peaks, green/teal = peaks well
-                //ahead. (Overflow bars and a high beam are normal on loud, well balanced masters, so they are not used.)
-                const float redNow = ((psDotSizeL <= 1.0f && slewL > peakL) ? 0.5f : 0.0f) + ((psDotSizeR <= 1.0f && slewR > peakR) ? 0.5f : 0.0f);
-                const float greenNow = ((psDotSizeL <= 1.0f && slewL <= peakL) ? 0.5f : 0.0f) + ((psDotSizeR <= 1.0f && slewR <= peakR) ? 0.5f : 0.0f);
-                if (fmax(peakL, peakR) > 70.0f) { //quiet gaps between notes (peak below about -18 dB) say nothing about balance, so they are skipped
-                    //Consecutive windows count more: a lone hi-hat hit is often fine, a sustained run is not. A lone window counts 40%, rising to full over 8 in a row, and an off window only halves the run.
-                    hintRedRun = (redNow > 0.5f) ? hintRedRun + 1.0f : hintRedRun*0.5f; //a single off window halves the run instead of ending it
+                hintAudible += ((gatedIn ? 1.0f : 0.0f) - hintAudible) * 0.05f; //how much of the recent material passes the gate (hint visibility follows this)
+                if (gatedIn) {
+                    //LEVEL CORRECTION f: the reference level is the running mean peak (in dB) plus 4.5 dB, which is where a typical master's ceiling sits above its mean peak.
+                    //Before the mean has started, the ceiling stands in for it. f brings that reference to about -1.5 dB so every level reads on the same scale.
+                    const float refLevel = spreadInit ? 200.0f*powf(10.0f, (spreadMean + 4.5f)/40.0f) : massCeil;
+                    const float f = fmin(fmax(170.0f/fmax(refLevel, 40.0f), 0.8f), 16.0f);
+                    //WEIGHT (mass): the size of the weight dots as drawn (long zero-cross gaps and strong peaks both make them bigger), with the peak part scaled by f.
+                    //FREQUENCY PUSH: dots below "low push from" count extra (up to "low push amt" at "low push full"), dots above "high push from" count less. Smooth ramps.
+                    const float lowFrom = posFromHz(tuneReal(tune, 12)), lowFull = posFromHz(tuneReal(tune, 13));
+                    const float highFrom = posFromHz(tuneReal(tune, 15)), highFull = posFromHz(tuneReal(tune, 16));
+                    const float lowAmt = tuneReal(tune, 14)*0.01f, highAmt = tuneReal(tune, 17)*0.01f, peakInfl = tuneReal(tune, 18);
+                    auto ramp = [](float v, float from, float full) { //0 at "from", 1 at "full", smoothstep between (a reversed pair acts as a step)
+                        const float w = fmax(fabsf(full - from), 0.5f);
+                        const float dir = (full >= from) ? 1.0f : -1.0f;
+                        const float x = fmin(fmax(dir*(v - from)/w, 0.0f), 1.0f);
+                        return x*x*(3.0f - 2.0f*x);
+                    };
+                    auto dotMass = [&](float meterZero, float peak, float dataP, float bassPos) {
+                        const float push = 1.0f + lowAmt*ramp(bassPos, lowFrom, lowFull) - highAmt*ramp(bassPos, highFrom, highFull);
+                        return (sqrtf(fmax(meterZero, 0.0f)*0.1f*dataP*f) + peakInfl*powf(fmin(peak*f, 200.0f)/140.0f, 4.0f)) * push;
+                    };
+                    const float massNow = 0.5f*(dotMass(m.meterZeroL, peakL, dataPL[col], bassL) + dotMass(m.meterZeroR, peakR, dataPR[col], bassR));
+                    massAvg += (massNow - massAvg) * avgRate;
+                    hintReading[0] = fmin(fmax((massAvg - 2.0f)/tuneReal(tune, 19), 0.0f), 1.0f); //the live weight reading, 0 = light, 0.5 = balanced, 1 = heavy
+                    //DYNAMICS (spread): how far each window's peak lands from the slow mean peak level, in dB (the peak position is a square root of the level, so 40 per decade).
+                    //Peaks that swing about give a wide spread (headroom). Peaks that all land in the same place give none (squashed). Level does not matter.
+                    const float dbNow = 40.0f*log10f(fmax(topPeakM, 1.0f)/200.0f);
+                    if (!spreadInit) {spreadMean = dbNow; spreadInit = true;}
+                    else {
+                        spreadAvg += (fabsf(dbNow - spreadMean) - spreadAvg) * avgRate;
+                        spreadMean += (dbNow - spreadMean) * fmin(0.04266f/tuneReal(tune, 22), 1.0f);
+                    }
+                    hintReading[1] = 1.0f - fmin(spreadAvg/tuneReal(tune, 20), 1.0f); //the live dynamics reading, 0 = peaks swing "dyn range" dB or more, 1 = a flat line
+                    //SLEWS (detail) are judged by the dot colours, the meter's own balance measure: red = slews well ahead of peaks, green/teal = peaks well ahead.
+                    //For the hint, the colour test is made on level-corrected values (x f) so quiet and loud material classify alike. The drawn dot colours are untouched.
+                    auto dotRed = [&](float pk, float sl, bool wantRed) {
+                        const float pN = fmin(pk*f, 200.0f), sN = fmin(sl*f, 200.0f);
+                        const float psN = (pN/200.0f*64.0f) / (fabsf(pN*0.945433426957143f - sN) + 6.18033988749894f);
+                        return psN <= 1.0f && ((sN > pN) == wantRed);
+                    };
+                    const float redNow = (dotRed(peakL, slewL, true) ? 0.5f : 0.0f) + (dotRed(peakR, slewR, true) ? 0.5f : 0.0f);
+                    const float greenNow = (dotRed(peakL, slewL, false) ? 0.5f : 0.0f) + (dotRed(peakR, slewR, false) ? 0.5f : 0.0f);
+                    //Consecutive windows count more: a lone hi-hat hit is often fine, a sustained run is not. A lone window counts "lone weight", rising to full over "run length"
+                    //in a row, and an off window only halves the run.
+                    const float runLen = tuneReal(tune, 23), lone = tuneReal(tune, 24)*0.01f;
+                    hintRedRun = (redNow > 0.5f) ? hintRedRun + 1.0f : hintRedRun*0.5f;
                     hintGreenRun = (greenNow > 0.5f) ? hintGreenRun + 1.0f : hintGreenRun*0.5f;
-                    const float redRamp = 0.4f + 0.6f*fmin(hintRedRun / 8.0f, 1.0f); //a lone hot window counts 40%, a run of 8 in a row counts fully
-                    const float redWeighted = redNow * redRamp;
-                    const float greenRamp = 0.4f + 0.6f*fmin(hintGreenRun / 8.0f, 1.0f);
-                    const float greenWeighted = greenNow * greenRamp;
+                    const float redWeighted = redNow * (lone + (1.0f - lone)*fmin(hintRedRun / runLen, 1.0f));
+                    const float greenWeighted = greenNow * (lone + (1.0f - lone)*fmin(hintGreenRun / runLen, 1.0f));
                     hintRedAvg += (redWeighted - hintRedAvg) * avgRate;
                     hintGreenAvg += (greenWeighted - hintGreenAvg) * avgRate;
                 }
@@ -858,7 +905,6 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             //and quiet passages are gated out, as the tone color is.
             {
                 //Where each hint switches on is set by the tune controls (tune[0..5], see AirwindowsUI.h). It leaves a little before it entered, so hints don't flicker.
-                const float quietGate = (float)fmin(outputVol*outputVol*8.0, 1.0);
                 //The hints name a state, not an order: a dominant sub, a bright top or a dark record can all be deliberate.
                 //(hintTextMore = under target, hintTextLess = over target)
                 hintTextMore[0] = juce::String("light");      hintTextLess[0] = juce::String("heavy");
@@ -874,16 +920,16 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                         underNow = darkRead < tune[4]; underKeep = darkRead < fmin(tune[4]+0.10f, 1.0f);
                     } else if (hint == 1) { //dynamics: the spread reading against the balance point. Peaks that all land in one place are squashed, peaks that swing about have headroom
                         const float headLevel = tune[11] - tune[2], squashLevel = tune[11] + tune[3];
-                        overNow = hintUpperAvg[1] > squashLevel;
-                        overKeep = hintUpperAvg[1] > squashLevel - 0.04f;
-                        underNow = hintUpperAvg[1] < headLevel;
-                        underKeep = hintUpperAvg[1] < headLevel + 0.04f;
+                        overNow = hintReading[1] > squashLevel;
+                        overKeep = hintReading[1] > squashLevel - 0.04f;
+                        underNow = hintReading[1] < headLevel;
+                        underKeep = hintReading[1] < headLevel + 0.04f;
                     } else { //weight: the mass reading against the balance point. Below it by the light distance is light, above it by the heavy distance is heavy
                         const float lightLevel = tune[9] - tune[0], heavyLevel = tune[9] + tune[1];
-                        overNow = hintUpperAvg[0] > heavyLevel;
-                        overKeep = hintUpperAvg[0] > heavyLevel - 0.04f;
-                        underNow = hintUpperAvg[0] < lightLevel;
-                        underKeep = hintUpperAvg[0] < lightLevel + 0.04f;
+                        overNow = hintReading[0] > heavyLevel;
+                        overKeep = hintReading[0] > heavyLevel - 0.04f;
+                        underNow = hintReading[0] < lightLevel;
+                        underKeep = hintReading[0] < lightLevel + 0.04f;
                     }
                     if (state == 1 && !overKeep) state = 0;
                     if (state == -1 && !underKeep) state = 0;
@@ -891,7 +937,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     else if (state == 0 && underNow) state = -1;
                     hintState[hint] = state;
                     if (state != 0) hintText[hint] = (state > 0) ? hintTextLess[hint] : hintTextMore[hint]; //the text keeps its last wording while it fades out (it must not flip to the other word)
-                    const float target = (state != 0) ? quietGate : 0.0f;
+                    const float target = (state != 0) ? fmin(hintAudible*2.0f, 1.0f) : 0.0f; //visibility follows the relative quiet gate, not the absolute level
                     hintOpacity[hint] += (target - hintOpacity[hint]) * 0.12f;
                 }
             }
@@ -1003,8 +1049,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                 const float ticks[2] = {0.5f - tune[idxLow], 0.5f + tune[idxHigh]};
                 railGauge(sec, x0, (float)span*0.98f, ticks, 2, 0.5f, 0.5f + (liveV - bal), true, lowOn || highOn);
             };
-            threePoint(0, 0, 9, 1, "light", "heavy", hintUpperAvg[0], 0);
-            threePoint(1, 2, 11, 3, "headroom", "squashed", hintUpperAvg[1], 1);
+            threePoint(0, 0, 9, 1, "light", "heavy", hintReading[0], 0);
+            threePoint(1, 2, 11, 3, "headroom", "squashed", hintReading[1], 1);
             {   //DETAIL: a pair of gauges. The hint shows when the dot crosses the tick in the arrow's direction.
                 const char* tuneNames[2] = {"dark<", "bright>"};
                 const float live[2] = {1.0f - hintGreenAvg, 1.0f - expf(-brightSpread*hintRedAvg)};
@@ -1023,7 +1069,6 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     railGauge(sec, x, (float)rw*0.9f, &tune[idx], 1, -1.0f, liveV, hasLive, false);
                 };
                 setting(0, 0, "hint speed ", 8, 0.0f, false);
-                setting(0, 1, "push ", 10, 0.0f, false);                 //frequency push: low dots count heavier, high dots lighter
                 setting(2, 0, "detail decay ", 6, slewHotFill, true);   //decay: how full the hot bins are
                 setting(2, 1, "fill gate ", 7, gateEffectAvg, true);    //gate: share of detail fill held back
                 {   //DEFAULT PRESET: "save default" keeps the current tune values and trims for every new instance, "factory" puts the built-in values back (here only)
@@ -1031,9 +1076,36 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     g.setColour(labelCol);
                     g.setOpacity(0.9f);
                     g.drawText(justSaved ? "saved" : "save default", displayWidth-190, displayHeight-24, 114, 20, juce::Justification::bottomRight);
+                    g.setOpacity(tuneMore ? 0.9f : 0.7f);
+                    g.drawText(tuneMore ? "more *" : "more", displayWidth-350, displayHeight-24, 74, 20, juce::Justification::bottomRight);
                     g.setOpacity(0.7f);
                     g.drawText("factory", displayWidth-270, displayHeight-24, 74, 20, juce::Justification::bottomRight);
                 }
+            }
+            if (tuneOpen && tuneMore) {   //the live controls: name, value in real units and a small gauge, over a dark panel
+                g.setFont(scaleFont*0.95f);
+                for (int i = kFirstMore; i < kNumTune; ++i) {
+                    float x, y, w, h; moreRowRect(i, displayWidth, vS, x, y, w, h);
+                    const TuneSpec& sp = kTuneSpecs[i - kFirstMore];
+                    g.setColour(railCol); g.setOpacity(0.94f);
+                    g.fillRect(x, y, w, h);
+                    g.setColour(railText); g.setOpacity(0.9f);
+                    const float rv = tuneReal(tune, i);
+                    g.drawText(juce::String(sp.label) + " " + juce::String(rv, sp.decimals) + sp.unit, (int)x + 4, (int)y + 1, (int)w - 8, (int)(h*0.68f), juce::Justification::centredLeft);
+                    const float gy = y + h - 5.0f;
+                    g.setOpacity(0.3f); g.fillRect(x + 4.0f, gy, w - 8.0f, 1.0f);
+                    g.setOpacity(0.9f);
+                    g.fillRect(x + 4.0f + (w - 8.0f)*fmin(fmax(tune[i], 0.0f), 1.0f) - 1.0f, gy - 3.0f, 2.0f, 7.0f);
+                }
+                {   //where the push starts and where it is full, drawn across the weight meter: green = low push, red = high push
+                    const float lines[4] = {posFromHz(tuneReal(tune, 12)), posFromHz(tuneReal(tune, 13)), posFromHz(tuneReal(tune, 15)), posFromHz(tuneReal(tune, 16))};
+                    for (int k = 0; k < 4; ++k) {
+                        g.setColour(k < 2 ? juce::Colour(80, 220, 120) : juce::Colour(255, 90, 80));
+                        g.setOpacity(k % 2 == 0 ? 0.55f : 0.9f);
+                        g.fillRect(0.0f, meterY(0, lines[k]), (float)displayWidth, 1.0f);
+                    }
+                }
+                g.setFont(scaleFont*0.95f);
             }
             g.setColour(labelCol);
             g.setOpacity(tuneOpen ? 0.9f : 0.4f);
