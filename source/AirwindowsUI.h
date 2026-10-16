@@ -227,7 +227,7 @@ struct AirwindowsMeter : public juce::Component
     int tuneDragging = -1;
     float tuneDragStart = 0.0f;
     float massAvg = 3.7f;        //weight: slow average of the weight dot size (peak part measured against the track's own ceiling), see scoreColumn
-    float massCeil = 0.0f;       //weight: the track's own peak ceiling for that measure, so rough mixes and full masters read on the same scale
+    float massCeil = 0.0f;       //weight and dynamics: the track's recent peak ceiling (rises in about a second, falls back in about 4), used only for their quiet gate
     float slewHotFill = 0.0f;    //detail: how full the hottest slew bins are right now, 0-1 (shown next to the decay setting)
     float gateEffectAvg = 0.0f;  //detail: share of slew fill the gate is currently holding back (shown next to the gate setting)
     float gateKept = 0.0f, gateAll = 0.0f; //this window's slew fill after / before the gate

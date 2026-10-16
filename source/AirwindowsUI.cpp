@@ -194,14 +194,18 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                 //as "never reaching the top", so quiet gaps, breaks and fades would otherwise bend the averages.
                 const float avgRate = 0.01f + 0.07f*tune[8]; //how fast the hint averages move (the hint speed control)
                 //WEIGHT (mass): the size of the weight dots as they are drawn (long zero-cross gaps and strong peaks both make them bigger), with the peak part measured
-                //against the track's own ceiling, so a rough mix and a full master read on the same scale. Big, dense clusters read high (heavy), small sparse ones read low (light).
-                //This has its own quiet gate, relative to that ceiling (about 18 dB under it) instead of the fixed level the other hints use. The dynamics spread shares it.
+                //against the track's own running average peak level (the same slow mean the dynamics spread uses, which settles in about 2 seconds after any level change),
+                //so a rough mix, a normalised track and a full master read on the same scale. Big, dense clusters read high (heavy), small sparse ones read low (light).
+                //This has its own quiet gate, relative to the track's recent ceiling (about 18 dB under it, and the ceiling falls back in about 4 seconds) instead of the fixed level the other hints use.
                 {
                     const float topPeakM = fmax(peakL, peakR);
                     if (topPeakM > 8.0f) {
-                        if (topPeakM > massCeil) massCeil += (topPeakM - massCeil) * 0.04f; else massCeil -= (massCeil - topPeakM) * 0.002f;
+                        if (topPeakM > massCeil) massCeil += (topPeakM - massCeil) * 0.04f; else massCeil -= (massCeil - topPeakM) * 0.01f;
                         if (topPeakM > 0.355f*massCeil) {
-                            const float f = fmin(fmax(170.0f/fmax(massCeil, 40.0f), 0.8f), 4.0f); //brings the track's ceiling to about -1.5 dB
+                            //the reference level: the running mean peak (in dB) plus 4.5 dB, which is where a typical master's ceiling sits above its mean peak, so the scale stays where it was.
+                            //Before the mean has started, the ceiling stands in for it.
+                            const float refLevel = spreadInit ? 200.0f*powf(10.0f, (spreadMean + 4.5f)/40.0f) : massCeil;
+                            const float f = fmin(fmax(170.0f/fmax(refLevel, 40.0f), 0.8f), 4.0f); //brings that reference level to about -1.5 dB
                             //FREQUENCY PUSH: dots low on the meter (below about 80 Hz, positions past 139) count extra, dots high on it (above about 180 Hz, positions under 107)
                             //count less. It ramps in smoothly rather than cutting off, and tune[10] sets how strong it is (0 = pure mass).
                             auto dotMass = [&](float meterZero, float peak, float dataP, float bassPos) {
