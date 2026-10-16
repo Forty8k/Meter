@@ -213,9 +213,12 @@ struct AirwindowsMeter : public juce::Component
     //tune[8] = hint speed: how fast all the hint averages rise and fall (rate = 0.01 + 0.07*value)
     //tune[7] = detail fill gate: a hot slew bin only fills at full strength if it was also hit in the window before; lone hits count for less (0 = the original)
     //tune[6] = detail bin decay: hot slew bins empty faster, so brief overslews fade quickly and sustained ones stay full (0 = the original decay)
-    float tune[11] = {0.30f, 0.30f, 0.30f, 0.70f, 0.30f, 0.70f, 0.30f, 0.70f, 0.10f, 0.50f, 0.30f};
-    static constexpr float tuneDefault[11] = {0.30f, 0.30f, 0.30f, 0.70f, 0.30f, 0.70f, 0.30f, 0.70f, 0.10f, 0.50f, 0.30f};
-    float tuneUser[11] = {0.30f, 0.30f, 0.30f, 0.70f, 0.30f, 0.70f, 0.30f, 0.70f, 0.10f, 0.50f, 0.30f}; //the saved default preset (double-click on a label goes back to this)
+    //DYNAMICS: the same idea. The reading is how flat the peaks are (0 = peaks swing a lot, 1 = every window peaks at the same level), measured as how far each window's
+    //peak lands from the slow mean peak level, so it does not depend on how loud the material is. tune[11] = the balance point, tune[2] = how far BELOW it counts as headroom
+    //(undercompressed), tune[3] = how far ABOVE it counts as squashed (a flat line, a test tone, an over-compressed or saturated sound).
+    float tune[12] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.30f, 0.70f, 0.10f, 0.50f, 0.30f, 0.50f};
+    static constexpr float tuneDefault[12] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.30f, 0.70f, 0.10f, 0.50f, 0.30f, 0.50f};
+    float tuneUser[12] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.30f, 0.70f, 0.10f, 0.50f, 0.30f, 0.50f}; //the saved default preset (double-click on a label goes back to this)
     std::function<void()> onSaveDefault; //set by the editor: writes tune and trims to the preset file
     juce::uint32 savedAtMs = 0;
     //The bright reading is 1 - exp(-brightSpread * red share). It is spread so that the bright threshold sits 30% in from the far right edge, like squashed (about .70).
@@ -228,8 +231,8 @@ struct AirwindowsMeter : public juce::Component
     float slewHotFill = 0.0f;    //detail: how full the hottest slew bins are right now, 0-1 (shown next to the decay setting)
     float gateEffectAvg = 0.0f;  //detail: share of slew fill the gate is currently holding back (shown next to the gate setting)
     float gateKept = 0.0f, gateAll = 0.0f; //this window's slew fill after / before the gate
-    float peakCeil = 0.0f;       //dynamics: slow envelope of the loudest peak position, the track's own ceiling (a limited master piles up just under it, whatever level that is)
-    float hintCeilAvg = 0.0f;    //dynamics: share of recent windows sitting within a hair of that ceiling
+    float spreadMean = 0.0f, spreadAvg = 4.0f; //dynamics: slow mean of the peak level in dB, and the slow average of how far each window's peak lands from it (the spread)
+    bool spreadInit = false;
     bool slewHitNow[totalBins+2] = {}, slewHitPrev[totalBins+2] = {}; //which slew bins were hit this window / last window (for the fill gate)
     //LIVE HINT DETECTORS: slow averages (only over audible windows) of how often the bass and the peaks reach their target zones,
     //plus the slew colour shares and the track's own peak ceiling. Index 0 = low end, 1 = dynamics.
@@ -302,9 +305,8 @@ struct AirwindowsMeter : public juce::Component
         hintRedAvg = 0.0f;
         hintGreenAvg = 0.0f;
         massAvg = 3.7f; massCeil = 0.0f;
-        peakCeil = 0.0f;
+        spreadMean = 0.0f; spreadAvg = 4.0f; spreadInit = false;
         slewHotFill = 0.0f; gateEffectAvg = 0.0f; gateKept = 0.0f; gateAll = 0.0f;
-        hintCeilAvg = 0.0f;
         for (unsigned long b = 0; b < totalBins+2; ++b) {slewHitNow[b] = false; slewHitPrev[b] = false;}
         hintRedRun = 0.0f;
         hintGreenRun = 0.0f;

@@ -22,10 +22,10 @@ PluginEditor::PluginEditor (PluginProcessor& p)
     meter.pluginColour = airwindowsLookAndFeel.defaultColour;
     meter.peakTrimDb = lastPeakTrimSeen = processorRef.peakTrimDb;
     meter.slewTrimDb = lastSlewTrimSeen = processorRef.slewTrimDb; //pick up the slew trim saved with the project
-    for (int i = 0; i < 11; ++i) {meter.tune[i] = lastTuneSeen[i] = processorRef.hintTune[i]; meter.tuneUser[i] = processorRef.userTune[i];}
+    for (int i = 0; i < 12; ++i) {meter.tune[i] = lastTuneSeen[i] = processorRef.hintTune[i]; meter.tuneUser[i] = processorRef.userTune[i];}
     meter.onSaveDefault = [this]() {
         processorRef.saveUserDefaults(meter.tune, meter.peakTrimDb, meter.slewTrimDb);
-        for (int i = 0; i < 11; ++i) meter.tuneUser[i] = processorRef.userTune[i];
+        for (int i = 0; i < 12; ++i) meter.tuneUser[i] = processorRef.userTune[i];
     };
     meter.setOpaque(true);
     meter.resetArrays();
@@ -195,7 +195,7 @@ void PluginEditor::idle()
         meter.slewTrimDb = lastSlewTrimSeen = processorRef.slewTrimDb; //a project or preset loaded a different one
         meter.repaint();
     }
-    for (int i = 0; i < 11; ++i) { //hint tuning: same two-way sync as the trims
+    for (int i = 0; i < 12; ++i) { //hint tuning: same two-way sync as the trims
         if (meter.tune[i] != lastTuneSeen[i]) processorRef.hintTune[i] = lastTuneSeen[i] = meter.tune[i];
         else if (processorRef.hintTune[i] != lastTuneSeen[i]) {meter.tune[i] = lastTuneSeen[i] = processorRef.hintTune[i]; meter.repaint();}
     }
