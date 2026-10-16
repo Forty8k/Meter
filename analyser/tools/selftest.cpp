@@ -1,0 +1,80 @@
+// Self-test: (1) rebuilding the core windows from fine blocks matches the plugin's own windows,
+// (2) the original scorer runs and gives sensible results on test tones. Build: see tools/run_selftest.sh
+#include "../src/Capture.h"
+#include "../src/OriginalScorer.h"
+#include <cstdio>
+#include <random>
+#include <functional>
+using namespace f8k;
+
+static CoreWindow mergeFine(const Capture& c, size_t firstBlock, size_t numBlocks, double sr)
+{
+    const int S = F_CH_STRIDE; const double a = 1.0/sr, zs = 44100.0/sr;
+    CoreWindow w{};
+    float* out[2][5] = {{&w.peakL, &w.slewL, &w.zeroL, &w.beamL, &w.deptL}, {&w.peakR, &w.slewR, &w.zeroR, &w.beamR, &w.deptR}};
+    for (int ch = 0; ch < 2; ++ch) {
+        double peak = 0, slew = 0, beam = 0, dept = 0, longest = 0; long N = 0, lastAbs = -1, firstAbs = -1;
+        for (size_t b = firstBlock; b < firstBlock + numBlocks; ++b) N += (long)c.fine[b*F_NUM_COLS + F_N];
+        long off = 0;
+        for (size_t b = firstBlock; b < firstBlock + numBlocks; ++b) {
+            const float* r = &c.fine[b*F_NUM_COLS]; const float* q = r + F_PEAK + ch*S; const long n = (long)r[F_N];
+            peak = std::max(peak, (double)q[0]); slew = std::max(slew, (double)q[5]); beam = q[11];
+            dept += q[10]*std::pow(1.0 - a, (double)(N - off - n));
+            if (q[6] > 0) {
+                const long f = off + (long)q[7], l = off + (long)q[8];
+                if (firstAbs < 0) firstAbs = f; else longest = std::max(longest, (double)(f - lastAbs));
+                longest = std::max(longest, (double)q[9]);
+                lastAbs = l;
+            }
+            off += n;
+        }
+        if (firstAbs < 0) longest = (double)N; else {longest = std::max(longest, (double)(firstAbs + 1)); longest = std::max(longest, (double)(N - 1 - lastAbs));}
+        *out[ch][0] = (float)std::sqrt(peak); *out[ch][1] = (float)slew; *out[ch][2] = (float)(longest*zs); *out[ch][3] = (float)beam; *out[ch][4] = (float)dept;
+    }
+    return w;
+}
+
+static double gWorst = 0;
+static void runSignal(const char* name, double sr, double seconds, std::function<void(long, float&, float&)> gen, bool checkMerge)
+{
+    Capture cap(sr, checkMerge ? 941 : 0);
+    std::vector<float> L(4096), R(4096);
+    const long total = (long)(seconds*sr);
+    for (long pos = 0; pos < total; pos += 4096) {
+        const int n = (int)std::min<long>(4096, total - pos);
+        for (int i = 0; i < n; ++i) gen(pos + i, L[i], R[i]);
+        cap.process(L.data(), R.data(), n);
+    }
+    cap.finish();
+    double worst = 0;
+    if (checkMerge && sr == 44100.0) {
+        for (size_t w = 0; w < cap.core.size(); ++w) {
+            const CoreWindow m = mergeFine(cap, w*2, 2, sr), &o = cap.core[w];
+            const float* A = &o.peakL; const float* B = &m.peakL;
+            for (int k = 0; k < 10; ++k) worst = std::max(worst, (double)std::fabs(A[k] - B[k]) / std::max(1e-9, (double)std::fabs(A[k])));
+        }
+    }
+    gWorst = std::max(gWorst, worst);
+    OriginalReplay rep;
+    for (auto& w : cap.core) rep.push(w);
+    const OriginalResult r = rep.result();
+    printf("%-22s windows=%zu  grade=\"%s\"  power=%.2f detail=%.2f authority=%.2f  peak=%.1f dBFS  LUFS=%.1f%s\n", name, cap.core.size(), r.grade.c_str(),
+           r.peakPrevGrade, r.slewPrevGrade, r.bassPrevGrade, 20*std::log10(std::max(cap.peakAbs, 1e-9)), cap.integratedLufs(),
+           checkMerge ? (std::string("  merge-err=") + std::to_string(worst)).c_str() : "");
+}
+
+int main()
+{
+    const double sr = 44100.0; const double tau = 2.0*M_PI;
+    std::mt19937 rng(1); std::normal_distribution<float> nd(0.0f, 1.0f);
+    runSignal("sine 50 Hz -6 dB", sr, 20, [&](long i, float& l, float& r){ l = r = 0.5f*(float)std::sin(tau*50*i/sr); }, true);
+    runSignal("sine 1 kHz -20 dBFS", sr, 20, [&](long i, float& l, float& r){ l = r = 0.1f*(float)std::sin(tau*1000*i/sr); }, true);
+    runSignal("sine 2 kHz -6 dB", sr, 20, [&](long i, float& l, float& r){ l = r = 0.5f*(float)std::sin(tau*2000*i/sr); }, true);
+    runSignal("pink-ish noise", sr, 20, [&](long, float& l, float& r){ static float b = 0; b = 0.98f*b + 0.02f*nd(rng); l = 0.6f*b*8; r = 0.6f*b*8 + 0.05f*nd(rng); }, true);
+    runSignal("white noise -12 dB", sr, 20, [&](long, float& l, float& r){ l = 0.25f*nd(rng); r = 0.25f*nd(rng); }, true);
+    runSignal("drum-ish bursts", sr, 20, [&](long i, float& l, float& r){ const double t = std::fmod(i/sr, 0.5); l = r = (float)(0.9*std::exp(-t*30)*std::sin(tau*(60 + 200*std::exp(-t*40))*t)); }, true);
+    runSignal("sine 1 kHz @48k", 48000.0, 10, [&](long i, float& l, float& r){ l = r = 0.5f*(float)std::sin(tau*1000*i/48000.0); }, false);
+    // 1 kHz sine at -20 dBFS peak: true peak should be about -20 dB, LUFS about -23.0 (a -20 dBFS peak sine is -23 dBFS RMS, K-weighting adds ~0)
+    printf("worst merge error %g\n", gWorst);
+    return gWorst < 1e-5 ? 0 : 1;
+}

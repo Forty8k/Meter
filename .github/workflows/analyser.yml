@@ -1,0 +1,65 @@
+name: Meter F8K Analyser
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'analyser/**'
+      - '.github/workflows/analyser.yml'
+
+concurrency:
+  group: analyser-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+          - name: Linux
+            os: ubuntu-22.04
+    steps:
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Install Ninja (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ninja
+      - name: Install JUCE's Linux deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libx11-dev libxinerama-dev libxext-dev libxrandr-dev libxcursor-dev libxcomposite-dev libfreetype6-dev libfontconfig1-dev libglu1-mesa-dev ninja-build
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Get JUCE
+        run: git submodule update --init --depth 1 JUCE
+      - name: Configure
+        run: cmake -S analyser -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+      - name: Self-test (capture and original scoring)
+        run: ./build/F8KSelfTest
+      - name: Package
+        run: |
+          mkdir -p package
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            cp "build/MeterF8KAnalyser_artefacts/Release/Meter F8K Analyser.exe" package/
+            cp "build/MeterF8KAnalyserCLI_artefacts/Release/MeterF8KAnalyserCLI.exe" package/
+          else
+            cp "build/MeterF8KAnalyser_artefacts/Release/Meter F8K Analyser" package/
+            cp "build/MeterF8KAnalyserCLI_artefacts/Release/MeterF8KAnalyserCLI" package/
+          fi
+          cp analyser/HOW-TO.txt package/
+          cp analyser/tools/f8k_library.py package/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Meter-F8K-Analyser-${{ matrix.name }}
+          path: package

@@ -1,0 +1,44 @@
+METER F8K ANALYSER - HOW TO
+===========================
+
+What it does
+  Captures what the ORIGINAL Airwindows Meter (0.5.5) sees in a track, once, and keeps it in a library folder.
+  It runs much faster than real time and needs no DAW. Your own Meter tweaks play no part in the capture,
+  so the data never goes out of date: any gauge, grade or hint can be worked out again later from the library.
+
+Using it
+  1. Unzip and run "Meter F8K Analyser.exe". (Windows may warn about an unknown publisher: More info > Run anyway.)
+  2. Drag audio files or whole folders onto the window, or use "Add files...".
+     WAV, AIFF and FLAC are best (lossless). Ogg and MP3 also work but are marked as lossy.
+  3. Each track gets one line in the log, with what the original meter reads for it.
+  4. "Open library folder" shows the results. The default library is Documents\Meter F8K Library.
+     "Change library folder..." picks another (for example on a bigger drive).
+
+  Adding the same file again is skipped (it is recognised by its content, not its name).
+  You can keep adding tracks whenever you like; the library just grows.
+
+What is in the library
+  index.csv                one row per track: tags, format, levels, loudness, and the original meter's grade
+                           (opens in Excel)
+  tracks\<id>.core.csv     the original meter's own data: one row per 42.7 ms window, exactly the ten values the
+                           plugin sends to its display
+  tracks\<id>.fine.f32.gz  ~5.8 ms blocks with enough detail to rebuild any longer window, plus extras
+                           (RMS, true peak, loudness, stereo, ten octave bands)
+  tracks\<id>.meta.json    everything about the file, its tags, and how it was captured
+  README.txt               the same, in more detail
+
+  Roughly 1-2 MB per minute of audio.
+
+Sharing it with Claude
+  Zip the library folder (or just index.csv for a quick look) and attach it to the chat.
+
+The original meter's grade
+  The grade in index.csv is the original Meter's scoring, replayed at text speed exactly as it runs in real time
+  at the plugin's default window size (1080 x 720). The original scores in step with the screen redraw, which is
+  why rendering faster than real time in a DAW changes its readings; the analyser does not have that problem.
+
+Command line (optional)
+  MeterF8KAnalyserCLI.exe [--library <folder>] <files or folders...>
+
+For analysis scripts
+  f8k_library.py (Python 3 + numpy) reads a library and rebuilds windows of any length from the fine blocks.
