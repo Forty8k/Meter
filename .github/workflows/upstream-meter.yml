@@ -1,0 +1,46 @@
+name: Check for a new original Meter
+
+# Once a day: if Chris (airwindows/meter) has changed the Meter's source, add that version to the analyser, regenerate
+# its copy of the original code, and build a new analyser release. If the new code is shaped in a way the generator does
+# not understand, this job fails (GitHub emails you) and nothing is changed.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: analyser
+          fetch-depth: 1
+      - name: Look at the original Meter
+        id: up
+        run: |
+          git clone -q --depth 50 https://github.com/airwindows/meter upstream
+          sha=$(git -C upstream log -1 --format=%h -- source)
+          ver=$(cat upstream/VERSION | tr -d '[:space:]')
+          date=$(git -C upstream log -1 --format=%ad --date=short -- source)
+          echo "sha=$sha" >> $GITHUB_OUTPUT; echo "ver=$ver" >> $GITHUB_OUTPUT; echo "date=$date" >> $GITHUB_OUTPUT
+          if grep -rqs "\"commit\":\"$sha\"" analyser/original/*/upstream.json; then echo "new=no" >> $GITHUB_OUTPUT; echo "Meter $ver ($sha) is already in the analyser"; else echo "new=yes" >> $GITHUB_OUTPUT; echo "New: Meter $ver ($sha)"; fi
+      - name: Add it to the analyser
+        if: steps.up.outputs.new == 'yes'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          d="analyser/original/${{ steps.up.outputs.ver }}-${{ steps.up.outputs.sha }}"
+          mkdir -p "$d"
+          for f in AirwindowsUI.cpp AirwindowsUI.h PluginEditor.cpp PluginProcessor.cpp PluginProcessor.h; do cp "upstream/source/$f" "$d/"; done
+          printf '{"version":"%s","commit":"%s","date":"%s","source":"https://github.com/airwindows/meter"}\n' "${{ steps.up.outputs.ver }}" "${{ steps.up.outputs.sha }}" "${{ steps.up.outputs.date }}" > "$d/upstream.json"
+          python3 analyser/tools/make_original_scorer.py
+          rm -rf upstream
+          git add analyser
+          git -c user.name="meter-update-bot" -c user.email="actions@users.noreply.github.com" commit -qm "Add original Meter ${{ steps.up.outputs.ver }} (${{ steps.up.outputs.sha }}) to the analyser"
+          git push -q origin HEAD:analyser
+          gh workflow run analyser.yml --ref analyser
