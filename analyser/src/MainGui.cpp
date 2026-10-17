@@ -4,6 +4,12 @@
 //                 add your own columns (streams, sales, notes ...), import values from a CSV, remove tracks.
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "Engine.h"
+#include "LabHints.h"
+#include "LabScore.h"
+#include <thread>
+#ifndef F8K_BUILD_NUMBER
+#define F8K_BUILD_NUMBER 0
+#endif
 
 namespace {
 
@@ -40,8 +46,11 @@ public:
             }
             if (lib == nullptr) {wait(-1); continue;}
             if (upgrade) { //tracks scanned by an earlier version get the newer values worked out from their saved data
-                const int n = lib->upgradeOldRows([this] { return threadShouldExit(); });
-                if (n > 0) postLog("Worked out newer values (sortable grades, BPM) for " + juce::String(n) + " tracks already in the library");
+                const int n = lib->upgradeOldRows([this] { return threadShouldExit(); },
+                    [this](int d, int t, const juce::String& f) { post(d, t, 0.0, "updating the library for the newest Meter: " + f); });
+                if (n > 0) postLog("Updated " + juce::String(n) + " tracks already in the library (grades from every Meter version, BPM)");
+                if (lib->lastNoAudio > 0) postLog(juce::String(lib->lastNoAudio) + " tracks could not get the newest Meter's grades because their audio file was moved or deleted. Add them again to update them.");
+                post(0, 0, 0.0, {});
                 continue;
             }
             if (next == juce::File()) {post(done, total, 0.0, {}); wait(-1); continue;}
@@ -75,6 +84,8 @@ public:
     std::function<void()> onOpenFolder, onChangeFolder;
     AddPanel() {
         for (auto* b : {&addButton, &openButton, &changeButton}) {addAndMakeVisible(b); styleButton(*b);}
+        addChildComponent(updateButton); styleButton(updateButton);
+        updateButton.setColour(juce::TextButton::buttonColourId, kAccent.withAlpha(0.25f));
         addButton.onClick = [this] { chooseFiles(); };
         openButton.onClick = [this] { if (onOpenFolder) onOpenFolder(); };
         changeButton.onClick = [this] { if (onChangeFolder) onChangeFolder(); };
@@ -90,6 +101,12 @@ public:
         logBox.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::plain));
     }
     void log(const juce::String& l) { logBox.moveCaretToEnd(); logBox.insertTextAtCaret(l + "\n"); }
+    void showUpdate(const juce::String& title, const juce::URL& page) {
+        updateButton.setButtonText("New version available: " + title + "  -  click to download");
+        updateButton.onClick = [page] { page.launchInDefaultBrowser(); };
+        updateButton.setVisible(true);
+        resized();
+    }
     void setStatus(int d, int t, double p, const juce::String& n) {
         done = d; total = t; progress = t > 0 ? juce::jlimit(0.0, 1.0, (d + p) / (double)t) : 0.0; current = n; repaint();
     }
@@ -122,7 +139,8 @@ public:
         auto buttons = r.removeFromTop(30);
         addButton.setBounds(buttons.removeFromLeft(140)); buttons.removeFromLeft(8);
         openButton.setBounds(buttons.removeFromLeft(160)); buttons.removeFromLeft(8);
-        changeButton.setBounds(buttons.removeFromLeft(170));
+        changeButton.setBounds(buttons.removeFromLeft(170)); buttons.removeFromLeft(8);
+        if (updateButton.isVisible()) updateButton.setBounds(buttons);
         r.removeFromTop(10);
         r.removeFromTop(22);
         progressBar.setBounds(r.removeFromTop(14));
@@ -154,7 +172,7 @@ private:
                 if (fc.getResults().size()) queue(list, fc.getResults().size());
             });
     }
-    juce::TextButton addButton{"Add files..."}, openButton{"Open library folder"}, changeButton{"Change library folder..."};
+    juce::TextButton addButton{"Add files..."}, openButton{"Open library folder"}, changeButton{"Change library folder..."}, updateButton;
     double progress = 0.0;
     juce::ProgressBar progressBar{progress};
     juce::TextEditor logBox;
@@ -206,6 +224,16 @@ public:
         importButton.onClick = [this] { importDialog(); };
         showButton.onClick = [this] { if (auto* r = selectedRow()) revealTrack(*r); };
         removeButton.onClick = [this] { removeSelected(); };
+        for (auto* l : {&gradeLabel, &compareLabel}) {addAndMakeVisible(l); l->setColour(juce::Label::textColourId, kDim); l->setJustificationType(juce::Justification::centredRight);}
+        for (auto* b : {&gradeBox, &compareBox}) {
+            addAndMakeVisible(b);
+            b->setColour(juce::ComboBox::backgroundColourId, kPanel); b->setColour(juce::ComboBox::textColourId, kText); b->setColour(juce::ComboBox::outlineColourId, kPanel);
+        }
+        gradeBox.onChange = [this] { const int i = gradeBox.getSelectedId() - 1; const auto v = f8k::Library::versionIds(); if (i >= 0 && i < (int)v.size() && v[(size_t)i] != gradeVersion) {gradeVersion = v[(size_t)i]; saveVersions(); rebuildColumns(); applyFilter();} };
+        compareBox.onChange = [this] { const int i = compareBox.getSelectedId() - 2; const auto v = f8k::Library::versionIds(); const juce::String nv = (i >= 0 && i < (int)v.size()) ? v[(size_t)i] : juce::String(); if (nv != compareVersion) {compareVersion = nv; saveVersions(); rebuildColumns(); applyFilter();} };
+        for (auto* b : {&dupButton, &howButton}) {addAndMakeVisible(b); styleButton(*b);}
+        dupButton.onClick = [this] { dupOnly = !dupOnly; applyFilter(); };
+        howButton.onClick = [this] { showHowToRead(); };
         addAndMakeVisible(countLabel);
         countLabel.setColour(juce::Label::textColourId, kDim);
         countLabel.setJustificationType(juce::Justification::centredRight);
@@ -222,6 +250,14 @@ public:
         const juce::String selectedId = selectedRow() ? selectedRow()->id : juce::String();
         idx = lib->index();
         user = lib->userValues();
+        grades.clear(); gradeRow.clear();
+        for (auto& v : f8k::Library::versionIds()) {
+            grades[v] = lib->grades(v);
+            auto& m = gradeRow[v];
+            for (size_t r = 0; r < grades[v].rows.size(); ++r) m[grades[v].get(r, "id")] = r;
+        }
+        refreshVersionBoxes();
+        findDuplicates();
         custom = lib->customColumns();
         rebuildColumns();
         all.clear();
@@ -235,6 +271,25 @@ public:
     int getNumRows() override { return (int)shown.size(); }
     void paintRowBackground(juce::Graphics& g, int row, int, int, bool selected) override {
         g.fillAll(selected ? kSelect : (row % 2 ? kRowAlt : kBg));
+        if (row >= 0 && row < (int)shown.size() && dupOf.count(shown[(size_t)row].id)) g.fillAll(juce::Colour(150, 30, 30).withAlpha(selected ? 0.45f : 0.35f));
+    }
+    void cellClicked(int row, int, const juce::MouseEvent& e) override {
+        if (!e.mods.isPopupMenu() || row < 0 || row >= (int)shown.size()) return;
+        table.selectRow(row);
+        const RowRef r = shown[(size_t)row];
+        juce::PopupMenu m;
+        m.addItem(1, "Details...");
+        m.addItem(2, "Show file");
+        if (dupOf.count(r.id)) m.addItem(3, "Not a duplicate");
+        else if (userValue(r.id, "not_duplicate") == "1") m.addItem(4, "Check for duplicates again");
+        m.addSeparator();
+        m.addItem(5, "Remove from library...");
+        m.showMenuAsync(juce::PopupMenu::Options(), [this, r](int id) {
+            if (id == 1) showDetails(r);
+            if (id == 2) revealTrack(r);
+            if (id == 3 || id == 4) if (auto lib = getLibrary()) {lib->setUserValue(r.id, "not_duplicate", id == 3 ? "1" : ""); reload();}
+            if (id == 5) removeSelected();
+        });
     }
     void paintCell(juce::Graphics& g, int row, int colId, int width, int height, bool) override {
         if (row < 0 || row >= (int)shown.size() || colId < 1 || colId > (int)cols.size()) return;
@@ -260,8 +315,11 @@ public:
         if (restoringLayout || colKeys.isEmpty()) return;
         auto lib = getLibrary ? getLibrary() : nullptr;
         if (lib == nullptr) return;
-        auto* o = new juce::DynamicObject(); o->setProperty("keys", colKeys.joinIntoString("|")); o->setProperty("layout", table.getHeader().toString());
-        lib->folder.getChildFile("view.json").replaceWithText(juce::JSON::toString(juce::var(o)));
+        const juce::File f = lib->folder.getChildFile("view.json");
+        juce::var j = juce::JSON::parse(f);
+        if (!j.isObject()) j = juce::var(new juce::DynamicObject());
+        j.getDynamicObject()->setProperty("keys", colKeys.joinIntoString("|")); j.getDynamicObject()->setProperty("layout", table.getHeader().toString());
+        f.replaceWithText(juce::JSON::toString(j));
     }
     void cellDoubleClicked(int row, int colId, const juce::MouseEvent&) override {
         if (colId >= 1 && colId <= (int)cols.size() && cols[(size_t)colId - 1].editable) return;
@@ -287,6 +345,12 @@ public:
         showButton.setBounds(top.removeFromLeft(90)); top.removeFromLeft(6);
         removeButton.setBounds(top.removeFromLeft(90)); top.removeFromLeft(6);
         countLabel.setBounds(top);
+        r.removeFromTop(6);
+        auto row2 = r.removeFromTop(26);
+        gradeLabel.setBounds(row2.removeFromLeft(84)); gradeBox.setBounds(row2.removeFromLeft(190)); row2.removeFromLeft(4);
+        compareLabel.setBounds(row2.removeFromLeft(96)); compareBox.setBounds(row2.removeFromLeft(190)); row2.removeFromLeft(12);
+        dupButton.setBounds(row2.removeFromLeft(190)); row2.removeFromLeft(6);
+        howButton.setBounds(row2.removeFromLeft(150));
         r.removeFromTop(6);
         hint = r.removeFromBottom(34);
         table.setBounds(r);
@@ -338,12 +402,13 @@ private:
         add("file", "file", "Track", Kind::Text, false, 230);
         add("artist", "artist", "Artist", Kind::Text, true, 130);
         add("title", "title", "Title", Kind::Text, true, 150);
-        add("grade", "original_grade", "Grade", Kind::Grade, false, 80, "letter_value");
-        add("letter", "letter", "Letter", Kind::Letter, false, 52, "letter_value");
-        add("bonus", "bonus", "Bonus", Kind::Bonus, false, 52, "bonus_value");
-        add("authority", "authority", "Authority", Kind::SubGrade, false, 70, "authority_value");
-        add("power", "power", "Power", Kind::SubGrade, false, 56, "power_value");
-        add("detail", "detail", "Detail", Kind::SubGrade, false, 56, "detail_value");
+        add("grade", "g:grade", "Grade", Kind::Grade, false, 80);
+        if (compareVersion.isNotEmpty()) add("cgrade", "c:grade", "Grade " + shortName(compareVersion), Kind::Grade, false, 90);
+        add("letter", "g:letter", "Letter", Kind::Letter, false, 52, "g:letter_value");
+        add("bonus", "g:bonus", "Bonus", Kind::Bonus, false, 52, "g:bonus_value");
+        add("authority", "g:authority", "Authority", Kind::SubGrade, false, 70, "g:authority_value");
+        add("power", "g:power", "Power", Kind::SubGrade, false, 56, "g:power_value");
+        add("detail", "g:detail", "Detail", Kind::SubGrade, false, 56, "g:detail_value");
         add("bpm", "bpm_est", "BPM", Kind::Bpm, true, 56);
         add("key", "key_est", "Key", Kind::Key, true, 84);
         add("lufs", "lufs_integrated", "LUFS", Kind::Number, false, 56);
@@ -358,7 +423,7 @@ private:
         add("year", "year", "Year", Kind::Number, true, 50);
         add("genre", "genre", "Genre", Kind::Text, true, 90);
         add("fmt", "format", "Format", Kind::Text, false, 110);
-        add("dir", "directions", "Directions", Kind::Text, false, 110);
+        add("dir", "g:directions_main", "Directions", Kind::Text, false, 150);
         add("added", "analysed", "Added", Kind::Text, false, 130);
         //keep the user's column widths and sort if the set of columns did not change
         juce::StringArray keys; for (auto& x : c) keys.add(x.key);
@@ -383,6 +448,18 @@ private:
         restoringLayout = false;
     }
 
+    //a value for a row: "g:x" = column x of the chosen Meter version's grades, "c:x" = of the compared version, else index.csv
+    juce::String field(const RowRef& r, const juce::String& name) const {
+        if (name.startsWith("g:") || name.startsWith("c:")) {
+            const juce::String vid = name.startsWith("g:") ? gradeVersion : compareVersion;
+            auto gt = grades.find(vid); auto rt = gradeRow.find(vid);
+            if (gt == grades.end() || rt == gradeRow.end()) return {};
+            auto it = rt->second.find(r.id);
+            return it == rt->second.end() ? juce::String() : gt->second.get(it->second, name.substring(2));
+        }
+        return idx.get(r.row, name);
+    }
+
     juce::String userValue(const juce::String& id, const juce::String& key) const {
         auto it = user.find(id);
         if (it == user.end()) return {};
@@ -397,7 +474,7 @@ private:
             if (u.isNotEmpty()) {yours = true; return u;}
             if (c.custom) return {};
         }
-        const juce::String v = idx.get(r.row, c.base);
+        const juce::String v = field(r, c.base);
         switch (c.kind) {
             case Kind::Duration: {const int s = (int)std::lround(v.getDoubleValue()); return v.isEmpty() ? v : juce::String(s/60) + ":" + juce::String(s%60).paddedLeft('0', 2);}
             case Kind::Number: return (c.base == "lufs_integrated" || c.base == "peak_dbfs" || c.base == "true_peak_dbtp") && v.isNotEmpty() ? juce::String(v.getDoubleValue(), 1) : v;
@@ -415,10 +492,10 @@ private:
     double sortNumber(const RowRef& r, const Column& c, bool& blank) const {
         juce::String v;
         if (c.editable && (v = userValue(r.id, c.key)).isNotEmpty()) {}
-        else if (c.sortBase.isNotEmpty()) v = idx.get(r.row, c.sortBase);
-        else v = idx.get(r.row, c.base);
+        else if (c.sortBase.isNotEmpty()) v = field(r, c.sortBase);
+        else v = field(r, c.base);
         if (c.kind == Kind::Bonus) { //only 1-80 is shown, lower is better
-            if (idx.get(r.row, "bonus").isEmpty()) {blank = true; return 0;}
+            if (field(r, c.base).isEmpty()) {blank = true; return 0;}
         }
         v = v.trim().removeCharacters(",");
         blank = v.isEmpty() || !v.containsAnyOf("0123456789");
@@ -432,6 +509,17 @@ private:
         //grades read best-first when sorted "forwards" (A before B, high authority before low, bonus 1 before 80)
         const bool higherFirst = c.kind == Kind::Grade || c.kind == Kind::Letter || c.kind == Kind::SubGrade;
         std::stable_sort(shown.begin(), shown.end(), [&](const RowRef& a, const RowRef& b) {
+            if (c.kind == Kind::Grade) { //Chris's order: the numbered tracks (his "double top 40") first, 1 before 80, then the rest by letter, A first
+                const juce::String pa = c.base.substring(0, 2), ba = field(a, pa + "bonus"), bb = field(b, pa + "bonus");
+                const juce::String ga = field(a, pa + "grade"), gb = field(b, pa + "grade");
+                if (ga.isEmpty() != gb.isEmpty()) return gb.isEmpty(); //no grade (not scored by this version) last
+                double ka, kb;
+                if (ba.isNotEmpty() != bb.isNotEmpty()) {ka = ba.isNotEmpty() ? 0 : 1; kb = 1 - ka;}
+                else if (ba.isNotEmpty()) {ka = ba.getDoubleValue(); kb = bb.getDoubleValue();}
+                else {ka = -field(a, pa + "letter_value").getDoubleValue(); kb = -field(b, pa + "letter_value").getDoubleValue();}
+                if (ka == kb) return false;
+                return sortForwards ? ka < kb : ka > kb;
+            }
             if (numeric) {
                 bool ba = false, bb = false;
                 const double va = sortNumber(a, c, ba), vb = sortNumber(b, c, bb);
@@ -461,6 +549,7 @@ private:
                 for (auto& c : cols) hay << display(r, c, y, u) << " ";
                 for (auto& w : words) if (w.isNotEmpty() && !hay.containsIgnoreCase(w)) ok = false;
             }
+            if (ok && dupOnly && !dupOf.count(r.id)) ok = false;
             if (ok) shown.push_back(r);
         }
         sortShown();
@@ -468,6 +557,103 @@ private:
         table.repaint();
         countLabel.setText(juce::String((int)shown.size()) + (shown.size() == all.size() ? juce::String(" tracks") : " of " + juce::String((int)all.size()) + " tracks"), juce::dontSendNotification);
         selectedRowsChanged(table.getSelectedRow());
+        const int nd = (int)dupOf.size();
+        dupButton.setVisible(nd > 0 || dupOnly);
+        dupButton.setButtonText(dupOnly ? "Show all tracks" : juce::String(nd) + " possible duplicate" + (nd == 1 ? "" : "s"));
+        dupButton.setColour(juce::TextButton::buttonColourId, dupOnly ? kSelect : juce::Colour(110, 30, 30));
+    }
+
+    juce::String shortName(const juce::String& vid) const {
+        if (auto* v = f8k::findMeterVersion(vid.toStdString())) return juce::String(v->version);
+        return vid;
+    }
+    void refreshVersionBoxes() {
+        const auto v = f8k::Library::versionIds();
+        if (gradeVersion.isEmpty() || std::find(v.begin(), v.end(), gradeVersion) == v.end()) { //the newest version, unless you chose another for this library
+            gradeVersion = v.empty() ? juce::String() : v.back(); compareVersion = {};
+            if (auto lib = getLibrary ? getLibrary() : nullptr) {
+                const juce::var j = juce::JSON::parse(lib->folder.getChildFile("view.json"));
+                const juce::String gv = j.getProperty("grades", "").toString(), cv = j.getProperty("compare", "").toString();
+                if (std::find(v.begin(), v.end(), gv) != v.end()) gradeVersion = gv;
+                if (std::find(v.begin(), v.end(), cv) != v.end()) compareVersion = cv;
+            }
+        }
+        gradeBox.clear(juce::dontSendNotification); compareBox.clear(juce::dontSendNotification);
+        compareBox.addItem("nothing", 1);
+        for (size_t i = 0; i < v.size(); ++i) {
+            const auto* mv = f8k::findMeterVersion(v[i].toStdString());
+            const juce::String label = "Meter " + juce::String(mv->version) + "  (" + juce::String(mv->date) + ")";
+            gradeBox.addItem(label, (int)i + 1); compareBox.addItem(label, (int)i + 2);
+            if (v[i] == gradeVersion) gradeBox.setSelectedId((int)i + 1, juce::dontSendNotification);
+            if (v[i] == compareVersion) compareBox.setSelectedId((int)i + 2, juce::dontSendNotification);
+        }
+        if (compareVersion.isEmpty()) compareBox.setSelectedId(1, juce::dontSendNotification);
+    }
+    void saveVersions() {
+        auto lib = getLibrary ? getLibrary() : nullptr;
+        if (lib == nullptr) return;
+        const juce::File f = lib->folder.getChildFile("view.json");
+        juce::var j = juce::JSON::parse(f);
+        if (!j.isObject()) j = juce::var(new juce::DynamicObject());
+        j.getDynamicObject()->setProperty("grades", gradeVersion); j.getDynamicObject()->setProperty("compare", compareVersion);
+        f.replaceWithText(juce::JSON::toString(j));
+    }
+
+    //POSSIBLE DUPLICATES: the same name (ignoring case, the extension and bracketed bits like "(2012 Remaster)") and within 2 s
+    //of the same length, or near-identical measurements (length, loudness and peaks) whatever the name.
+    void findDuplicates() {
+        dupOf.clear();
+        auto key = [](juce::String f) {
+            f = juce::File::createFileWithoutCheckingPath("/" + f).getFileNameWithoutExtension().toLowerCase();
+            juce::String o; int depth = 0;
+            for (auto ch : f) {if (ch == '(' || ch == '[') ++depth; else if ((ch == ')' || ch == ']') && depth > 0) --depth; else if (depth == 0 && juce::CharacterFunctions::isLetterOrDigit(ch)) o << juce::String::charToString(ch);}
+            return o;
+        };
+        const size_t n = idx.rows.size();
+        std::vector<juce::String> keys(n), ids(n), files(n);
+        std::vector<double> dur(n), lufs(n), pk(n), tp(n);
+        std::vector<bool> skip(n);
+        for (size_t r = 0; r < n; ++r) {
+            ids[r] = idx.get(r, "id"); files[r] = idx.get(r, "file"); keys[r] = key(files[r]);
+            dur[r] = idx.get(r, "duration_s").getDoubleValue(); lufs[r] = idx.get(r, "lufs_integrated").getDoubleValue();
+            pk[r] = idx.get(r, "peak_dbfs").getDoubleValue(); tp[r] = idx.get(r, "true_peak_dbtp").getDoubleValue();
+            skip[r] = userValue(ids[r], "not_duplicate") == "1";
+        }
+        for (size_t a = 0; a < n; ++a) for (size_t b = a + 1; b < n; ++b) {
+            if (skip[a] || skip[b]) continue;
+            const bool sameName = keys[a].isNotEmpty() && keys[a] == keys[b] && std::fabs(dur[a] - dur[b]) <= 2.0;
+            const bool sameSound = std::fabs(dur[a] - dur[b]) <= 1.0 && std::fabs(lufs[a] - lufs[b]) <= 0.1 && std::fabs(pk[a] - pk[b]) <= 0.1 && std::fabs(tp[a] - tp[b]) <= 0.1;
+            if (!sameName && !sameSound) continue;
+            auto addTo = [&](size_t x, size_t y) {juce::String& s2 = dupOf[ids[x]]; if (s2.isNotEmpty()) s2 << ", "; s2 << files[y];};
+            addTo(a, b); addTo(b, a);
+        }
+    }
+
+    void showHowToRead() {
+        const juce::String t =
+            "A grade like  30-Abbd  reads left to right:\n\n"
+            "30-   THE NUMBER: Chris's 'double top 40'. Only tracks that make it into the top 80 get one; 1 is best.\n"
+            "      No number means the track is outside it: compare those by their letter.\n\n"
+            "A     THE LETTER: how well BALANCED the three meters are with each other. A is best, Z is worst.\n\n"
+            "bbd   AUTHORITY, POWER, DETAIL: HOW MUCH of each the track has (lows, peaks, highs), each on its own scale:\n"
+            "      lowercase s, r, q ... b, a  =  little to plenty      then  capitals A, B, C ...  =  exceptionally strong\n"
+            "      (authority and power go up to J, detail up to K; detail starts lower, at v). Capitals are not a warning.\n\n"
+            "How they fit together: big capitals are fine if all three are big together. What pulls the LETTER down is one of\n"
+            "the three lagging behind the others, so that is the one to look at.\n\n"
+            "Examples from a real library:\n"
+            "  AbAA   strong across the board and in proportion: letter A\n"
+            "  DBdB   huge authority and detail, but power lags at d: letter drops to D\n"
+            "  76-Aghi   modest everywhere, but evenly matched: still an A, and in the top 80\n\n"
+            "Best possible: 1-AJJK.   Worst: Zssv.\n\n"
+            "Directions shows what the meter's own direction line said most of the time during the loud parts of the track.\n"
+            "Sorting by Grade follows Chris's order: numbered tracks first (1 to 80), then the rest by letter, A first.";
+        auto* w = new juce::AlertWindow("How to read a grade", {}, juce::MessageBoxIconType::NoIcon, this);
+        auto* ed = new juce::TextEditor();
+        ed->setMultiLine(true); ed->setReadOnly(true); ed->setText(t); ed->setSize(720, 420);
+        ed->setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::plain));
+        w->addCustomComponent(ed);
+        w->addButton("Close", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+        w->enterModalState(true, juce::ModalCallbackFunction::create([ed](int) { delete ed; }), true);
     }
 
     const RowRef* selectedRow() const {
@@ -496,8 +682,17 @@ private:
         juce::String t;
         bool y, u;
         for (auto& c : cols) {const auto v = display(r, c, y, u); if (v.isNotEmpty()) t << c.header << ":  " << v << (y ? "   (yours)" : "") << "\n";}
-        t << "\nauthority / power / detail values:  " << idx.get(r.row, "authority_value") << " / " << idx.get(r.row, "power_value") << " / " << idx.get(r.row, "detail_value");
-        t << "\nletter value:  " << idx.get(r.row, "letter_value") << "     bonus value:  " << idx.get(r.row, "bonus_value");
+        for (auto& v : f8k::Library::versionIds()) {
+            auto gt = grades.find(v); auto rt = gradeRow.find(v);
+            if (gt == grades.end() || rt == gradeRow.end()) continue;
+            auto it = rt->second.find(r.id);
+            if (it == rt->second.end()) {t << "\nMeter " << shortName(v) << ":  not scored yet"; continue;}
+            const auto& g = gt->second; const size_t gr = it->second;
+            t << "\nMeter " << shortName(v) << ":  " << g.get(gr, "grade") << "    authority / power / detail values " << g.get(gr, "authority_value") << " / "
+              << g.get(gr, "power_value") << " / " << g.get(gr, "detail_value") << "    letter value " << g.get(gr, "letter_value") << "    bonus value " << g.get(gr, "bonus_value")
+              << "\n      directions: " << g.get(gr, "directions_main") << " most of the loud parts, '" << g.get(gr, "directions_end") << "' at the end";
+        }
+        if (dupOf.count(r.id)) t << "\n\nPOSSIBLE DUPLICATE of: " << dupOf.at(r.id);
         t << "\nBPM estimate:  " << idx.get(r.row, "bpm_est") << "  (confidence " << idx.get(r.row, "bpm_confidence") << ")";
         t << "\nkey estimate:  " << idx.get(r.row, "key_est") << "  (confidence " << idx.get(r.row, "key_confidence") << ")";
         t << "\n" << idx.get(r.row, "sample_rate") << " Hz, " << idx.get(r.row, "bits") << " bit, " << idx.get(r.row, "channels") << " ch" << (idx.get(r.row, "lossy") == "yes" ? ", LOSSY" : "");
@@ -508,9 +703,15 @@ private:
         ed->setMultiLine(true); ed->setReadOnly(true); ed->setText(t); ed->setSize(560, 380);
         ed->setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::plain));
         w->addCustomComponent(ed);
-        w->addButton("Show file", 1); w->addButton("Close", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+        w->addButton("Show file", 1);
+        if (dupOf.count(r.id)) w->addButton("Not a duplicate", 2);
+        w->addButton("Close", 0, juce::KeyPress(juce::KeyPress::escapeKey));
         const RowRef copy = r;
-        w->enterModalState(true, juce::ModalCallbackFunction::create([this, copy, ed](int result) { if (result == 1) revealTrack(copy); delete ed; }), true);
+        w->enterModalState(true, juce::ModalCallbackFunction::create([this, copy, ed](int result) {
+            if (result == 1) revealTrack(copy);
+            if (result == 2) if (auto lib = getLibrary()) {lib->setUserValue(copy.id, "not_duplicate", "1"); reload();}
+            delete ed;
+        }), true);
     }
 
     void addColumnDialog() {
@@ -581,6 +782,14 @@ private:
     juce::Rectangle<int> hint;
     std::unique_ptr<juce::FileChooser> chooser;
     f8k::Table idx;
+    std::map<juce::String, f8k::Table> grades;                       //Meter version -> its grades
+    std::map<juce::String, std::map<juce::String, size_t>> gradeRow; //Meter version -> track id -> row in its grades
+    juce::String gradeVersion, compareVersion;
+    std::map<juce::String, juce::String> dupOf;                      //track id -> the file names it may duplicate
+    bool dupOnly = false;
+    juce::ComboBox gradeBox, compareBox;
+    juce::Label gradeLabel{{}, "Grades from"}, compareLabel{{}, "compare with"};
+    juce::TextButton dupButton, howButton{"How to read a grade"};
     std::map<juce::String, std::map<juce::String, juce::String>> user;
     std::vector<f8k::CustomColumn> custom;
     std::vector<Column> cols;
@@ -597,6 +806,9 @@ private:
     } headerWatcher{*this};
 };
 
+//=============================================================================================== "Lab"
+#include "LabView.inc"
+
 //=============================================================================================== the window
 class MainComponent : public juce::Component {
 public:
@@ -611,8 +823,10 @@ public:
         addPanel.onOpenFolder = [this] { folder.createDirectory(); folder.startAsProcess(); };
         addPanel.onChangeFolder = [this] { chooseLibrary(); };
         libraryView.getLibrary = [this] { return library; };
+        labView.getLibrary = [this] { return library; };
         tabs.addTab("Add tracks", kBg, &addPanel, false);
         tabs.addTab("Library", kBg, &libraryView, false);
+        tabs.addTab("Lab", kBg, &labView, false);
         tabs.setColour(juce::TabbedComponent::outlineColourId, kBg);
         tabs.setColour(juce::TabbedButtonBar::tabTextColourId, kDim);
         tabs.setColour(juce::TabbedButtonBar::frontTextColourId, kText);
@@ -620,6 +834,30 @@ public:
         tabs.setCurrentTabIndex(0);
         addAndMakeVisible(tabs);
         setSize(1100, 680);
+        checkForUpdate();
+    }
+    //Each analyser build on GitHub is published as a release "analyser-b<build>". If a newer one exists (for example one that
+    //adds a new original Meter version), say so on the Add tracks tab. Nothing is downloaded without you clicking.
+    void checkForUpdate() {
+        if (F8K_BUILD_NUMBER <= 0) return; //a local build
+        juce::Component::SafePointer<MainComponent> sp(this);
+        juce::Thread::launch([sp] {
+            auto in = juce::URL("https://api.github.com/repos/Forty8k/Meter/releases?per_page=30")
+                          .createInputStream(juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress).withConnectionTimeoutMs(8000)
+                                             .withExtraHeaders("Accept: application/vnd.github+json\r\nUser-Agent: Meter-F8K-Analyser"));
+            if (in == nullptr) return;
+            const juce::var j = juce::JSON::parse(in->readEntireStreamAsString());
+            int best = 0; juce::String title, page;
+            if (auto* arr = j.getArray())
+                for (auto& r : *arr) {
+                    const juce::String tag = r.getProperty("tag_name", "").toString();
+                    if (!tag.startsWith("analyser-b")) continue;
+                    const int b = tag.fromFirstOccurrenceOf("analyser-b", false, false).getIntValue();
+                    if (b > best) {best = b; title = r.getProperty("name", tag).toString(); page = r.getProperty("html_url", "").toString();}
+                }
+            if (best <= F8K_BUILD_NUMBER || page.isEmpty()) return;
+            juce::MessageManager::callAsync([sp, title, page] { if (sp != nullptr) sp->addPanel.showUpdate(title, juce::URL(page)); });
+        });
     }
     ~MainComponent() override { worker.signalThreadShouldExit(); worker.notify(); }
     void paint(juce::Graphics& g) override { g.fillAll(kBg); }
@@ -627,15 +865,17 @@ public:
     //for automated checks: pictures of both tabs
     void snapshot(const juce::File& outDir) {
         outDir.createDirectory();
-        for (int t = 0; t < 2; ++t) {
+        const char* names[3] = {"tab-add.png", "tab-library.png", "tab-lab.png"};
+        for (int t = 0; t < 3; ++t) {
             tabs.setCurrentTabIndex(t);
             if (t == 1) libraryView.reload();
             const auto img = createComponentSnapshot(getLocalBounds(), true, 1.0f);
-            juce::FileOutputStream os(outDir.getChildFile(t == 0 ? "tab-add.png" : "tab-library.png"));
+            juce::FileOutputStream os(outDir.getChildFile(names[t]));
             if (os.openedOk()) {os.setPosition(0); os.truncate(); juce::PNGImageFormat().writeImageToStream(img, os);}
         }
     }
     std::shared_ptr<f8k::Library> getLibrary() const { return library; }
+    void showLabSoon() { tabs.setCurrentTabIndex(2); } //so the Lab loads its data before the pictures
 private:
     void setFolder(const juce::File& f) {
         folder = f;
@@ -657,6 +897,7 @@ private:
     std::shared_ptr<f8k::Library> library;
     AddPanel addPanel;
     LibraryView libraryView;
+    LabView labView;
     Worker worker{*this};
     juce::TabbedComponent tabs{juce::TabbedButtonBar::TabsAtTop};
     std::unique_ptr<juce::FileChooser> chooser;
@@ -665,7 +906,7 @@ private:
 class AnalyserApp : public juce::JUCEApplication {
 public:
     const juce::String getApplicationName() override { return "Meter F8K Analyser"; }
-    const juce::String getApplicationVersion() override { return "1.1.0"; }
+    const juce::String getApplicationVersion() override { return "1.2.0 (build " + juce::String(F8K_BUILD_NUMBER) + ")"; }
     bool moreThanOneInstanceAllowed() override { return true; }
     void initialise(const juce::String& commandLine) override {
         juce::LookAndFeel::getDefaultLookAndFeel().setColour(juce::AlertWindow::backgroundColourId, kPanel);
@@ -685,7 +926,8 @@ public:
                     if (!t.rows.empty()) l->setUserValue(t.get(0, "id"), "artist", "Edited Artist");
                 }
             }
-            juce::Timer::callAfterDelay(1500, [this, out] { snap->snapshot(out); snap.reset(); quit(); });
+            snap->showLabSoon();
+            juce::Timer::callAfterDelay(4000, [this, out] { snap->snapshot(out); snap.reset(); quit(); });
             return;
         }
         window = std::make_unique<Window>();

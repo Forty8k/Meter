@@ -2,9 +2,10 @@ METER F8K ANALYSER - HOW TO
 ===========================
 
 What it does
-  Captures what the ORIGINAL Airwindows Meter (0.5.5) sees in a track, once, and keeps it in a library folder.
-  It runs much faster than real time and needs no DAW. Your own Meter tweaks play no part in the capture,
-  so the data never goes out of date: any gauge, grade or hint can be worked out again later from the library.
+  Runs every version of the ORIGINAL Airwindows Meter it knows (0.5.5, 0.5.6 ...) over a track, once, much faster than
+  real time and with no DAW, and keeps what each one sees and grades in a library folder. Your own Meter tweaks play no
+  part in it, so the data never goes out of date: any gauge, grade or hint can be worked out again later from the library.
+  When Chris publishes a new Meter, a new analyser build with it appears automatically (see "Updates" below).
 
 Using it
   1. Unzip and run "Meter F8K Analyser.exe". (Windows may warn about an unknown publisher: More info > Run anyway.)
@@ -35,6 +36,49 @@ The Library tab
     of your columns, fill those; any other column becomes a new column of yours.
   - "Remove..." deletes a track's captured data and your values for it (the audio file itself is not touched).
 
+HOW TO READ A GRADE  (also behind the "How to read a grade" button)
+  A grade like 30-Abbd reads left to right:
+  30-   the number: Chris's "double top 40". Only tracks inside the top 80 get one; 1 is best. No number = outside it.
+  A     the letter: how well BALANCED the three meters are with each other. A is best, Z is worst.
+  bbd   authority, power, detail: HOW MUCH of each (lows, peaks, highs). Lowercase s ... a = little to plenty, then capitals
+        A, B, C ... = exceptionally strong (up to J, or K for detail). Capitals are not a warning.
+  What pulls the letter down is one of the three lagging behind the other two. Best possible: 1-AJJK. Worst: Zssv.
+  Sorting by Grade follows Chris's order: numbered tracks first (1 to 80), then the rest by letter, A first.
+
+Meter versions
+  "Grades from" chooses which original Meter's grades the Library shows (the newest by default). "compare with" adds a
+  second Grade column from another version, so you can see what a new version changed.
+  When the analyser gains a new Meter version, every track is updated for it automatically when you open the app. If that
+  version measures the audio differently, the track's audio file is read again from where it was when you added it; a
+  track whose file has moved or been deleted says so in the log (add it again to update it).
+
+Directions
+  What the original meter's direction line said most of the time during the loud parts of the track, with its share,
+  e.g. "allow detail (62%)". The details window also shows what it said at the very end.
+
+Possible duplicates
+  Tracks with the same name (ignoring case, the extension and bracketed bits like "(2012 Remaster)") and within 2 s of
+  the same length, or with near-identical length, loudness and peaks whatever the name, are shaded red. The red button
+  shows only those. Right-click a track (or open its details) and choose "Not a duplicate" to stop it being flagged.
+
+The Lab tab
+  An experiment space. Nothing in it changes the Library's real grades.
+  Meter F8K hints: the plugin's light/heavy, headroom/squashed and dark/bright hints, simulated over your whole library as
+    you move the settings. The strip at the top shows where every track's readings sit (dots) against the triggers (lines);
+    the table shows each track's average readings and how much of the time each hint would show (yellow = most of it).
+    "Set triggers from the library" puts each balance point in the middle of your library and each trigger so that the
+    chosen share of tracks lands beyond it. "Export to Meter F8K" sends everything to the plugin (the Lab-ready build):
+    the reading settings take effect straight away, even while the plugin is open ("lab" shows next to "tune"), and the
+    triggers become its default preset for new instances (your old preset is kept as defaults-before-lab.xml).
+  Original scoring (experiment): a copy of the newest original Meter's scoring with its constants as settings. Press
+    "Re-score library" (a minute or so) to see which grades change and how the ranking moves. "Save settings..." keeps them
+    in a file, for example to show Chris. "redraws per window" above 1 shows what happens when a DAW renders faster than
+    the screen redraws, which is why the original's offline scores differ.
+
+Updates
+  The app checks GitHub when it starts. If a newer build exists (for example one that adds a new original Meter), a
+  yellow button on the Add tracks tab offers the download. Nothing is downloaded until you click it.
+
 BPM and key
   Both are estimated from the audio. BPM can come out at half or double the tempo you would count; key can land on the
   relative major/minor (C major / A minor) or a fifth away. Less certain estimates show grey with a "?". Correct any of
@@ -43,8 +87,9 @@ BPM and key
 What is in the library
   index.csv                one row per track: tags, format, levels, loudness, and the original meter's grade
                            (opens in Excel)
-  tracks\<id>.core.csv     the original meter's own data: one row per 42.7 ms window, exactly the ten values the
-                           plugin sends to its display
+  tracks\<id>.core-<version>.csv  each original Meter version's own data: one row per 42.7 ms window, exactly the
+                           values that version sends to its display (0.5.6 sends twenty)
+  grades-<version>.csv     each original Meter version's grade for every track
   tracks\<id>.fine.f32.gz  ~5.8 ms blocks with enough detail to rebuild any longer window, plus extras
                            (RMS, true peak, loudness, stereo, ten octave bands)
   tracks\<id>.pitch.f32.gz how strongly each of the 12 notes sounds, every ~93 ms (used for the key)

@@ -1,14 +1,16 @@
-// Minimal stand-ins for the few JUCE types the ORIGINAL Airwindows Meter 0.5.5 scoring code touches.
-// They live inside namespace f8korig, so the original code can be compiled unchanged (it says juce::String,
-// juce::Graphics and so on) without clashing with the real JUCE in the rest of the analyser.
+// Minimal stand-ins for the JUCE types the ORIGINAL Airwindows Meter code touches: its audio loop (processBlock), its
+// editor's message handling and its meter's paint(). They live in namespace f8kstub::juce, and each Meter version's
+// namespace aliases juce to it, so the original code compiles unchanged without clashing with the real JUCE elsewhere.
 // Drawing calls do nothing. Colour keeps JUCE's 8-bit behaviour so the original "directions" text comes out the same.
 #pragma once
 #include <cmath>
 #include <string>
 #include <algorithm>
 #include <cstdint>
+#include <vector>
+#include <optional>
 
-namespace f8korig {
+namespace f8kstub {
 namespace juce {
 
 struct String {
@@ -85,5 +87,42 @@ struct Component {
     Colour findColour(int) const { return Colours::lightgrey; }
 };
 
+//---- audio side
+template <typename T> void ignoreUnused(const T&) {}
+template <typename T, typename... R> void ignoreUnused(const T&, const R&...) {}
+struct ScopedNoDenormals {};
+struct MidiBuffer {};
+template <typename T> struct AudioBuffer {
+    std::vector<std::vector<T>> ch; int n = 0;
+    void setSize(int chans, int samples) { ch.assign((size_t)chans, std::vector<T>((size_t)samples)); n = samples; }
+    int getNumSamples() const { return n; }
+    int getNumChannels() const { return (int)ch.size(); }
+    void clear(int c, int start, int num) { for (int i = start; i < start + num && i < n; ++i) ch[(size_t)c][(size_t)i] = 0; }
+    T* getWritePointer(int c, int i = 0) { return ch[(size_t)c].data() + i; }
+    const T* getReadPointer(int c, int i = 0) const { return ch[(size_t)c].data() + i; }
+};
+struct AbstractFifo { //JUCE's single-reader single-writer ring, same behaviour
+    int size, readPos = 0, writePos = 0;
+    explicit AbstractFifo(int capacity) : size(capacity) {}
+    int getNumReady() const { return writePos >= readPos ? writePos - readPos : size - (readPos - writePos); }
+    int getFreeSpace() const { return size - getNumReady() - 1; }
+    void prepareToWrite(int num, int& s1, int& b1, int& s2, int& b2) const {
+        const int ve = writePos; num = std::min(num, getFreeSpace());
+        if (num <= 0) {s1 = 0; s2 = 0; b1 = 0; b2 = 0; return;}
+        s1 = ve; s2 = 0; b1 = std::min(size - ve, num); num -= b1; b2 = std::min(num, readPos);
+    }
+    void finishedWrite(int num) { writePos += num; if (writePos >= size) writePos -= size; }
+    void prepareToRead(int num, int& s1, int& b1, int& s2, int& b2) const {
+        const int vs = readPos; num = std::min(num, getNumReady());
+        if (num <= 0) {s1 = 0; s2 = 0; b1 = 0; b2 = 0; return;}
+        s1 = vs; s2 = 0; b1 = std::min(size - vs, num); num -= b1; b2 = std::min(num, writePos);
+    }
+    void finishedRead(int num) { readPos += num; if (readPos >= size) readPos -= size; }
+};
+struct AudioPlayHead { //offline: no host play head, so the meter always runs
+    struct PositionInfo { double getTimeInSeconds() const { return 0; } bool getIsPlaying() const { return true; } };
+    std::optional<PositionInfo> getPosition() const { return PositionInfo(); }
+};
+
 } // namespace juce
-} // namespace f8korig
+} // namespace f8kstub

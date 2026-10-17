@@ -40,6 +40,10 @@ static CoreWindow mergeFine(const Capture& c, size_t firstBlock, size_t numBlock
 static double gWorst = 0;
 static void runSignal(const char* name, double sr, double seconds, std::function<void(long, float&, float&)> gen, bool checkMerge)
 {
+    const long totalS = (long)(seconds*sr);
+    std::vector<float> sigL((size_t)totalS), sigR((size_t)totalS);
+    for (long i = 0; i < totalS; ++i) gen(i, sigL[(size_t)i], sigR[(size_t)i]);
+    gen = [&](long i, float& l, float& r) { l = sigL[(size_t)i]; r = sigR[(size_t)i]; }; //every pass below sees the same audio
     Capture cap(sr, checkMerge ? 941 : 0);
     std::vector<float> L(4096), R(4096);
     const long total = (long)(seconds*sr);
@@ -58,12 +62,35 @@ static void runSignal(const char* name, double sr, double seconds, std::function
         }
     }
     gWorst = std::max(gWorst, worst);
-    OriginalReplay rep;
-    for (auto& w : cap.core) rep.push(w);
-    const OriginalResult r = rep.result();
-    printf("%-22s windows=%zu  grade=\"%s\"  power=%.2f detail=%.2f authority=%.2f  peak=%.1f dBFS  LUFS=%.1f%s\n", name, cap.core.size(), r.grade.c_str(),
+    //the original 0.5.5's own audio loop must give exactly the windows our copy gives, and replaying them must give the same grade
+    auto run = meterVersions().front().create(sr, 1);
+    {
+        std::vector<float> L(4096), R(4096);
+        for (long pos = 0; pos < total; pos += 4096) {
+            const int n = (int)std::min<long>(4096, total - pos);
+            for (int i = 0; i < n; ++i) gen(pos + i, L[i], R[i]);
+            run->process(L.data(), R.data(), n);
+        }
+    }
+    double coreDiff = 0;
+    if (run->windowCount() != cap.core.size()) coreDiff = 1;
+    else for (size_t w = 0; w < cap.core.size(); ++w) { const float* A = &cap.core[w].peakL; for (int k = 0; k < 10; ++k) coreDiff = std::max(coreDiff, (double)std::fabs(A[k] - run->core[w*10 + k])); }
+    gWorst = std::max(gWorst, coreDiff);
+    const OriginalResult r = run->result();
+    auto replay = meterVersions().front().create(sr, 1);
+    for (size_t w = 0; w < run->windowCount(); ++w) replay->feedWindow(run->names, &run->core[w*run->names.size()]);
+    if (replay->result().grade != r.grade) {printf("REPLAY MISMATCH %s vs %s\n", replay->result().grade.c_str(), r.grade.c_str()); gWorst = 1;}
+    std::string others;
+    for (size_t v = 1; v < meterVersions().size(); ++v) {
+        auto o = meterVersions()[v].create(sr, 1);
+        std::vector<float> L(4096), R(4096);
+        for (long pos = 0; pos < total; pos += 4096) { const int n = (int)std::min<long>(4096, total - pos); for (int i = 0; i < n; ++i) gen(pos + i, L[i], R[i]); o->process(L.data(), R.data(), n); }
+        others += "  " + meterVersions()[v].version + "=\"" + o->result().grade + "\" " + o->result().directionsMain;
+    }
+    printf("%-22s windows=%zu  0.5.5=\"%s\"  power=%.2f detail=%.2f authority=%.2f  peak=%.1f dBFS  LUFS=%.1f%s\n", name, cap.core.size(), r.grade.c_str(),
            r.peakPrevGrade, r.slewPrevGrade, r.bassPrevGrade, 20*std::log10(std::max(cap.peakAbs, 1e-9)), cap.integratedLufs(),
-           checkMerge ? (std::string("  merge-err=") + std::to_string(worst)).c_str() : "");
+           (checkMerge ? (std::string("  merge-err=") + std::to_string(worst)).c_str() : ""));
+    printf("    %s%s\n", r.directionsMain.c_str(), others.c_str());
 }
 
 int main()

@@ -45,7 +45,7 @@ jobs:
       - name: Get JUCE
         run: git submodule update --init --depth 1 JUCE
       - name: Configure
-        run: cmake -S analyser -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S analyser -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DF8K_BUILD_NUMBER=${{ github.run_number }}
       - name: Build
         run: |
           set -o pipefail
@@ -146,3 +146,27 @@ jobs:
         with:
           name: Meter-F8K-Analyser-${{ matrix.name }}
           path: package
+
+  release:
+    # Publishes each successful build of the analyser branch as a release, so the app can tell you a newer one exists
+    # (for example after a new original Meter version was added automatically).
+    needs: build
+    if: github.ref == 'refs/heads/analyser'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd dist
+          for d in */; do (cd "$d" && zip -qr "../${d%/}.zip" .); done
+          versions=$(for f in ../analyser/original/*/upstream.json; do python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['version'])" "$f"; done | sort -V | tr '\n' ' ')
+          newest=$(echo $versions | awk '{print $NF}')
+          gh release create "analyser-b${{ github.run_number }}" *.zip --target "${{ github.sha }}" \
+            --title "Meter F8K Analyser build ${{ github.run_number }} (original Meter up to ${newest})" \
+            --notes "Original Meter versions included: ${versions}
+          Download Meter-F8K-Analyser-Windows.zip, unzip, and run Meter F8K Analyser.exe. Your library is kept: tracks are updated for any new Meter version automatically."

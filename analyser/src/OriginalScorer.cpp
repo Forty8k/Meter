@@ -3,52 +3,32 @@
 #include <array>
 #include <iostream>
 #include <cmath>
-#include "OriginalScorer.inc"
+#include <map>
+#include <algorithm>
 
 namespace f8k {
-
-struct OriginalReplay::Impl { f8korig::AirwindowsMeter meter; f8korig::juce::Graphics g; };
-
-OriginalReplay::OriginalReplay(int w, int h, int pe) : impl(new Impl), paintEvery(pe < 1 ? 1 : pe)
+// What the directions line said most of the time during the loud parts of the track (louder than half of the
+// level the loudest 10% of the track reaches), with its share, e.g. "allow detail (62%)".
+std::string mainDirection(const std::vector<std::string>& dirs, const std::vector<double>& vols)
 {
-    auto& meter = impl->meter;
-    meter.w = w; meter.h = h;
-    meter.displayWidth = w; meter.displayHeight = h; //as PluginEditor::resized() sets them
-    meter.pluginColour = f8korig::juce::Colours::lightgrey;
-    meter.resetArrays(); //as the PluginEditor constructor does
-    meter.outputR = 10.0;
-    meter.outputG = 10.0;
-    meter.outputB = 10.0;
+    if (dirs.empty()) return {};
+    std::vector<double> v(vols); std::sort(v.begin(), v.end());
+    const double loud = 0.5*v[(size_t)((v.size() - 1)*0.9)];
+    std::map<std::string, int> count; int total = 0;
+    for (size_t i = 0; i < dirs.size(); ++i) if (vols[i] >= loud && !dirs[i].empty()) {++count[dirs[i]]; ++total;}
+    if (total == 0) return {};
+    auto best = std::max_element(count.begin(), count.end(), [](const auto& a, const auto& b) { return a.second < b.second; });
+    return best->first + " (" + std::to_string((int)std::lround(100.0*best->second/total)) + "%)";
 }
-OriginalReplay::~OriginalReplay() = default;
-
-void OriginalReplay::push(const CoreWindow& x)
-{
-    auto& meter = impl->meter; //the editor's message handling, in the order the plugin sends the messages
-    meter.pushPeakL(x.peakL); meter.pushPeakR(x.peakR);
-    meter.pushSlewL(x.slewL); meter.pushSlewR(x.slewR);
-    meter.pushZeroL(x.zeroL); meter.pushZeroR(x.zeroR);
-    meter.pushBeamL(x.beamL); meter.pushBeamR(x.beamR);
-    meter.pushDeptL(x.deptL); meter.pushDeptR(x.deptR);
-    f8korig::editorOnIncrement(meter);
-    ++windows;
-    if (windows % paintEvery == 0) {meter.paint(impl->g); ++paints;}
 }
 
-OriginalResult OriginalReplay::result() const
-{
-    const auto& m = impl->meter;
-    OriginalResult r;
-    r.bonus = m.bonusScore.s; r.letter = m.totalPackage.s; r.authority = m.authority.s; r.power = m.power.s; r.detail = m.detail.s;
-    r.directions = m.directions.s;
-    r.grade = r.bonus + r.letter + r.authority + r.power + r.detail; //the order the original draws it
-    r.peakPrevGrade = m.peakPrevGrade; r.slewPrevGrade = m.slewPrevGrade; r.bassPrevGrade = m.bassPrevGrade;
-    r.outputR = m.outputR; r.outputG = m.outputG; r.outputB = m.outputB;
-    r.cumulative = m.cumulative; r.duration = m.duration; r.cumulativePlus = m.cumulativePlus; r.durationPlus = m.durationPlus;
-    r.letterValue = (1.0-pow(1.0-(m.cumulative/m.duration),1.618033988749894))*27.618033988749894; //the original's allMatch
-    r.bonusValue = 100-(int)fmin((m.cumulativePlus/m.durationPlus)*100.0,99.0);                    //the original's bonus number
-    r.windows = windows; r.paints = paints;
-    return r;
-}
+namespace f8k { ScoreParams& scoreParams() { thread_local ScoreParams p; return p; } }
+#include "gen/Versions.inc"
 
-} // namespace f8k
+namespace f8k {
+const MeterVersion* findMeterVersion(const std::string& id)
+{
+    for (auto& v : meterVersions()) if (v.id == id) return &v;
+    return nullptr;
+}
+}

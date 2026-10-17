@@ -9,6 +9,8 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <functional>
 #include <map>
+#include "Capture.h"
+#include "OriginalScorer.h"
 
 namespace f8k {
 
@@ -39,12 +41,17 @@ public:
 
     // scanning (any thread)
     AnalyseOutcome analyse(const juce::File& audio, std::function<void(double)> progress = {}, std::function<bool()> shouldStop = {});
-    int upgradeOldRows(std::function<bool()> shouldStop = {}); // fills in values added in later versions (letter/bonus numbers, BPM), returns how many rows changed
+    // Fills in what later versions added: grades from Meter versions a track has not been scored by yet (replayed from its
+    // stored window data, or scanned again from its audio if that version measures differently), and BPM. Uses several cores.
+    int upgradeOldRows(std::function<bool()> shouldStop = {}, std::function<void(int done, int total, const juce::String& file)> progress = {});
+    int lastNoAudio = 0; // tracks whose audio was needed but could not be found (moved or deleted)
     static bool isAudioFile(const juce::File& f);
     static void collectAudioFiles(const juce::File& fileOrFolder, juce::Array<juce::File>& out);
 
     // reading and editing (any thread, all locked)
     Table index();                                      // a copy of index.csv
+    Table grades(const juce::String& versionId);        // a copy of grades-<version>.csv: one Meter version's verdict on every track
+    static std::vector<juce::String> versionIds();      // every Meter version the analyser has, oldest first
     std::map<juce::String, std::map<juce::String, juce::String>> userValues(); // id -> key -> value
     std::vector<CustomColumn> customColumns();
     void setUserValue(const juce::String& id, const juce::String& key, const juce::String& value);
@@ -70,6 +77,15 @@ private:
     void writeReadme();
     void saveColumns(const std::vector<CustomColumn>& cols);
     void putIndexRow(const juce::StringArray& cells); // add, or replace the row with the same id
+    void putGradeRow(const juce::String& vid, const juce::String& id, const OriginalResult& r);
+    juce::File gradesFile(const juce::String& vid) const;
+    juce::File coreFile(const juce::String& id, const juce::String& vid) const;
+    bool scanAudio(const juce::File& audio, Capture* cap, std::vector<std::unique_ptr<MeterRun>>& runs, std::function<void(double)> progress,
+                   std::function<bool()> shouldStop, juce::String& error, std::unique_ptr<juce::AudioFormatReader>* readerOut);
+    bool scanVersions(const juce::String& id, const juce::File& audio, const std::vector<juce::String>& vids, std::function<void(double)> progress, std::function<bool()> shouldStop);
+public:
+    bool readCore(const juce::String& id, const juce::String& vid, std::vector<std::string>& names, std::vector<float>& values);
+private:
 };
 
 juce::StringPairArray readFlacTags(const juce::File& f); // Vorbis comments (TITLE, ARTIST, DATE, GENRE ...), JUCE does not read these from FLAC
