@@ -14,6 +14,8 @@ struct OriginalResult {
     double peakPrevGrade = 0, slewPrevGrade = 0, bassPrevGrade = 0; // the running grade values behind power, detail, authority
     double outputR = 0, outputG = 0, outputB = 0;                    // slews, zero crosses, peaks scores (the tone colour)
     double cumulative = 0, duration = 0, cumulativePlus = 0, durationPlus = 0;
+    double letterValue = 0;  // the number behind the letter (0-27.6, the letter is its whole part: 27 = A, higher is better)
+    int bonusValue = 0;      // the bonus number before it is hidden (the original only shows 1-80; lower is better)
     long windows = 0, paints = 0;
 };
 

@@ -39,7 +39,7 @@ static void setBandPass(Biquad& q, double fs, double f0, double Q)
     q.set(alpha, 0.0, -alpha, 1+alpha, -2*cw, 1-alpha);
 }
 
-Capture::Capture(double sr, int fineBlockOverride) : sampleRate(sr)
+Capture::Capture(double sr, int fineBlockOverride) : sampleRate(sr), pitch(sr)
 {
     //the plugin's per-window constants (PluginProcessor::processBlock)
     windowSize = (1881.0 / 44100.0)*sampleRate; //higher is slower with larger RMS buffers
@@ -184,6 +184,7 @@ void Capture::process(const float* L, const float* R, int numSamples)
         lr += inputSampleL*inputSampleR;
         const double mid = 0.5*(inputSampleL + inputSampleR), side = 0.5*(inputSampleL - inputSampleR);
         midSq += mid*mid; sideSq += side*side;
+        pitch.push(mid);
         for (int b = 0; b < 10; ++b) if (bandOn[b]) {const double y = band[b].process(mid); bandSq[b] += y*y;}
         peakAbs = std::max(peakAbs, std::max(fabs(inputSampleL), fabs(inputSampleR)));
         totalSamples++;

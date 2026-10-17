@@ -11,10 +11,11 @@
 #include <string>
 #include <cstdint>
 #include <cmath>
+#include "Estimates.h"
 
 namespace f8k {
 
-constexpr const char* kCaptureVersion = "1.0";
+constexpr const char* kCaptureVersion = "1.1"; // 1.1 added the pitch layer
 
 // One CORE window, exactly as the original plugin sends it (peak is already square-rooted, as in the plugin).
 struct CoreWindow { float peakL, peakR, slewL, slewR, zeroL, zeroR, beamL, beamR, deptL, deptR; };
@@ -65,6 +66,7 @@ public:
     std::vector<CoreWindow> core;
     std::vector<float> fine;    // row-major, F_NUM_COLS per block
     size_t fineRows() const { return fine.size() / F_NUM_COLS; }
+    PitchCapture pitch;         // the pitch layer (see Estimates.h)
 
     // track summary
     double peakAbs = 0.0, truePeakAbs = 0.0;

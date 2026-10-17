@@ -78,6 +78,30 @@ int main()
     runSignal("drum-ish bursts", sr, 20, [&](long i, float& l, float& r){ const double t = std::fmod(i/sr, 0.5); l = r = (float)(0.9*std::exp(-t*30)*std::sin(tau*(60 + 200*std::exp(-t*40))*t)); }, true);
     runSignal("sine 1 kHz @48k", 48000.0, 10, [&](long i, float& l, float& r){ l = r = 0.5f*(float)std::sin(tau*1000*i/48000.0); }, false);
     // 1 kHz sine at -20 dBFS peak: true peak should be about -20 dB, LUFS about -23.0 (a -20 dBFS peak sine is -23 dBFS RMS, K-weighting adds ~0)
+    // tempo and key on simple synthetic songs (kick on the beat, hats between, a pad chord and a bass note)
+    int estFails = 0;
+    struct T {double bpm; int root; bool minor; const char* key;} tests[] = {{128, 9, true, "A minor"}, {95, 0, false, "C major"}, {120, 7, false, "G major"}, {140, 2, true, "D minor"}};
+    std::uniform_real_distribution<float> u(-1, 1);
+    for (auto t : tests) {
+        Capture cap(sr); std::vector<float> L(4096); const long total = (long)(30*sr);
+        const int third = t.minor ? 3 : 4; const double f0 = 220.0*std::pow(2.0, (t.root - 9)/12.0);
+        for (long pos = 0; pos < total; pos += 4096) {
+            const int n = (int)std::min<long>(4096, total - pos);
+            for (int i = 0; i < n; ++i) {
+                const double tt = (pos + i)/sr, beat = 60.0/t.bpm, tb = std::fmod(tt, beat), th = std::fmod(tt + beat/2, beat);
+                double x = 0.8*std::exp(-tb*25)*std::sin(tau*(50 + 100*std::exp(-tb*30))*tb) + 0.15*std::exp(-th*80)*u(rng) + 0.2*std::sin(tau*f0/2*tt);
+                for (int st : {0, third, 7}) x += 0.08*std::sin(tau*f0*std::pow(2.0, st/12.0)*tt) + 0.04*std::sin(tau*2*f0*std::pow(2.0, st/12.0)*tt);
+                L[i] = (float)x;
+            }
+            cap.process(L.data(), L.data(), n);
+        }
+        cap.finish();
+        const auto b = estimateBpm(cap.fine, cap.fineBlockSamples/sr); const auto k = estimateKey(cap.pitch.frames);
+        const bool ok = std::fabs(b.bpm - t.bpm) < 1.0 && k.name == t.key;
+        if (!ok) ++estFails;
+        printf("song %5.1f BPM %-8s -> %5.1f BPM (conf %.2f), %s (conf %.3f)  %s\n", t.bpm, t.key, b.bpm, b.confidence, k.name.c_str(), k.confidence, ok ? "ok" : "WRONG");
+    }
     printf("worst merge error %g\n", gWorst);
+    if (estFails) return 1;
     return gWorst < 1e-5 ? 0 : 1;
 }

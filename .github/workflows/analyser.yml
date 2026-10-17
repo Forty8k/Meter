@@ -7,6 +7,9 @@ on:
       - 'analyser/**'
       - '.github/workflows/analyser.yml'
 
+permissions:
+  contents: write
+
 concurrency:
   group: analyser-${{ github.ref }}
   cancel-in-progress: true
@@ -65,6 +68,16 @@ jobs:
                       s = int(max(-1, min(1, v))*32767); fr += struct.pack("<hh", s, s)
                   o.writeframes(bytes(fr))
           w("t_sine50.wav", 50, 0.5); w("t_sine2k.wav", 2000, 0.5); w("t_noise.wav", 1, 0.0, noise=0.4)
+          sr = 44100
+          with wave.open("t_beat128_Amin.wav", "wb") as o:
+              o.setnchannels(2); o.setsampwidth(2); o.setframerate(sr)
+              fr = bytearray(); beat = 60/128
+              for i in range(sr*12):
+                  t = i/sr; tb = t % beat; th = (t + beat/2) % beat
+                  v = 0.7*math.exp(-tb*25)*math.sin(2*math.pi*(50+100*math.exp(-tb*30))*tb) + 0.12*math.exp(-th*80)*random.uniform(-1,1) + 0.15*math.sin(2*math.pi*110*t)
+                  for st in (0, 3, 7): v += 0.07*math.sin(2*math.pi*220*2**(st/12)*t)
+                  s = int(max(-1, min(1, v))*32767); fr += struct.pack("<hh", s, s)
+              o.writeframes(bytes(fr))
           PY
           import wave, struct, math, random
           def w(name, f, amp, sr=44100, secs=8, noise=0.0):
@@ -76,13 +89,23 @@ jobs:
                       s = int(max(-1, min(1, v))*32767); fr += struct.pack("<hh", s, s)
                   o.writeframes(bytes(fr))
           w("t_sine50.wav", 50, 0.5); w("t_sine2k.wav", 2000, 0.5); w("t_noise.wav", 1, 0.0, noise=0.4)
+          sr = 44100
+          with wave.open("t_beat128_Amin.wav", "wb") as o:
+              o.setnchannels(2); o.setsampwidth(2); o.setframerate(sr)
+              fr = bytearray(); beat = 60/128
+              for i in range(sr*12):
+                  t = i/sr; tb = t % beat; th = (t + beat/2) % beat
+                  v = 0.7*math.exp(-tb*25)*math.sin(2*math.pi*(50+100*math.exp(-tb*30))*tb) + 0.12*math.exp(-th*80)*random.uniform(-1,1) + 0.15*math.sin(2*math.pi*110*t)
+                  for st in (0, 3, 7): v += 0.07*math.sin(2*math.pi*220*2**(st/12)*t)
+                  s = int(max(-1, min(1, v))*32767); fr += struct.pack("<hh", s, s)
+              o.writeframes(bytes(fr))
           PY2
           CLI=build/MeterF8KAnalyserCLI_artefacts/Release/MeterF8KAnalyserCLI
-          "$CLI" --library testlib t_sine50.wav t_sine2k.wav t_noise.wav | tee cli.txt
+          "$CLI" --library testlib t_sine50.wav t_sine2k.wav t_noise.wav t_beat128_Amin.wav | tee cli.txt
           "$CLI" --library testlib t_sine50.wav | tee -a cli.txt
           ls -la testlib/tracks
           while IFS= read -r l; do echo "::notice title=CLI ${{ matrix.name }}::$l"; done < cli.txt
-          cut -d, -f1-3,8-26 testlib/index.csv | while IFS= read -r l; do echo "::notice title=index ${{ matrix.name }}::$l"; done
+          cut -d, -f2,17,27-32 testlib/index.csv | while IFS= read -r l; do echo "::notice title=index ${{ matrix.name }}::$l"; done
       - name: Window app starts (Linux, virtual display)
         if: runner.os == 'Linux'
         run: |
@@ -92,6 +115,12 @@ jobs:
           echo "exit code $code (124 = still running when stopped, which is what we want)"
           echo "::notice title=GUI Linux::exit code $code"
           [ $code -eq 124 ]
+      - name: Pictures of the window (Linux, virtual display)
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run -a -s "-screen 0 1280x800x24" "build/MeterF8KAnalyser_artefacts/Release/Meter F8K Analyser" --snapshot "$PWD/testlib" "$PWD/shots" || true
+          ls -la shots
+          cd shots && git init -q && git checkout -q -b ci-shots && git add . && git -c user.name=ci -c user.email=ci@localhost commit -qm "window pictures ${{ github.sha }}" && git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" ci-shots
       - name: Window app starts (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
