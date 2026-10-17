@@ -81,6 +81,7 @@ public:
         addAndMakeVisible(progressBar);
         progressBar.setColour(juce::ProgressBar::foregroundColourId, kAccent.withAlpha(0.8f));
         progressBar.setColour(juce::ProgressBar::backgroundColourId, kPanel);
+        progressBar.setPercentageDisplay(false);
         addAndMakeVisible(logBox);
         logBox.setMultiLine(true); logBox.setReadOnly(true); logBox.setCaretVisible(false); logBox.setScrollbarsShown(true);
         logBox.setColour(juce::TextEditor::backgroundColourId, kPanel);
@@ -103,11 +104,12 @@ public:
         juce::Path d; juce::PathStrokeType(1.5f).createDashedStroke(d, p, dash, 2); g.fillPath(d);
         g.setColour(kText);
         g.setFont(juce::Font(22.0f));
-        g.drawText("Drop audio files or folders here", drop.withTrimmedBottom(drop.getHeight()/3), juce::Justification::centredBottom);
+        const int cy = drop.getCentreY();
+        g.drawText("Drop audio files or folders here", drop.getX(), cy - 34, drop.getWidth(), 30, juce::Justification::centred);
         g.setColour(kDim);
         g.setFont(juce::Font(14.0f));
         g.drawText("WAV, AIFF, FLAC (lossless is best). Each track is captured once and added to your library.",
-                   drop.withTrimmedTop(drop.getHeight()*2/3 - 10), juce::Justification::centredTop);
+                   drop.getX(), cy + 6, drop.getWidth(), 22, juce::Justification::centred);
         g.setColour(kText);
         juce::String st = total == 0 ? juce::String("Nothing added yet")
                         : (done < total ? "Working: " + juce::String(done + 1) + " of " + juce::String(total) + "   " + current
@@ -207,8 +209,11 @@ public:
         addAndMakeVisible(countLabel);
         countLabel.setColour(juce::Label::textColourId, kDim);
         countLabel.setJustificationType(juce::Justification::centredRight);
+        table.getHeader().addListener(&headerWatcher);
         startTimer(700);
     }
+
+    ~LibraryView() override { table.getHeader().removeListener(&headerWatcher); }
 
     void reload() {
         auto lib = getLibrary ? getLibrary() : nullptr;
@@ -249,7 +254,15 @@ public:
         cell->set(row, colId);
         return cell;
     }
-    void sortOrderChanged(int colId, bool forwards) override { sortCol = colId; sortForwards = forwards; sortShown(); table.updateContent(); repaint(); }
+    void sortOrderChanged(int colId, bool forwards) override { sortCol = colId; sortForwards = forwards; sortShown(); table.updateContent(); repaint(); saveLayout(); }
+    void columnsChangedOrResized() { saveLayout(); }
+    void saveLayout() {
+        if (restoringLayout || colKeys.isEmpty()) return;
+        auto lib = getLibrary ? getLibrary() : nullptr;
+        if (lib == nullptr) return;
+        auto* o = new juce::DynamicObject(); o->setProperty("keys", colKeys.joinIntoString("|")); o->setProperty("layout", table.getHeader().toString());
+        lib->folder.getChildFile("view.json").replaceWithText(juce::JSON::toString(juce::var(o)));
+    }
     void cellDoubleClicked(int row, int colId, const juce::MouseEvent&) override {
         if (colId >= 1 && colId <= (int)cols.size() && cols[(size_t)colId - 1].editable) return;
         if (row >= 0 && row < (int)shown.size()) showDetails(shown[(size_t)row]);
@@ -325,28 +338,28 @@ private:
         add("file", "file", "Track", Kind::Text, false, 230);
         add("artist", "artist", "Artist", Kind::Text, true, 130);
         add("title", "title", "Title", Kind::Text, true, 150);
-        add("album", "album", "Album", Kind::Text, true, 120);
-        add("year", "year", "Year", Kind::Number, true, 50);
-        add("genre", "genre", "Genre", Kind::Text, true, 90);
-        add("bpm", "bpm_est", "BPM", Kind::Bpm, true, 60);
-        add("key", "key_est", "Key", Kind::Key, true, 80);
         add("grade", "original_grade", "Grade", Kind::Grade, false, 80, "letter_value");
         add("letter", "letter", "Letter", Kind::Letter, false, 52, "letter_value");
         add("bonus", "bonus", "Bonus", Kind::Bonus, false, 52, "bonus_value");
         add("authority", "authority", "Authority", Kind::SubGrade, false, 70, "authority_value");
         add("power", "power", "Power", Kind::SubGrade, false, 56, "power_value");
         add("detail", "detail", "Detail", Kind::SubGrade, false, 56, "detail_value");
+        add("bpm", "bpm_est", "BPM", Kind::Bpm, true, 56);
+        add("key", "key_est", "Key", Kind::Key, true, 84);
         add("lufs", "lufs_integrated", "LUFS", Kind::Number, false, 56);
         add("peak", "peak_dbfs", "Peak dB", Kind::Number, false, 62);
         add("tp", "true_peak_dbtp", "True pk", Kind::Number, false, 62);
         add("len", "duration_s", "Length", Kind::Duration, false, 60);
-        add("fmt", "format", "Format", Kind::Text, false, 120);
-        add("dir", "directions", "Directions", Kind::Text, false, 110);
-        add("added", "analysed", "Added", Kind::Text, false, 130);
         for (auto& cc : custom) {
             Column col; col.key = cc.key; col.header = cc.name; col.kind = cc.numeric ? Kind::Number : Kind::Text; col.editable = true; col.custom = true; col.width = 100;
             c.push_back(col);
         }
+        add("album", "album", "Album", Kind::Text, true, 120);
+        add("year", "year", "Year", Kind::Number, true, 50);
+        add("genre", "genre", "Genre", Kind::Text, true, 90);
+        add("fmt", "format", "Format", Kind::Text, false, 110);
+        add("dir", "directions", "Directions", Kind::Text, false, 110);
+        add("added", "analysed", "Added", Kind::Text, false, 130);
         //keep the user's column widths and sort if the set of columns did not change
         juce::StringArray keys; for (auto& x : c) keys.add(x.key);
         if (keys == colKeys) {cols = c; return;}
@@ -355,9 +368,19 @@ private:
         auto& h = table.getHeader();
         h.removeAllColumns();
         for (int i = 0; i < (int)cols.size(); ++i) h.addColumn(cols[(size_t)i].header, i + 1, cols[(size_t)i].width, 30, 800, juce::TableHeaderComponent::defaultFlags);
-        sortCol = keys.indexOf(sortKey) + 1;
-        if (sortCol < 1) {sortCol = keys.indexOf("grade") + 1; sortForwards = true;}
-        h.setSortColumnId(sortCol, sortForwards);
+        restoringLayout = true;
+        bool restored = false;
+        if (auto lib = getLibrary ? getLibrary() : nullptr) { //the widths, order and sort you left the columns in, if the columns are the same
+            const juce::var v = juce::JSON::parse(lib->folder.getChildFile("view.json"));
+            if (v.getProperty("keys", "").toString() == keys.joinIntoString("|")) {h.restoreFromString(v.getProperty("layout", "").toString()); restored = h.getSortColumnId() > 0;}
+        }
+        if (restored) {sortCol = h.getSortColumnId(); sortForwards = h.isSortedForwards();}
+        else {
+            sortCol = keys.indexOf(sortKey) + 1;
+            if (sortCol < 1) {sortCol = keys.indexOf("grade") + 1; sortForwards = true;}
+            h.setSortColumnId(sortCol, sortForwards);
+        }
+        restoringLayout = false;
     }
 
     juce::String userValue(const juce::String& id, const juce::String& key) const {
@@ -381,7 +404,7 @@ private:
             case Kind::Bpm: {
                 if (v.isEmpty()) return {};
                 unsure = idx.get(r.row, "bpm_confidence").getDoubleValue() < 0.3;
-                return juce::String(v.getDoubleValue(), 0) + (unsure ? "?" : "");
+                return juce::String(juce::roundToInt(v.getDoubleValue())) + (unsure ? "?" : "");
             }
             case Kind::Key: unsure = v.isNotEmpty() && idx.get(r.row, "key_confidence").getDoubleValue() < 0.05; return v.isEmpty() ? v : v + (unsure ? "?" : "");
             default: return v;
@@ -565,6 +588,13 @@ private:
     std::vector<RowRef> all, shown;
     int sortCol = 0; bool sortForwards = true;
     int lastChange = -1; const void* lastLib = nullptr;
+    bool restoringLayout = false;
+    struct HeaderWatcher : public juce::TableHeaderComponent::Listener {
+        LibraryView& v; explicit HeaderWatcher(LibraryView& o) : v(o) {}
+        void tableColumnsChanged(juce::TableHeaderComponent*) override { v.columnsChangedOrResized(); }
+        void tableColumnsResized(juce::TableHeaderComponent*) override { v.columnsChangedOrResized(); }
+        void tableSortOrderChanged(juce::TableHeaderComponent*) override {}
+    } headerWatcher{*this};
 };
 
 //=============================================================================================== the window

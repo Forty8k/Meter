@@ -26,6 +26,8 @@ class Track:
         raw = gzip.decompress((p / f"{tid}.fine.f32.gz").read_bytes())
         self.fine = np.frombuffer(raw, dtype="<f4").reshape(-1, len(self.cols)).astype(np.float64)
         self.sr = float(self.meta["sample_rate"])
+        pf = p / f"{tid}.pitch.f32.gz"   # 12 note strengths (C..B) + rms per ~93 ms frame (capture 1.1 and later)
+        self.pitch = np.frombuffer(gzip.decompress(pf.read_bytes()), dtype="<f4").reshape(-1, 13).astype(np.float64) if pf.exists() else None
 
     def col(self, name):
         return self.fine[:, self.cols.index(name)]
@@ -63,6 +65,20 @@ class Library:
         self.folder = pathlib.Path(folder)
         with open(self.folder / "index.csv", newline="", encoding="utf-8") as f:
             self.index = list(csv.DictReader(f))
+        self.user = {}       # id -> {key: value}, your own values (user.csv)
+        u = self.folder / "user.csv"
+        if u.exists():
+            with open(u, newline="", encoding="utf-8") as f:
+                for row in csv.DictReader(f):
+                    self.user[row.pop("id")] = {k: v for k, v in row.items() if v}
+        c = self.folder / "columns.json"
+        self.columns = json.loads(c.read_text()).get("columns", []) if c.exists() else []
+
+    def value(self, row, key):
+        """Your value if you set one, else the measured/tag value (bpm and key fall back to the estimates)."""
+        mine = self.user.get(row["id"], {}).get(key)
+        if mine: return mine
+        return row.get({"bpm": "bpm_est", "key": "key_est"}.get(key, key), "")
 
     def track(self, tid):
         return Track(self.folder, tid)

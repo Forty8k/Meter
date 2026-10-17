@@ -314,7 +314,7 @@ AnalyseOutcome Library::analyse(const juce::File& audio, std::function<void(doub
     }
     if (progress) progress(1.0);
     out.status = replacing ? AnalyseOutcome::Updated : AnalyseOutcome::Added;
-    out.message = juce::String(replacing ? "updated" : "added") + (orig.grade.empty() ? juce::String() : ", original meter reads " + juce::String(orig.grade)) + (bpm.bpm > 0 ? ", ~" + juce::String(bpm.bpm, 0) + " BPM" : juce::String()) + (key.name.empty() ? juce::String() : ", " + juce::String(key.name));
+    out.message = juce::String(replacing ? "updated" : "added") + (orig.grade.empty() ? juce::String() : ", original meter reads " + juce::String(orig.grade)) + (bpm.bpm > 0 ? ", ~" + juce::String(juce::roundToInt(bpm.bpm)) + " BPM" : juce::String()) + (key.name.empty() ? juce::String() : ", " + juce::String(key.name));
     return out;
 }
 
@@ -518,7 +518,7 @@ int Library::upgradeOldRows(std::function<bool()> shouldStop)
                 t.set(r, "letter_value", num(o.letterValue, 3)); t.set(r, "bonus_value", juce::String(o.bonusValue)); dirty = true;
             }
         }
-        if (t.get(r, "bpm_est").isEmpty()) {
+        if (t.get(r, "bpm_confidence").isEmpty()) { //never worked out (an empty BPM with a confidence means "no clear beat")
             std::vector<float> fine;
             const juce::var meta = juce::JSON::parse(tracks.getChildFile(id + ".meta.json"));
             const double sr = meta.getProperty("sample_rate", 0.0), blk = meta.getProperty("fine_block_samples", 0.0);

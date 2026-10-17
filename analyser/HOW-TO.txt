@@ -15,7 +15,30 @@ Using it
      "Change library folder..." picks another (for example on a bigger drive).
 
   Adding the same file again is skipped (it is recognised by its content, not its name).
+  A file scanned by an older version of the analyser is scanned again and updated in place; your own values are kept.
   You can keep adding tracks whenever you like; the library just grows.
+
+The Library tab
+  Every track in the library, one row each.
+  - Click a column title to sort, click again to reverse. Drag titles to reorder, drag their edges to resize
+    (remembered for this library).
+  - Grades sort by the value behind them, best first: authority, power and detail from the top of the original's scale
+    (... C, B, A, a, b ... s), letter from A, bonus from 1 (tracks without a bonus number go last).
+  - The search box keeps only tracks matching every word you type (in any column).
+  - Double-click artist, title, album, year, genre, BPM, key or one of your own columns to type a value. Your values
+    show in blue. Clear a value to go back to the file's own tag or the estimate. Nothing is written into the audio files.
+  - Double-click any other cell for everything about that track.
+  - "Add column..." makes a column of your own (numbers or text): streams, sales, chart peak, notes ...
+    "Your columns..." renames or removes them.
+  - "Import CSV..." fills values in from a spreadsheet saved as CSV. It needs a column called "file" (the track's file
+    name, with or without the extension) or "id". Columns named artist, title, album, year, genre, bpm or key, or like one
+    of your columns, fill those; any other column becomes a new column of yours.
+  - "Remove..." deletes a track's captured data and your values for it (the audio file itself is not touched).
+
+BPM and key
+  Both are estimated from the audio. BPM can come out at half or double the tempo you would count; key can land on the
+  relative major/minor (C major / A minor) or a fifth away. Less certain estimates show grey with a "?". Correct any of
+  them by double-clicking: your value wins.
 
 What is in the library
   index.csv                one row per track: tags, format, levels, loudness, and the original meter's grade
@@ -24,7 +47,10 @@ What is in the library
                            plugin sends to its display
   tracks\<id>.fine.f32.gz  ~5.8 ms blocks with enough detail to rebuild any longer window, plus extras
                            (RMS, true peak, loudness, stereo, ten octave bands)
+  tracks\<id>.pitch.f32.gz how strongly each of the 12 notes sounds, every ~93 ms (used for the key)
   tracks\<id>.meta.json    everything about the file, its tags, and how it was captured
+  user.csv                 YOUR values (tag fixes, BPM/key corrections, your columns), kept apart from the measurements
+  columns.json             the names and types of your columns
   README.txt               the same, in more detail
 
   Roughly 1-2 MB per minute of audio.
