@@ -454,6 +454,12 @@ struct AirwindowsMeter : public juce::Component
         }
         repaint(); //and update the UI to immediately see the result
     }
+    // (tunable copy) meterDARK's fill gate: a hot slew bin fills fully only if it was also hit in the window before
+    bool f8kHitPrev[totalBins+2] = {}, f8kHitNow[totalBins+2] = {};
+    void f8kSlewFill(unsigned long b, float size) {
+        if (b > 0 && b <= totalBins) { const float up = (float)b/(float)totalBins; slewTrack[b] += size*(f8kHitPrev[b] ? 1.0f : 1.0f - 0.6f*(float)P().fillGate*up); f8kHitNow[b] = true; }
+    }
+    void f8kRollHits() { for (int b = 0; b < totalBins+2; ++b) {f8kHitPrev[b] = f8kHitNow[b]; f8kHitNow[b] = false;} }
 };
 
 void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
@@ -598,10 +604,10 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         //peak textscore bins
         bintracker = (unsigned long)(slewL * (0.005f*(float)totalBins));//converts 0-200 to 0-bin number for textscore bins
         bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins))); //mirror around max value so it reflects
-        if (bintracker > 0 && bintracker <= totalBins) slewTrack[bintracker] += slewDotSizeL;
+        if (bintracker > 0 && bintracker <= totalBins) f8kSlewFill(bintracker, slewDotSizeL);
         bintracker = (unsigned long)(slewR * (0.005f*(float)totalBins));
         bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins)));
-        if (bintracker > 0 && bintracker <= totalBins) slewTrack[bintracker] += slewDotSizeR;
+        if (bintracker > 0 && bintracker <= totalBins) f8kSlewFill(bintracker, slewDotSizeR);
         //slew textscore bins
         bintracker = (unsigned long)(bassL * (0.005f*(float)totalBins));//converts 0-200 to 0-bin number for textscore bins
         bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins))); //mirror around max value so it reflects
@@ -612,7 +618,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         //bass textscore bins
         
         //bins are for reinforcing score of a dispersed cloud of dot positions rather than maxing out a position
-        float peakScore = 0.0;
+        f8kRollHits(); float peakScore = 0.0;
         float slewScore = 0.0;
         float bassScore = 0.0;
         float sinScale = 0.0;
@@ -622,7 +628,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             //sin(1.57) weighting means big red dots in good places, ignore green slews at bottom
             peakScore += (float)sin(peakTrack[binscale]) * sinScale;
             
-            slewTrack[binscale] = fmax(fmin(slewTrack[binscale]-(float)P().decaySlew, (float)P().binCap),0.0f); //decrement speed
+            slewTrack[binscale] = fmax(fmin(slewTrack[binscale]-(float)P().decaySlew*(1.0f+(float)P().detailDecay*4.0f*((float)binscale/(float)totalBins)*((float)binscale/(float)totalBins)), (float)P().binCap),0.0f); //decrement speed
             slewScore += (float)sin(slewTrack[binscale]) * sinScale;
             
             bassTrack[binscale] = fmax(fmin(bassTrack[binscale]-(float)P().decayBass, (float)P().binCap),0.0f); //decrement speed

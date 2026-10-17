@@ -70,6 +70,9 @@ The Lab tab
     chosen share of tracks lands beyond it. "Export to meterDARK" sends everything to the plugin (the Lab-ready build):
     the reading settings take effect straight away, even while the plugin is open ("lab" shows next to "tune"), and the
     triggers become its default preset for new instances (your old preset is kept as defaults-before-lab.xml).
+  Detail decay and fill gate (in DETAIL, 0 = stock) are meterDARK's two settings for keeping brief bright transients out of
+    the Detail readings; they are exported with the rest. In "Original scoring" the same two settings show what they do to
+    the grades, as meterDARK does with its "grade" tick on.
   Original scoring (experiment): a copy of the newest original Meter's scoring with its constants as settings. Press
     "Re-score library" (a minute or so) to see which grades change and how the ranking moves. "Save settings..." keeps them
     in a file, for example to show Chris. "redraws per window" above 1 shows what happens when a DAW renders faster than

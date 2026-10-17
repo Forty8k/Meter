@@ -18,6 +18,8 @@ const std::vector<HintParam>& hintParams()
         {"tune3",  "dynamics", "squashed distance", "",    0.02, 0.98, 0.30, 2, "how far above the balance point counts as squashed"},
         {"tune4",  "detail",   "dark level",        "",    0.02, 0.98, 0.30, 2, "dark shows when the dark reading falls below this"},
         {"tune5",  "detail",   "bright level",      "",    0.02, 0.98, 0.70, 2, "bright shows when the bright reading rises above this"},
+        {"tune6",  "detail",   "detail decay",      "",    0.00, 0.98, 0.00, 2, "the bright reading falls faster once brightness stops, so brief bursts fade quickly (0 = stock)"},
+        {"tune7",  "detail",   "fill gate",         "",    0.00, 0.98, 0.00, 2, "a lone bright window counts for less, more so the higher it sits (0 = stock)"},
         {"tune8",  "all",      "hint speed",        "",    0.00, 0.98, 0.10, 2, "how fast every reading follows the music"},
         {"tune10", "weight",   "frequency push",    "",    0.00, 0.98, 0.30, 2, "overall strength of the low/high push below"},
         //---- what shapes the readings (constants in the plugin's code)
@@ -74,6 +76,7 @@ HintTrackResult simulateHints(const std::vector<std::string>& names, const std::
     const size_t k = names.size();
     //settings
     const float tune0 = (float)s["tune0"], tune1 = (float)s["tune1"], tune2 = (float)s["tune2"], tune3 = (float)s["tune3"], tune4 = (float)s["tune4"], tune5 = (float)s["tune5"];
+    const float tune6 = (float)s["tune6"], tune7 = (float)s["tune7"];
     const float tune8 = (float)s["tune8"], tune9 = (float)s["tune9"], tune10 = (float)s["tune10"], tune11 = (float)s["tune11"];
     const float lowFrom = posFromHz(s["lowPushHz"]), lowFull = posFromHz(s["lowPushFullHz"]), highFrom = posFromHz(s["highPushHz"]), highFull = posFromHz(s["highPushFullHz"]);
     const float lowGain = (float)s["lowPushGain"], highGain = (float)s["highPushGain"], peakInfl = (float)s["peakInfluence"], peakDiv = (float)s["peakDiv"], peakPow = (float)s["peakPow"];
@@ -88,7 +91,7 @@ HintTrackResult simulateHints(const std::vector<std::string>& names, const std::
     };
     //state, as the plugin starts it
     float massAvg = 3.7f, massCeil = 0.0f, spreadMean = 0.0f, spreadAvg = 4.0f; bool spreadInit = false;
-    float reading[2] = {0.5f, 0.5f}, redAvg = 0, greenAvg = 0, redRun = 0, greenRun = 0;
+    float reading[2] = {0.5f, 0.5f}, redAvg = 0, greenAvg = 0, redRun = 0, greenRun = 0; bool redPrev = false;
     int state[3] = {0, 0, 0};
     double sumW = 0, sumD = 0, sumDark = 0, sumBright = 0, cnt = 0, shows[6] = {};
     const size_t windows = values.size()/k;
@@ -130,7 +133,12 @@ HintTrackResult simulateHints(const std::vector<std::string>& names, const std::
         if (std::fmax(peakL, peakR) > detailGate) {
             redRun = (redNow > 0.5f) ? redRun + 1.0f : redRun*0.5f;
             greenRun = (greenNow > 0.5f) ? greenRun + 1.0f : greenRun*0.5f;
-            redAvg += (redNow*(lone + (1.0f - lone)*std::fmin(redRun/runLen, 1.0f)) - redAvg)*avgRate;
+            //meterDARK's Detail settings, as the plugin: fill gate (a lone bright window counts less, more so the higher it sits), detail decay (faster fall)
+            const float redUp = std::fmin(std::fmax((redNow > 0.0f ? std::fmax(slewL > peakL ? slewL : 0.0f, slewR > peakR ? slewR : 0.0f) : 0.0f)/200.0f, 0.0f), 1.0f);
+            const float gateMult = (redNow > 0.0f && !redPrev) ? 1.0f - 0.6f*tune7*redUp : 1.0f;
+            redPrev = redNow > 0.0f;
+            const float redW = redNow*(lone + (1.0f - lone)*std::fmin(redRun/runLen, 1.0f))*gateMult;
+            redAvg += (redW - redAvg)*avgRate*(redW < redAvg ? 1.0f + 4.0f*tune6 : 1.0f);
             greenAvg += (greenNow*(lone + (1.0f - lone)*std::fmin(greenRun/runLen, 1.0f)) - greenAvg)*avgRate;
         }
         //the hints (the plugin's state machine)

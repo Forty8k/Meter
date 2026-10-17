@@ -61,6 +61,7 @@ struct ScoreParams {
     double blackLine = 0.3;                 // the black line's weight in the bonus number
     double toneDecay = 0.125;               // how much the scores decay towards each other with the tone colour each window
     double width = 1058;                    // the meter's width in pixels = how many windows it holds on screen
+    double detailDecay = 0.0, fillGate = 0.0; // meterDARK's Detail settings (0 = the original): hot slew bins empty faster / lone hot hits count less
 };
 ScoreParams& scoreParams();                                   // this thread's settings
 const std::string& tunableVersionId();

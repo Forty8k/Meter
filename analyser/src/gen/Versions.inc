@@ -11,6 +11,6 @@ const std::vector<MeterVersion>& meterVersions() {
     return v;
 }
 const std::string& tunableVersionId() { static const std::string s = "0.5.6-40bb6cc"; return s; }
-const std::vector<std::string>& tunableSettingsUsed() { static const std::vector<std::string> v = {"decayPeak", "decaySlew", "decayBass", "binCap", "curvePS", "curveBass", "gradeExp", "gradeRise", "balanceExp", "letterExp", "clipLevel", "clipDecay", "clipDecayBoth", "clipWeight", "blackLine", "toneDecay"}; return v; }
+const std::vector<std::string>& tunableSettingsUsed() { static const std::vector<std::string> v = {"decayPeak", "decaySlew", "decayBass", "binCap", "curvePS", "curveBass", "gradeExp", "gradeRise", "balanceExp", "letterExp", "clipLevel", "clipDecay", "clipDecayBoth", "clipWeight", "blackLine", "toneDecay", "detailDecay", "fillGate"}; return v; }
 std::unique_ptr<MeterRun> createTunableRun(double sr, int pe) { return std::unique_ptr<MeterRun>(new f8korig_v0_5_6_40bb6cc_tunable::Run(sr, pe)); }
 } // namespace f8k

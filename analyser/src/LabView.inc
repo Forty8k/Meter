@@ -203,8 +203,9 @@ private:
         const bool ok1 = lab.writeTo(dir.getChildFile("lab-tuning.xml"));
         const juce::File defaults = dir.getChildFile("defaults.xml");
         std::unique_ptr<juce::XmlElement> d(juce::XmlDocument::parse(defaults));
-        if (d == nullptr || !d->hasTagName("meterdefaults")) {d = std::make_unique<juce::XmlElement>("meterdefaults"); d->setAttribute("ver", 6);}
+        if (d == nullptr || !d->hasTagName("meterdefaults")) {d = std::make_unique<juce::XmlElement>("meterdefaults"); d->setAttribute("ver", 7);}
         else defaults.copyFileTo(dir.getChildFile("defaults-before-lab.xml"));
+        if (d->getIntAttribute("ver", 1) == 6) d->setAttribute("ver", 7); //version 7 has the Detail decay and fill gate (tune6, tune7), which the Lab now sets
         for (size_t i = 0; i < f8k::hintParams().size(); ++i) {
             const auto& p = f8k::hintParams()[i];
             if (juce::String(p.key).startsWith("tune")) d->setAttribute(p.key, hints.v[i]);

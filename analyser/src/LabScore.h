@@ -26,6 +26,8 @@ inline const std::vector<ScoreParamInfo>& scoreParamInfo()
         {"clipWeight", "clip length weight",  0.0, 4.0, 3, "how much clip length moves the peak bins", &ScoreParams::clipWeight},
         {"blackLine",  "black line weight",   0.0, 1.5, 3, "the black lines' weight in the bonus number", &ScoreParams::blackLine},
         {"toneDecay",  "tone colour pull",    0.0, 0.5, 3, "how much the three scores are pulled towards each other each window", &ScoreParams::toneDecay},
+        {"detailDecay", "meterDARK detail decay", 0.0, 0.98, 2, "meterDARK's setting: hot slew bins empty faster, so brief bright bursts count less (0 = the original). As meterDARK with \"grade\" ticked.", &ScoreParams::detailDecay},
+        {"fillGate",   "meterDARK fill gate",  0.0, 0.98, 2, "meterDARK's setting: a hot slew bin fills fully only if it was hit in the window before (0 = the original). As meterDARK with \"grade\" ticked.", &ScoreParams::fillGate},
         {"width",      "meter width",         200, 5150, 0, "how many windows the meter holds on screen (1058 = the default plugin size). The original's score depends on it.", &ScoreParams::width},
     };
     return v;
