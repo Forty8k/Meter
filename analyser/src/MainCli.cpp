@@ -1,17 +1,18 @@
-// Meter F8K Analyser, command-line version: MeterF8KAnalyserCLI [--library <folder>] <files or folders...>
+// meterDARK Analyser, command-line version: MeterF8KAnalyserCLI [--library <folder>] <files or folders...>
 #include "Engine.h"
 #include <iostream>
 
 int main(int argc, char* argv[])
 {
     juce::File library = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("Meter F8K Library");
+    if (!library.isDirectory()) library = library.getSiblingFile("meterDARK Library"); //an existing library keeps its folder
     juce::Array<juce::File> inputs;
     for (int i = 1; i < argc; ++i) {
         const juce::String a(argv[i]);
         if ((a == "--library" || a == "-l") && i + 1 < argc) {library = juce::File::getCurrentWorkingDirectory().getChildFile(argv[++i]); continue;}
         if (a == "--help" || a == "-h") {
             std::cout << "Usage: MeterF8KAnalyserCLI [--library <folder>] <audio files or folders...>\n"
-                         "Adds each track to the library (default: Documents/Meter F8K Library). WAV, AIFF, FLAC, Ogg and MP3.\n";
+                         "Adds each track to the library (default: Documents/meterDARK Library (or the older Meter F8K Library if you have one)). WAV, AIFF, FLAC, Ogg and MP3.\n";
             return 0;
         }
         f8k::Library::collectAudioFiles(juce::File::getCurrentWorkingDirectory().getChildFile(a), inputs);

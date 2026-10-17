@@ -1,4 +1,4 @@
-// Meter F8K Analyser: the window app.
+// meterDARK Analyser: the window app.
 //  "Add tracks" - drop audio files or folders and each track is captured into the library.
 //  "Library"    - browse everything in the library: sort by any column, search, fix tags, correct BPM/key,
 //                 add your own columns (streams, sales, notes ...), import values from a CSV, remove tracks.
@@ -16,7 +16,11 @@ namespace {
 const juce::Colour kBg(24, 27, 33), kPanel(34, 38, 46), kRowAlt(29, 33, 40), kText(220, 224, 232), kDim(140, 146, 158),
                    kAccent(255, 225, 40), kSelect(60, 70, 92), kYours(120, 200, 255);
 
-juce::File defaultLibrary() { return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("Meter F8K Library"); }
+juce::File defaultLibrary() {
+    const auto docs = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+    const auto old = docs.getChildFile("Meter F8K Library"); //an existing library keeps its folder
+    return old.isDirectory() ? old : docs.getChildFile("meterDARK Library");
+}
 
 void styleButton(juce::Button& b)
 {
@@ -844,7 +848,7 @@ public:
         juce::Thread::launch([sp] {
             auto in = juce::URL("https://api.github.com/repos/Forty8k/Meter/releases?per_page=30")
                           .createInputStream(juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress).withConnectionTimeoutMs(8000)
-                                             .withExtraHeaders("Accept: application/vnd.github+json\r\nUser-Agent: Meter-F8K-Analyser"));
+                                             .withExtraHeaders("Accept: application/vnd.github+json\r\nUser-Agent: meterDARK-Analyser"));
             if (in == nullptr) return;
             const juce::var j = juce::JSON::parse(in->readEntireStreamAsString());
             int best = 0; juce::String title, page;
@@ -905,7 +909,7 @@ private:
 
 class AnalyserApp : public juce::JUCEApplication {
 public:
-    const juce::String getApplicationName() override { return "Meter F8K Analyser"; }
+    const juce::String getApplicationName() override { return "meterDARK Analyser"; }
     const juce::String getApplicationVersion() override { return "1.2.0 (build " + juce::String(F8K_BUILD_NUMBER) + ")"; }
     bool moreThanOneInstanceAllowed() override { return true; }
     void initialise(const juce::String& commandLine) override {
@@ -936,7 +940,7 @@ public:
     void systemRequestedQuit() override { quit(); }
 private:
     struct Window : public juce::DocumentWindow {
-        Window() : juce::DocumentWindow("Meter F8K Analyser", kBg, juce::DocumentWindow::allButtons) {
+        Window() : juce::DocumentWindow("meterDARK Analyser", kBg, juce::DocumentWindow::allButtons) {
             setUsingNativeTitleBar(true);
             setContentOwned(new MainComponent(), true);
             setResizable(true, false);

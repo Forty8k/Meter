@@ -1,4 +1,4 @@
-// Meter F8K Analyser: reads an audio file, captures it (Capture.h), replays the original scoring (OriginalScorer.h)
+// meterDARK Analyser: reads an audio file, captures it (Capture.h), replays the original scoring (OriginalScorer.h)
 // and keeps the results in a library folder. Shared by the window app and the command-line tool.
 //
 // The library has two kinds of data, kept apart:

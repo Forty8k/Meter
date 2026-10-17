@@ -1,4 +1,4 @@
-// Meter F8K Analyser: the measuring part. Pure C++, no JUCE, so it can be tested on its own.
+// meterDARK Analyser: the measuring part. Pure C++, no JUCE, so it can be tested on its own.
 //
 // Two layers are captured from the same audio:
 //  CORE  - the ten numbers per audio window that the original Airwindows Meter 0.5.5 plugin sends to its display,

@@ -1,4 +1,4 @@
-// Meter F8K Analyser: the LAB's simulation of Meter F8K's three hints (light/heavy, headroom/squashed, dark/bright).
+// meterDARK Analyser: the LAB's simulation of meterDARK's three hints (light/heavy, headroom/squashed, dark/bright).
 // It is the plugin's own hint maths (Meter F8K, the build "balance line fixed in the centre"), run over the original
 // Meter 0.5.5 window data stored in the library, with every constant that shapes the readings turned into a setting.
 // With every setting at its default it reads exactly as that Meter F8K build does.

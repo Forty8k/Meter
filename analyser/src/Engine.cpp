@@ -678,9 +678,9 @@ void Library::writeReadme()
 {
     const juce::File f = folder.getChildFile("README.txt");
     f.replaceWithText(
-        "METER F8K LIBRARY\r\n"
+        "METERDARK LIBRARY\r\n"
         "=================\r\n"
-        "Made by Meter F8K Analyser. Each track you add is captured once and kept here. Nothing is ever interpreted on the way in:\r\n"
+        "Made by meterDARK Analyser. Each track you add is captured once and kept here. Nothing is ever interpreted on the way in:\r\n"
         "every gauge, grade or hint can be worked out again later from these files, without the audio.\r\n\r\n"
         "index.csv              one row per track: tags, format, levels, loudness, and what the ORIGINAL Airwindows Meter 0.5.5 reads.\r\n"
         "tracks/<id>.core.csv   the original meter's own data: one row per audio window (1882 samples at 44.1 kHz, about 42.7 ms),\r\n"

@@ -1,4 +1,4 @@
-// Meter F8K Analyser: tempo and key estimates, and the PITCH layer they come from. Pure C++, no JUCE.
+// meterDARK Analyser: tempo and key estimates, and the PITCH layer they come from. Pure C++, no JUCE.
 //  PITCH layer - every ~93 ms (8192-sample FFT, 50% overlap at 44.1/48 kHz): how strongly each of the 12 notes sounds
 //                (C, C#, D ... B, summed over 55 Hz - 5 kHz), plus the frame's level. Kept in the library for later analysis.
 //  BPM         - from the FINE blocks' octave bands (onsets), so it can be worked out for tracks scanned before this existed.

@@ -1,7 +1,7 @@
-// Meter F8K Analyser: the LAB tab (included by MainGui.cpp, inside its anonymous namespace).
-//  Hints   - Meter F8K's light/heavy, headroom/squashed and dark/bright hints, simulated across the whole library as you move
+// meterDARK Analyser: the LAB tab (included by MainGui.cpp, inside its anonymous namespace).
+//  Hints   - meterDARK's light/heavy, headroom/squashed and dark/bright hints, simulated across the whole library as you move
 //            the settings. Shows where each track's readings sit and how often each hint would show. Export sends the
-//            settings to Meter F8K.
+//            settings to meterDARK.
 //  Scoring - an experimental copy of the newest original Meter's scoring with its constants as settings. Re-score the
 //            library to see which grades and rankings move. It never changes the Library tab's real grades.
 
@@ -189,8 +189,8 @@ private:
     }
 
     void exportToMeter() {
-        //1. the constants, for Meter F8K to read (lab-tuning.xml). 2. the trigger settings, into Meter F8K's saved default preset
-        const juce::File dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("Meter F8K");
+        //1. the constants, for meterDARK to read (lab-tuning.xml). 2. the trigger settings, into meterDARK's saved default preset
+        const juce::File dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("meterDARK");
         dir.createDirectory();
         juce::XmlElement lab("meterlabtuning");
         lab.setAttribute("ver", 1);
@@ -210,8 +210,8 @@ private:
             if (juce::String(p.key).startsWith("tune")) d->setAttribute(p.key, hints.v[i]);
         }
         const bool ok2 = d->writeTo(defaults);
-        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon, "Export to Meter F8K",
-            (ok1 && ok2) ? "Done. Meter F8K (the Lab-ready build) picks up the reading settings straight away, even while it is open,\n"
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon, "Export to meterDARK",
+            (ok1 && ok2) ? "Done. meterDARK picks up the reading settings straight away, even while it is open,\n"
                            "and starts new instances with these hint triggers. Projects you saved keep their own triggers until you press\n"
                            "\"factory\" or double-click a setting in the plugin.\n\nYour previous default preset was kept as defaults-before-lab.xml in\n" + dir.getFullPathName()
                          : "Could not write to " + dir.getFullPathName(), "OK", this);
@@ -345,7 +345,7 @@ private:
         for (auto* b : {&fromLibrary, &exportButton}) b->setVisible(m == 0);
         percentBox.setVisible(m == 0);
         for (auto* b : {&rescoreButton, &saveButton}) b->setVisible(m == 1);
-        resetButton.setButtonText(m == 0 ? "Back to Meter F8K's values" : "Back to the original");
+        resetButton.setButtonText(m == 0 ? "Back to meterDARK's values" : "Back to the original");
         buildSettings();
         model.setColumns(m);
         resized();
@@ -464,8 +464,8 @@ private:
     } dist;
     friend struct Dist;
 
-    juce::TextButton hintsMode{"Meter F8K hints"}, scoreMode{"Original scoring (experiment)"};
-    juce::TextButton fromLibrary{"Set triggers from the library"}, resetButton{"Back to Meter F8K's values"}, exportButton{"Export to Meter F8K"};
+    juce::TextButton hintsMode{"meterDARK hints"}, scoreMode{"Original scoring (experiment)"};
+    juce::TextButton fromLibrary{"Set triggers from the library"}, resetButton{"Back to meterDARK's values"}, exportButton{"Export to meterDARK"};
     juce::TextButton rescoreButton{"Re-score library"}, saveButton{"Save settings..."};
     juce::ComboBox percentBox;
     juce::Label status;

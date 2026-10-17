@@ -4,7 +4,7 @@
 
 namespace f8k {
 
-// Defaults are the values hard-coded in Meter F8K (plus its factory tune settings). The push frequencies are the exact
+// Defaults are the values hard-coded in meterDARK (plus its factory tune settings). The push frequencies are the exact
 // frequencies of the meter positions the plugin uses (139/160 and 107/82), so the defaults read exactly as the plugin.
 const std::vector<HintParam>& hintParams()
 {

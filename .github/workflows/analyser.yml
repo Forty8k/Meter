@@ -1,4 +1,4 @@
-name: Meter F8K Analyser
+name: meterDARK Analyser
 
 on:
   workflow_dispatch:
@@ -111,21 +111,21 @@ jobs:
         run: |
           sudo apt-get install -y xvfb
           set +e
-          xvfb-run -a timeout 8 "build/MeterF8KAnalyser_artefacts/Release/Meter F8K Analyser"; code=$?
+          xvfb-run -a timeout 8 "build/MeterF8KAnalyser_artefacts/Release/meterDARK Analyser"; code=$?
           echo "exit code $code (124 = still running when stopped, which is what we want)"
           echo "::notice title=GUI Linux::exit code $code"
           [ $code -eq 124 ]
       - name: Pictures of the window (Linux, virtual display)
         if: runner.os == 'Linux'
         run: |
-          xvfb-run -a -s "-screen 0 1280x800x24" "build/MeterF8KAnalyser_artefacts/Release/Meter F8K Analyser" --snapshot "$PWD/testlib" "$PWD/shots" || true
+          xvfb-run -a -s "-screen 0 1280x800x24" "build/MeterF8KAnalyser_artefacts/Release/meterDARK Analyser" --snapshot "$PWD/testlib" "$PWD/shots" || true
           ls -la shots
           cd shots && git init -q && git checkout -q -b ci-shots && git add . && git -c user.name=ci -c user.email=ci@localhost commit -qm "window pictures ${{ github.sha }}" && git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" ci-shots
       - name: Window app starts (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath "build/MeterF8KAnalyser_artefacts/Release/Meter F8K Analyser.exe" -PassThru
+          $p = Start-Process -FilePath "build/MeterF8KAnalyser_artefacts/Release/meterDARK Analyser.exe" -PassThru
           Start-Sleep -Seconds 8
           $alive = -not $p.HasExited
           Write-Output "::notice title=GUI Windows::still running after 8 s: $alive"
@@ -134,17 +134,17 @@ jobs:
         run: |
           mkdir -p package
           if [ "${{ runner.os }}" == "Windows" ]; then
-            cp "build/MeterF8KAnalyser_artefacts/Release/Meter F8K Analyser.exe" package/
+            cp "build/MeterF8KAnalyser_artefacts/Release/meterDARK Analyser.exe" package/
             cp "build/MeterF8KAnalyserCLI_artefacts/Release/MeterF8KAnalyserCLI.exe" package/
           else
-            cp "build/MeterF8KAnalyser_artefacts/Release/Meter F8K Analyser" package/
+            cp "build/MeterF8KAnalyser_artefacts/Release/meterDARK Analyser" package/
             cp "build/MeterF8KAnalyserCLI_artefacts/Release/MeterF8KAnalyserCLI" package/
           fi
           cp analyser/HOW-TO.txt package/
           cp analyser/tools/f8k_library.py package/
       - uses: actions/upload-artifact@v4
         with:
-          name: Meter-F8K-Analyser-${{ matrix.name }}
+          name: meterDARK-Analyser-${{ matrix.name }}
           path: package
 
   release:
@@ -167,6 +167,6 @@ jobs:
           versions=$(for f in ../analyser/original/*/upstream.json; do python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['version'])" "$f"; done | sort -V | tr '\n' ' ')
           newest=$(echo $versions | awk '{print $NF}')
           gh release create "analyser-b${{ github.run_number }}" *.zip --target "${{ github.sha }}" \
-            --title "Meter F8K Analyser build ${{ github.run_number }} (original Meter up to ${newest})" \
+            --title "meterDARK Analyser build ${{ github.run_number }} (original Meter up to ${newest})" \
             --notes "Original Meter versions included: ${versions}
-          Download Meter-F8K-Analyser-Windows.zip, unzip, and run Meter F8K Analyser.exe. Your library is kept: tracks are updated for any new Meter version automatically."
+          Download meterDARK-Analyser-Windows.zip, unzip, and run meterDARK Analyser.exe. Your library is kept: tracks are updated for any new Meter version automatically."
