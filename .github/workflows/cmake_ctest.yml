@@ -151,7 +151,14 @@ jobs:
       run: |
         curl -LO "https://github.com/Tracktion/pluginval/releases/download/v1.0.3/pluginval_${{ matrix.name }}.zip"
         7z x pluginval_${{ matrix.name }}.zip
-        ${{ matrix.pluginval-binary }} --strictness-level 10 --verbose --validate "${{ env.VST3_PATH }}"
+        set -o pipefail
+        ${{ matrix.pluginval-binary }} --strictness-level 10 --verbose --validate "${{ env.VST3_PATH }}" 2>&1 | tee pluginval.log
+
+    - name: Report pluginval problems
+      if: failure()
+      run: |
+        grep -n -iE "fail|error|!!!|crash|assert|exception" pluginval.log | head -30 | while IFS= read -r l; do echo "::error::${l:0:900}"; done
+        tail -25 pluginval.log | while IFS= read -r l; do echo "::warning::${l:0:900}"; done
 
     - name: Codesign (macOS)
       if: ${{ matrix.name == 'macOS' }}

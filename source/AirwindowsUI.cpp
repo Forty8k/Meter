@@ -401,6 +401,13 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         if (beamRaw > beamKnee) beam = beamKnee + (199.0f-beamKnee) * (log2f(1.0f+(beamRaw-beamKnee)/45.0f) / log2f(1.0f+beamSpan/45.0f));
         beam = fmin(beam, 199.0f);
         float departure = fmax(0.0f,5.0f-(dataDL[count]+dataDR[count])*1500.0f) * 100.0f * fmax(dataBL[count],dataBR[count]) * slewDisplayScale;
+        if (hasZeroRmsLines) { //Meter 0.5.6 on: Chris's newer slew line (his formula), with the same gentle top curve as above
+            beamRaw = sqrt(dataBL[count]+dataBR[count])*618.033988749894f*slewDisplayScale;
+            beam = beamRaw;
+            if (beamRaw > beamKnee) beam = beamKnee + (199.0f-beamKnee) * (log2f(1.0f+(beamRaw-beamKnee)/45.0f) / log2f(1.0f+beamSpan/45.0f));
+            beam = fmin(beam, 199.0f);
+            departure = fmin(6.18033988749894f, fmax(0.0f, (5.0f-(dataDL[count]+dataDR[count])) * sqrt(fmax(dataBL[count],dataBR[count]))) * 6.18033988749894f);
+        }
          //begin draw dots on meters L
         if (peakL > 197.0f) {
             g.setColour(clipCol);
@@ -409,15 +416,27 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             if (peakR > 197.0f) sustainedClip *= 0.975f; //if both are clipping, escalate
         } else sustainedClip = 180.0f;
         
-        if (dark) { g.setColour(beamBand); g.fillRect((float)count, meterY(2, 600.0f-beam)-4.0f*vS, 1.0f, meterH(2, departure)+8.0f*vS); } //darker band behind the trace
-        {   //the trace is white while the slew is steady enough to give it a body. When the slew is too fast for that the body collapses to nothing and
-            //only the dark band showed, so it now turns yellow (the same yellow as clipping = overload) and keeps a minimum height so it is always visible.
-            const float bodyPx = meterH(2, departure);
+        //THE LINES (Chris's black lines), in Meter F8K's style: white while there is enough movement to give the line a body; when the body
+        //collapses (static, unchanging material) it turns yellow, the same yellow as clipping, and keeps a minimum height so it stays visible.
+        //It sits on a darker band so it stands out from the dots. 0.5.5 has the slew line only; 0.5.6 adds one on the zero cross and peak meters.
+        auto drawLine = [&](int sec, float yv, float heightUnits) {
+            if (dark) { g.setColour(beamBand); g.fillRect((float)count, meterY(sec, yv)-4.0f*vS, 1.0f, meterH(sec, heightUnits)+8.0f*vS); }
+            const float bodyPx = meterH(sec, heightUnits);
             const float fastness = 1.0f - fmin(bodyPx/1.5f, 1.0f);
             const float minPx = 2.0f;
             const float drawPx = fmax(bodyPx, minPx);
             g.setColour(dark ? beamCol.interpolatedWith(clipCol, fastness).withAlpha(0.88f+0.12f*fastness) : beamCol);
-            g.fillRect((float)count, meterY(2, 600.0f-beam) - (drawPx-bodyPx)*0.5f*(dark ? 1.0f : 0.0f), 1.0f, dark ? drawPx : bodyPx); //draw beam
+            g.fillRect((float)count, meterY(sec, yv) - (drawPx-bodyPx)*0.5f*(dark ? 1.0f : 0.0f), 1.0f, dark ? drawPx : bodyPx);
+        };
+        drawLine(2, 600.0f-beam, departure); //the slew line
+        if (hasZeroRmsLines) { //Chris's formulas for where the zero cross and RMS lines sit and how thick they are
+            const float beamZ = (sqrt((dataBZL[count]+dataBZR[count])*0.5f)*6.0f)-6.0f;
+            const float beamZero = fmax(fmin((sqrt(fmax(beamZ, 0.0f))*16.2f)-20.0f, 199.0f), 0.5f);
+            const float departureZero = fmin(6.18033988749894f, (dataDZL[count]*dataDZR[count])*(float)(23000000.0/pow(beamZero, 4.0)));
+            const float beamRMS = fmin(199.0f, sqrt(dataBRL[count]+dataBRR[count])*140.0f);
+            const float departureRMS = fmin(6.18033988749894f, (dataDRL[count]*dataDRR[count])*12000.0f);
+            drawLine(0, beamZero, departureZero);
+            drawLine(1, pk(400.0f-beamRMS), departureRMS*peakDisplayScale);
         }
         
         psDotSizeL = (dataPL[count]*64.0f) / (fabs((peakL*0.945433426957143f)-slewL)+6.18033988749894f);
@@ -670,6 +689,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             g.setColour(labelCol);
             g.setOpacity(tuneOpen ? 0.9f : 0.4f);
             g.drawText("tune", displayWidth-62, displayHeight-24, 56, 20, juce::Justification::bottomRight);
+            g.setColour(labelCol); g.setOpacity(0.35f); //which original Meter is underneath
+            g.drawText(juce::String("on Airwindows Meter ") + chris::kVersion, (int)scaleFont/2, displayHeight-24, 260, 20, juce::Justification::bottomLeft);
             if (lab.fromFile) { //the reading settings came from the Analyser's Lab
                 g.setColour(juce::Colour(255, 225, 40)); g.setOpacity(0.7f);
                 g.drawText("lab", displayWidth-110, displayHeight-24, 44, 20, juce::Justification::bottomRight);
