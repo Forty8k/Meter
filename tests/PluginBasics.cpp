@@ -20,7 +20,7 @@ TEST_CASE ("Plugin instance", "[instance]")
     SECTION ("name")
     {
         CHECK_THAT (testPlugin.getName().toStdString(),
-            Catch::Matchers::Equals ("Meter F8K"));
+            Catch::Matchers::Equals ("meterDARK"));
     }
 }
 
