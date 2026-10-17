@@ -243,9 +243,9 @@ public:
         const juce::String text = display(shown[(size_t)row], c, yours, unsure);
         g.setColour(yours ? kYours : (unsure ? kDim : kText));
         g.setFont(juce::Font(14.0f));
-        const bool right = c.kind == Kind::Number || c.kind == Kind::Duration || c.kind == Kind::Bpm || c.kind == Kind::SubGrade
-                        || c.kind == Kind::Letter || c.kind == Kind::Bonus;
-        g.drawText(text, 6, 0, width - 12, height, right ? juce::Justification::centredRight : juce::Justification::centredLeft, true);
+        const bool right = c.kind == Kind::Number || c.kind == Kind::Duration || c.kind == Kind::Bpm;
+        const bool centre = c.kind == Kind::SubGrade || c.kind == Kind::Letter || c.kind == Kind::Bonus;
+        g.drawText(text, 6, 0, width - 12, height, centre ? juce::Justification::centred : (right ? juce::Justification::centredRight : juce::Justification::centredLeft), true);
     }
     juce::Component* refreshComponentForCell(int row, int colId, bool, juce::Component* existing) override {
         if (colId < 1 || colId > (int)cols.size() || !cols[(size_t)colId - 1].editable) {delete existing; return nullptr;}
@@ -273,9 +273,9 @@ public:
         g.fillAll(kBg);
         g.setColour(kDim);
         g.setFont(juce::Font(12.5f));
-        g.drawText("Click a column title to sort, click again to reverse. Double-click artist, title, album, year, genre, BPM, key or one of your columns to edit it"
+        g.drawFittedText("Click a column title to sort, click again to reverse. Double-click artist, title, album, year, genre, BPM, key or one of your columns to edit it"
                    " (clear it to go back to the original). Double-click anything else for the track's details.   Blue = your value.   Grey with ? = a less certain estimate.",
-                   hintArea(), juce::Justification::centredLeft, true);
+                   hintArea(), juce::Justification::centredLeft, 2);
     }
     void resized() override {
         auto r = getLocalBounds().reduced(12);
