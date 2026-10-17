@@ -1,5 +1,5 @@
-// The real JUCE, except for the three things Chris's meter must not touch in Meter F8K: its Graphics (its drawing goes
-// nowhere, Meter F8K draws its own display), and the Component it is built on (it is never on screen).
+// The real JUCE, except for the three things Chris's meter must not touch in meterDARK: its Graphics (its drawing goes
+// nowhere, meterDARK draws its own display), and the Component it is built on (it is never on screen).
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <iostream>

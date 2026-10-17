@@ -21,13 +21,13 @@ set(PROJECT_NAME "Meter")
 #   set(PROJECT_NAME "MyPlugin_v${MAJOR_VERSION}")
 # Doing so enables major versions to show up in IDEs and DAWs as separate plugins
 # allowing you to change parameters and behavior without breaking existing user projects
-set(PRODUCT_NAME "Meter F8K")
+set(PRODUCT_NAME "meterDARK")
 
 # Change me! Used for the MacOS bundle name and Installers
 set(COMPANY_NAME "Airwindows")
 
 # Change me! Used for the MacOS bundle identifier (and signing)
-set(BUNDLE_ID "com.airwindows.meterF8K")
+set(BUNDLE_ID "com.airwindows.meterDARK")
 
 # Change me! Set the plugin formats you want built
 # Valid choices: AAX Unity VST VST3 AU AUv3 Standalone

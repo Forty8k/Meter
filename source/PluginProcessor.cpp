@@ -245,13 +245,13 @@ juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 
 void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
-    chrisAudio.processBlock(buffer, midiMessages); //Chris's own audio loop, untouched (source/chris): Meter F8K only changes what you see
+    chrisAudio.processBlock(buffer, midiMessages); //Chris's own audio loop, untouched (source/chris): meterDARK only changes what you see
 }
 
 //==============================================================================
 
 void PluginProcessor::processBlock (juce::AudioBuffer<double>& buffer, juce::MidiBuffer& midiMessages)
 {
-    chrisAudio.processBlock(buffer, midiMessages); //Chris's own audio loop, untouched (source/chris): Meter F8K only changes what you see
+    chrisAudio.processBlock(buffer, midiMessages); //Chris's own audio loop, untouched (source/chris): meterDARK only changes what you see
 }
 

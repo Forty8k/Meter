@@ -416,7 +416,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             if (peakR > 197.0f) sustainedClip *= 0.975f; //if both are clipping, escalate
         } else sustainedClip = 180.0f;
         
-        //THE LINES (Chris's black lines), in Meter F8K's style: white while there is enough movement to give the line a body; when the body
+        //THE LINES (Chris's black lines), in meterDARK's style: white while there is enough movement to give the line a body; when the body
         //collapses (static, unchanging material) it turns yellow, the same yellow as clipping, and keeps a minimum height so it stays visible.
         //It sits on a darker band so it stands out from the dots. 0.5.5 has the slew line only; 0.5.6 adds one on the zero cross and peak meters.
         auto drawLine = [&](int sec, float yv, float heightUnits) {
