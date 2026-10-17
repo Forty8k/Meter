@@ -176,7 +176,10 @@ void PluginEditor::idle()
     //screen redraw, so the grades do not depend on how often the screen is redrawn or how fast the host plays.
     chris::PluginProcessor::AudioToUIMessage msg;
     bool repaintTS{false}; //we don't redraw interface just for getting data into the GUI section
-    while (processorRef.chrisAudio.audioToUI.pop(msg)) {
+    //At most a few windows per screen tick (real time needs one or two): if the host renders faster than real time, the rest wait in
+    //the queue (and, as in Chris's plugin, windows beyond its size are skipped), so the screen and the host never stall.
+    int windowsThisTick = 0;
+    while (windowsThisTick < 6 && processorRef.chrisAudio.audioToUI.pop(msg)) {
         bool chrisRepaint = false;
         chris::dispatch(chrisMeter, msg, chrisRepaint);
         const juce::String what((int)msg.what >= 0 && (int)msg.what < chris::kNumWhats ? chris::kWhatNames[(int)msg.what] : "");
@@ -184,6 +187,7 @@ void PluginEditor::idle()
             chrisMeter.paint(noDraw); //his scoring for this window
             takeScores();
             meter.pushIncrement(); repaintTS = true;
+            ++windowsThisTick;
             continue;
         }
         const float v = msg.newValue;
