@@ -317,9 +317,21 @@ struct AirwindowsMeter : public juce::Component
     void pushBeamR(float X) {dataBR[dataPosition] = X; dataBR[dataPosition+1] = X;}
     void pushDeptL(float X) {dataDL[dataPosition] = X; dataDL[dataPosition+1] = X;}
     void pushDeptR(float X) {dataDR[dataPosition] = X; dataDR[dataPosition+1] = X;}
+    //newer lines from Chris's meter (0.5.6 on): where the zero cross and RMS settle (B) and how far they keep departing (D)
+    std::array<float, dataPoints+2> dataBZL{}, dataBZR{}, dataDZL{}, dataDZR{}, dataBRL{}, dataBRR{}, dataDRL{}, dataDRR{};
+    bool hasZeroRmsLines = false;
+    void pushExtra(const juce::String& what, float X) {
+        std::array<float, dataPoints+2>* a = nullptr;
+        if (what == "BZER_LEFT") a = &dataBZL; else if (what == "BZER_RIGHT") a = &dataBZR; else if (what == "DZER_LEFT") a = &dataDZL; else if (what == "DZER_RIGHT") a = &dataDZR;
+        else if (what == "BRMS_LEFT") a = &dataBRL; else if (what == "BRMS_RIGHT") a = &dataBRR; else if (what == "DRMS_LEFT") a = &dataDRL; else if (what == "DRMS_RIGHT") a = &dataDRR;
+        if (a == nullptr) return;
+        (*a)[dataPosition] = X; (*a)[dataPosition+1] = X;
+        hasZeroRmsLines = true;
+    }
     struct ColumnMetrics {float peakL, peakR, slewL, slewR, bassL, bassR, meterZeroL, meterZeroR, psDotSizeL, psDotSizeR, slewDotSizeL, slewDotSizeR, bassDotSizeL, bassDotSizeR;};
     ColumnMetrics columnMetrics(unsigned long col) const;
-    void scoreColumn(unsigned long col); //scores one finished audio window, once, as it arrives
+    void scoreColumn(unsigned long col); //reads one finished audio window, once, as it arrives (hints and per-meter tone; the grades are Chris's)
+    std::function<void()> onReset; //set by the editor: a double-click also restarts Chris's meter underneath
     double scoreSustainedClip = 180.0;
     void pushIncrement() {
         scoreColumn(dataPosition); //the window that just finished is scored here, not while painting

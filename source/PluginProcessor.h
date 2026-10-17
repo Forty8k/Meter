@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include "chris/Current.h"
 
 #if (MSVC)
 #include "ipps.h"
@@ -145,6 +146,7 @@ public:
     bool audioPlaying = true;
     bool playheadMoving = false;
     float hintTune[12] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.30f, 0.70f, 0.10f, 0.50f, 0.30f, 0.50f}; //where each hint switches on (see the meter's tune controls), saved with the project
+    chris::PluginProcessor chrisAudio; //Chris's original audio thread (measures each window and sends it to the display)
     float peakTrimDb = 0.0f; //display-only level trim for the peak meter, same idea as slewTrimDb
     float slewTrimDb = 0.0f; //display-only zoom for the slew meter (0 = original). Saved with the project, never touches the audio or the scoring
     //YOUR DEFAULT PRESET: the tune values and the two display trims, kept in a small file in the user's application data folder. New instances

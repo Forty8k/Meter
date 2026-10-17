@@ -34,6 +34,8 @@ PluginEditor::PluginEditor (PluginProcessor& p)
     meter.outputR = 10.0;
     meter.outputG = 10.0;
     meter.outputB = 10.0;
+    resetChris();
+    meter.onReset = [this] { resetChris(); };
     setSize (airwindowsLookAndFeel.userWidth, airwindowsLookAndFeel.userHeight);
     // Make sure that before the constructor has finished, you've set the editor's size to whatever you need it to be.
 }
@@ -121,6 +123,9 @@ void PluginEditor::resized()
     meter.displayWidth = (int)area.getWidth();
     meter.displayHeight = (int)area.getHeight(); //meter-only display
     meter.setBounds(area);
+    //Chris's meter underneath is the same size as yours, so it scores the same number of windows on screen as his plugin would
+    chrisMeter.w = chrisMeter.displayWidth = meter.displayWidth;
+    chrisMeter.h = chrisMeter.displayHeight = meter.displayHeight;
 }
 
 void PluginEditor::sliderValueChanged(juce::Slider *s) {}                           //there are no sliders
@@ -139,50 +144,57 @@ void PluginEditor::updatePluginSize() {
     repaint();
 }
 
+//Chris's meter, as his plugin starts it
+void PluginEditor::resetChris()
+{
+    chrisMeter.w = chrisMeter.displayWidth = meter.displayWidth;
+    chrisMeter.h = chrisMeter.displayHeight = meter.displayHeight;
+    chrisMeter.pluginColour = airwindowsLookAndFeel.defaultColour;
+    chrisMeter.resetArrays();
+    chrisMeter.outputR = 10.0; chrisMeter.outputG = 10.0; chrisMeter.outputB = 10.0;
+}
+
+//Everything Chris's meter worked out goes to the display: the grades, the scores behind the tone colour, the tone colour itself
+void PluginEditor::takeScores()
+{
+    const auto& c = chrisMeter;
+    meter.outputR = c.outputR; meter.outputG = c.outputG; meter.outputB = c.outputB;
+    meter.outputVol = c.outputVol; meter.outputMin = c.outputMin; meter.outputMax = c.outputMax; meter.gradientMin = c.gradientMin;
+    meter.storeR = c.storeR; meter.storeG = c.storeG; meter.storeB = c.storeB; meter.cyanFix = c.cyanFix;
+    meter.backdropColour = c.backdropColour;
+    meter.peakPrevGrade = c.peakPrevGrade; meter.slewPrevGrade = c.slewPrevGrade; meter.bassPrevGrade = c.bassPrevGrade;
+    meter.peakGrade = c.peakGrade; meter.slewGrade = c.slewGrade; meter.bassGrade = c.bassGrade;
+    meter.cumulative = c.cumulative; meter.duration = c.duration; meter.cumulativePlus = c.cumulativePlus; meter.durationPlus = c.durationPlus;
+    meter.totalPackage = c.totalPackage; meter.bonusScore = c.bonusScore;
+    meter.authority = c.authority; meter.power = c.power; meter.detail = c.detail;
+}
+
 void PluginEditor::idle()
 {
-    PluginProcessor::AudioToUIMessage msg;
+    //MESSAGES FROM CHRIS'S AUDIO LOOP. Each goes to his own meter exactly as his editor handles it, and its values to our display.
+    //At the end of each window his meter runs its scoring once (its paint, with drawing switched off): once per window, never per
+    //screen redraw, so the grades do not depend on how often the screen is redrawn or how fast the host plays.
+    chris::PluginProcessor::AudioToUIMessage msg;
     bool repaintTS{false}; //we don't redraw interface just for getting data into the GUI section
-    while (processorRef.audioToUI.pop(msg)) {
-        switch (msg.what) {
-            case PluginProcessor::AudioToUIMessage::NEW_VALUE: break; //no knobs on this plugin
-            case PluginProcessor::AudioToUIMessage::PEAK_LEFT: meter.pushPeakL(msg.newValue); break;
-            case PluginProcessor::AudioToUIMessage::PEAK_RIGHT: meter.pushPeakR(msg.newValue); break;
-            case PluginProcessor::AudioToUIMessage::SLEW_LEFT: meter.pushSlewL(msg.newValue); break;
-            case PluginProcessor::AudioToUIMessage::SLEW_RIGHT: meter.pushSlewR(msg.newValue); break;
-            case PluginProcessor::AudioToUIMessage::ZERO_LEFT: meter.pushZeroL(msg.newValue); break;
-            case PluginProcessor::AudioToUIMessage::ZERO_RIGHT: meter.pushZeroR(msg.newValue); break;
-            case PluginProcessor::AudioToUIMessage::BEAM_LEFT: meter.pushBeamL(msg.newValue); break;
-            case PluginProcessor::AudioToUIMessage::BEAM_RIGHT: meter.pushBeamR(msg.newValue); break;
-            case PluginProcessor::AudioToUIMessage::DEPT_LEFT: meter.pushDeptL(msg.newValue); break;
-            case PluginProcessor::AudioToUIMessage::DEPT_RIGHT: meter.pushDeptR(msg.newValue); break;
-            case PluginProcessor::AudioToUIMessage::INCREMENT: //Increment is running at 24 FPS and giving the above calculations
-                meter.pushIncrement(); repaintTS = true;
-                
-                meter.outputMax = fmax(fmax(meter.outputR+0.000001f,meter.outputG),meter.outputB);
-                meter.outputMin = fmin(fmin(meter.outputR,meter.outputG),meter.outputB) / meter.outputMax;
-                meter.gradientMin = meter.outputMin*meter.outputMin*meter.outputMin;
-                //smallest number means brightest color, relative to highest number will be 1.0 meaning white
-                meter.outputMin = 1.0f-((1.0f-meter.outputMin)*0.125f*meter.outputVol*meter.outputVol);
-                //quiet parts converge on 1.0 also, to slow color activity in fades
-                meter.outputMin = fmax(fmin(meter.outputMin,1.0f),0.0f);
-                meter.storeR = pow(meter.outputR/meter.outputMax, 1.618033988749894f);
-                meter.storeG = pow(meter.outputG/meter.outputMax, 1.618033988749894f);
-                meter.storeB = pow(meter.outputB/meter.outputMax, 1.618033988749894f);
-                //if all these are nearly white, they're near 1.0, but cyan is too much like white to be visible.
-                //this causes scores to look wrong, because cyan tints 'should' score higher but it's an optical illusion.
-                //Cyan is R0 G1 B1, so we will make up a color-tinter that reduces G and B by the amount that they match,
-                meter.cyanFix = pow((1.0f-meter.storeR)*(1.0f-meter.storeR)*(1.0f-((meter.storeG-meter.storeB)*(meter.storeG-meter.storeB))),1.618033988749894f);
-                meter.storeG -= meter.cyanFix; meter.storeB -= meter.cyanFix; //darken cyan tints for visual reference to white balance
-                meter.backdropColour = juce::Colour::fromFloatRGBA ((float)meter.storeR, (float)meter.storeG, (float)meter.storeB, 1.0f);
-                meter.outputR *= meter.outputMin;
-                meter.outputG *= meter.outputMin;
-                meter.outputB *= meter.outputMin;
-                break;
-            default: std::cout << "Unhandled message type " << msg.what << std::endl; break;
-        } //end of switch statement for msg.what
+    while (processorRef.chrisAudio.audioToUI.pop(msg)) {
+        bool chrisRepaint = false;
+        chris::dispatch(chrisMeter, msg, chrisRepaint);
+        const juce::String what((int)msg.what >= 0 && (int)msg.what < chris::kNumWhats ? chris::kWhatNames[(int)msg.what] : "");
+        if (what == "INCREMENT") {
+            chrisMeter.paint(noDraw); //his scoring for this window
+            takeScores();
+            meter.pushIncrement(); repaintTS = true;
+            continue;
+        }
+        const float v = msg.newValue;
+        if (what == "PEAK_LEFT") meter.pushPeakL(v); else if (what == "PEAK_RIGHT") meter.pushPeakR(v);
+        else if (what == "SLEW_LEFT") meter.pushSlewL(v); else if (what == "SLEW_RIGHT") meter.pushSlewR(v);
+        else if (what == "ZERO_LEFT") meter.pushZeroL(v); else if (what == "ZERO_RIGHT") meter.pushZeroR(v);
+        else if (what == "BEAM_LEFT" || what == "BSLW_LEFT") meter.pushBeamL(v); else if (what == "BEAM_RIGHT" || what == "BSLW_RIGHT") meter.pushBeamR(v);
+        else if (what == "DEPT_LEFT" || what == "DSLW_LEFT") meter.pushDeptL(v); else if (what == "DEPT_RIGHT" || what == "DSLW_RIGHT") meter.pushDeptR(v);
+        else meter.pushExtra(what, v); //newer lines (0.5.6: the zero cross and RMS lines)
     }
-    processorRef.audioPlaying = meter.meterPlaying;
+    processorRef.chrisAudio.audioPlaying = meter.meterPlaying; //clicking the meter pauses it, as in Chris's plugin
     if (meter.peakTrimDb != lastPeakTrimSeen) {
         processorRef.peakTrimDb = lastPeakTrimSeen = meter.peakTrimDb;
     } else if (processorRef.peakTrimDb != lastPeakTrimSeen) {
