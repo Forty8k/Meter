@@ -27,7 +27,11 @@ PluginProcessor::PluginProcessor():AudioProcessor (
 
 juce::File PluginProcessor::userDefaultsFile()
 {
-    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("Meter F8K").getChildFile("defaults.xml");
+    const auto data = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
+    const auto f = data.getChildFile("meterDARK").getChildFile("defaults.xml");
+    const auto old = data.getChildFile("Meter F8K").getChildFile("defaults.xml"); //from before the rename: carried over once
+    if (!f.existsAsFile() && old.existsAsFile()) { f.getParentDirectory().createDirectory(); old.copyFileTo(f); }
+    return f;
 }
 
 void PluginProcessor::loadUserDefaults()

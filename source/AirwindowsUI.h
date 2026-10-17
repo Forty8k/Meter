@@ -224,7 +224,7 @@ struct AirwindowsMeter : public juce::Component
     //The bright reading is 1 - exp(-brightSpread * red share). It is spread so that the bright threshold sits 30% in from the far right edge, like squashed (about .70).
     static constexpr float brightSpread = 13.5f; //(the Lab setting lab.brightSpread is what the hints use; this is its factory value)
     //LAB TUNING: the constants that shape the hint readings. Factory values below; the Analyser's Lab can export new ones to
-    //<user app data>/Meter F8K/lab-tuning.xml, which is read on start and again whenever it changes (checked about once a second).
+    //<user app data>/meterDARK/lab-tuning.xml, which is read on start and again whenever it changes (checked about once a second).
     struct LabTuning {
         float lowFromPos = 139.0f, lowFullPos = 160.0f, highFromPos = 107.0f, highFullPos = 82.0f; //push ramps, in meter positions
         float lowPushGain = 0.6f, highPushGain = 0.5f, peakInfluence = 1.0f, peakDiv = 140.0f, peakPow = 4.0f;
@@ -239,7 +239,7 @@ struct AirwindowsMeter : public juce::Component
             const float x = fmin(fmax(dir*(v - from)/w, 0.0f), 1.0f);
             return x*x*(3.0f - 2.0f*x);
         }
-        static juce::File file() { return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("Meter F8K").getChildFile("lab-tuning.xml"); }
+        static juce::File file() { return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("meterDARK").getChildFile("lab-tuning.xml"); }
         void reloadIfChanged() {
             const juce::File f = file();
             if (!f.existsAsFile()) {if (fromFile) {*this = LabTuning();} return;}
