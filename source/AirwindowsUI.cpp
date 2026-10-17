@@ -330,12 +330,15 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             }
         }
         g.setColour(gridCol);
-        g.fillRect(0,  (int)meterY(0, 60.0f), getWidth(),1); // -6dB markings
-        g.fillRect(0, (int)meterY(0, 101.02f), getWidth(),1); //-12dB markings
-        g.fillRect(0, (int)meterY(0, 130.02f), getWidth(),1); //-18dB markings
-        g.fillRect(0, (int)meterY(0, 150.2f), getWidth(),1); //-24dB markings
-        g.fillRect(0, (int)meterY(0, 164.9f), getWidth(),1); //-30dB markings
-        g.fillRect(0, (int)meterY(0, 175.2f), getWidth(),1); //-36dB markings
+        //Authority markings as in Airwindows Meter 0.5.6 (3.5k: the ear's most sensitive region, 1k / 500: the tonal-centre zones)
+        g.fillRect(0,  (int)meterY(0, 29.0f), getWidth(),1); // 3.5k markings
+        g.fillRect(0,  (int)meterY(0, 58.0f), getWidth(),1); // 1k markings
+        g.fillRect(0,  (int)meterY(0, 77.0f), getWidth(),1); // 500 markings
+        g.fillRect(0, (int)meterY(0, 103.02f), getWidth(),1); // 200 markings
+        g.fillRect(0, (int)meterY(0, 130.02f), getWidth(),1); // 100 markings
+        g.fillRect(0, (int)meterY(0, 150.2f), getWidth(),1); // 60 markings
+        g.fillRect(0, (int)meterY(0, 164.9f), getWidth(),1); // 45 markings
+        g.fillRect(0, (int)meterY(0, 175.2f), getWidth(),1); // 35 markings
         
         if (peakDisplayScale < 0.97f) g.fillRect(0, (int)meterY(1, pk(200.0f)), getWidth(),1); //0dB: where the yellow overshoots start once the peaks are trimmed
         g.fillRect(0, (int)meterY(1, pk(260.0f)), getWidth(),1); // -6dB markings
@@ -784,8 +787,9 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             g.setOpacity(1.0f);
             g.drawText(text, (int)scaleFont, y, displayWidth/2, (int)scaleFont, juce::Justification::bottomLeft);
         };
-        axisLabel("900 Hz", (int)meterY(0, 60.0f)-7);
-        axisLabel("210 Hz", (int)meterY(0, 101.02f)-7);
+        axisLabel("1 kHz", (int)meterY(0, 58.0f)-7);
+        axisLabel("500 Hz", (int)meterY(0, 77.0f)-7);
+        axisLabel("200 Hz", (int)meterY(0, 103.0f)-7);
         axisLabel("100 Hz", (int)meterY(0, 130.02f)-7);
         axisLabel("60 Hz", (int)meterY(0, 150.2f)-7);
         axisLabel("45 Hz", (int)meterY(0, 164.9f)-7);
@@ -805,7 +809,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
 
         axisLabel("exciting", (int)meterY(2, 455.0f)-7);
         axisLabel("present", (int)meterY(2, 496.0f)-7);
-        axisLabel("relaxed", (int)meterY(2, 525.0f)-7);
+        axisLabel("absent", (int)meterY(2, 525.0f)-7);
 
         g.setColour(borderCol);
         g.setOpacity(1.0f);
