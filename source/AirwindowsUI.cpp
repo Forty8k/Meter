@@ -809,7 +809,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
 
         axisLabel("exciting", (int)meterY(2, 455.0f)-7);
         axisLabel("present", (int)meterY(2, 496.0f)-7);
-        axisLabel("absent", (int)meterY(2, 525.0f)-7);
+        axisLabel("relaxed", (int)meterY(2, 525.0f)-7);
 
         g.setColour(borderCol);
         g.setOpacity(1.0f);
