@@ -287,7 +287,7 @@ struct AirwindowsMeter : public juce::Component
     float hintRedRun = 0.0f, hintGreenRun = 0.0f; //how many windows in a row have been red / green: sustained runs count fully, brief ones count less
     float hintGreenAvg = 0.0f; //slews: share of recent dots that are green/teal (peaks well ahead of slews)
     int hintState[3] = {0, 0, 0}; //-1 = under target ("more"), 0 = fine, +1 = over target ("reduce")
-    static constexpr float railUnits = 22.0f;      //the dark control rail along the bottom of each text strip (hint gauges, display trims, tune settings)
+    static constexpr float railUnits = 16.0f;      //the dark control rail along the bottom of each text strip: just the labels (hint numbers, display trims, tune settings). The gauges themselves are drawn on the tone strip above it.
     static constexpr float stripTopUnits = 50.0f + railUnits; //height of the text strip above each meter, in the 600-high layout:
     static constexpr float stripMidUnits = 30.0f + railUnits; //zero crosses (includes the top color bar), then peaks and slews
     
@@ -412,6 +412,8 @@ struct AirwindowsMeter : public juce::Component
             devZ[count] = 0.0f;
             devP[count] = 0.0f;
             devS[count] = 0.0f;
+            dataBZL[count] = 0.0f; dataBZR[count] = 0.0f; dataDZL[count] = 0.0f; dataDZR[count] = 0.0f; //Chris's 0.5.6 lines
+            dataBRL[count] = 0.0f; dataBRR[count] = 0.0f; dataDRL[count] = 0.0f; dataDRR[count] = 0.0f;
             backR[count] = pluginColour.getFloatRed();
             backG[count] = pluginColour.getFloatGreen();
             backB[count] = pluginColour.getFloatBlue();

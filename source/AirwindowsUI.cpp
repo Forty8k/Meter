@@ -636,18 +636,19 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             auto railLabel = [&](const juce::String& t, int x, int sec, int w, juce::Justification just, float opacity) {
                 g.setColour(railText);
                 g.setOpacity(opacity);
-                g.drawText(t, x, (int)railTopPx(sec, vS) + 1, w, (int)(railHeightPx(vS)*0.68f), just);
+                g.drawText(t, x, (int)railTopPx(sec, vS) + 1, w, (int)railHeightPx(vS) - 1, just); //centred in the slim rail: equal padding above and below the text
             };
-            //a gauge under a label: ticks are settings, the dot is the live reading
+            //a gauge above its label: ticks are settings, the dot is the live reading. It is drawn in black along the bottom of the tone strip, just over the rail.
             auto railGauge = [&](int sec, int x, float width, const float* ticks, int numTicks, float midTick, float liveV, bool hasLive, bool active) {
-                const float gy = railTopPx(sec, vS) + railHeightPx(vS) - 5.0f;
-                g.setColour(railText); g.setOpacity(0.3f);
+                const float gy = railTopPx(sec, vS) - 7.0f;
+                g.setColour(juce::Colours::black); g.setOpacity(0.35f);
                 g.fillRect((float)x, gy, width, 1.0f);
                 g.setOpacity(0.9f);
                 for (int t = 0; t < numTicks; ++t) g.fillRect((float)x + width*fmin(fmax(ticks[t], 0.0f), 1.0f) - 1.0f, gy - 3.0f, 2.0f, 7.0f);
                 if (midTick >= 0.0f) g.fillRect((float)x + width*fmin(fmax(midTick, 0.0f), 1.0f) - 1.0f, gy - 5.0f, 2.0f, 11.0f);
                 if (hasLive) {
-                    g.setColour(active ? juce::Colour(255, 70, 60) : railText);
+                    g.setColour(active ? juce::Colour(255, 70, 60) : juce::Colours::black);
+                    g.setOpacity(1.0f);
                     g.fillEllipse((float)x + width*fmin(fmax(liveV, 0.0f), 1.0f) - 3.0f, gy - 3.0f, 6.0f, 6.0f);
                 }
             };
