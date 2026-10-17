@@ -21,7 +21,7 @@ public:
     void updatePluginSize();
     void idle();
     void resetChris();
-    void takeScores();
+    template <typename M> void takeScores(const M& c);
 
     struct IdleTimer : juce::Timer
         {
@@ -39,11 +39,12 @@ private:
     
    std::unique_ptr<IdleTimer> idleTimer;
    float lastPeakTrimSeen = 0.0f;
-   float lastTuneSeen[12] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.30f, 0.70f, 0.10f, 0.50f, 0.30f, 0.50f};
+   float lastTuneSeen[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f};
    float lastSlewTrimSeen = 0.0f; //keeps the on-screen slew trim and the saved one in step, in both directions
     AirwindowsLookAndFeel airwindowsLookAndFeel;
     AirwindowsMeter meter;
     chris::AirwindowsMeter chrisMeter;   //Chris's original meter, never on screen: it does the scoring
+    chrisTuned::AirwindowsMeter chrisTunedMeter; //the same with meterDARK's Detail decay and fill gate: used for the grade when "grade" is ticked
     chris::juce::Graphics noDraw;        //where its drawing goes (nowhere)
     
     juce::Colour hostTrackColour = juce::Colours::lightgrey;

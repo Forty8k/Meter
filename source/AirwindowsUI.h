@@ -211,14 +211,17 @@ struct AirwindowsMeter : public juce::Component
     //WEIGHT: one reading (the mass of the weight dots, 0-1) on one gauge with three points: tune[9] = the balance point, tune[0] = how far BELOW it counts as light,
     //tune[1] = how far ABOVE it counts as heavy. tune[10] = frequency push: how much dots below ~80 Hz count extra (heavier) and dots above ~180 Hz count less (lighter).
     //tune[8] = hint speed: how fast all the hint averages rise and fall (rate = 0.01 + 0.07*value)
-    //tune[7] = detail fill gate: a hot slew bin only fills at full strength if it was also hit in the window before; lone hits count for less (0 = the original)
-    //tune[6] = detail bin decay: hot slew bins empty faster, so brief overslews fade quickly and sustained ones stay full (0 = the original decay)
+    //tune[6] = detail decay, tune[7] = fill gate: keep brief bright transients from swaying the Detail readings (0 = stock).
+    //  decay: the bright reading falls faster once the brightness stops, so a brief burst fades quickly and a sustained one stays.
+    //  gate: a bright window counts fully only if the window before was bright too; a lone one counts for less, more so the higher up the meter it sits.
+    //tune[12] = grade (0 or 1): when ticked, the same two settings also go into the scoring (a copy of Chris's meter with them added to his slew bins),
+    //  so the Detail tone strip, the tone colour and the grade change too. Unticked, or with both at 0, the grade is exactly Chris's.
     //DYNAMICS: the same idea. The reading is how flat the peaks are (0 = peaks swing a lot, 1 = every window peaks at the same level), measured as how far each window's
     //peak lands from the slow mean peak level, so it does not depend on how loud the material is. tune[11] = the balance point, tune[2] = how far BELOW it counts as headroom
     //(undercompressed), tune[3] = how far ABOVE it counts as squashed (a flat line, a test tone, an over-compressed or saturated sound).
-    float tune[12] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.30f, 0.70f, 0.10f, 0.50f, 0.30f, 0.50f};
-    static constexpr float tuneDefault[12] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.30f, 0.70f, 0.10f, 0.50f, 0.30f, 0.50f};
-    float tuneUser[12] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.30f, 0.70f, 0.10f, 0.50f, 0.30f, 0.50f}; //the saved default preset (double-click on a label goes back to this)
+    float tune[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f};
+    static constexpr float tuneDefault[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f};
+    float tuneUser[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f}; //the saved default preset (double-click on a label goes back to this)
     std::function<void()> onSaveDefault; //set by the editor: writes tune and trims to the preset file
     juce::uint32 savedAtMs = 0;
     //The bright reading is 1 - exp(-brightSpread * red share). It is spread so that the bright threshold sits 30% in from the far right edge, like squashed (about .70).
@@ -279,6 +282,8 @@ struct AirwindowsMeter : public juce::Component
     //plus the slew colour shares and the track's own peak ceiling. Index 0 = low end, 1 = dynamics.
     float hintUpperAvg[3] = {0.5f, 0.5f, 0.5f};
     float hintRedAvg = 0.0f;   //slews: share of recent dots that are red (slews well ahead of peaks)
+    bool gradeTuned = false; //set by the editor: the grade and tone colours come from the tuned copy of Chris's meter (shown as * after the grade)
+    bool hintRedPrev = false; //the window before was red (for the fill gate on the bright reading)
     float hintRedRun = 0.0f, hintGreenRun = 0.0f; //how many windows in a row have been red / green: sustained runs count fully, brief ones count less
     float hintGreenAvg = 0.0f; //slews: share of recent dots that are green/teal (peaks well ahead of slews)
     int hintState[3] = {0, 0, 0}; //-1 = under target ("more"), 0 = fine, +1 = over target ("reduce")
@@ -361,7 +366,7 @@ struct AirwindowsMeter : public juce::Component
         spreadMean = 0.0f; spreadAvg = 4.0f; spreadInit = false;
         slewHotFill = 0.0f; gateEffectAvg = 0.0f; gateKept = 0.0f; gateAll = 0.0f;
         for (unsigned long b = 0; b < totalBins+2; ++b) {slewHitNow[b] = false; slewHitPrev[b] = false;}
-        hintRedRun = 0.0f;
+        hintRedRun = 0.0f; hintRedPrev = false;
         hintGreenRun = 0.0f;
         cumulative = 0.0000001;
         duration = 0.00001;

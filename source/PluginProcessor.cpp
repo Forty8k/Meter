@@ -20,7 +20,7 @@ PluginProcessor::PluginProcessor():AudioProcessor (
     // (internal ID, how it's shown in DAW generic view, {min, max}, default)
     chrisAudio.host = this;
     loadUserDefaults(); //a new instance starts from the saved default preset, if there is one
-    for (int i = 0; i < 12; ++i) hintTune[i] = userTune[i];
+    for (int i = 0; i < kTuneCount; ++i) hintTune[i] = userTune[i];
     peakTrimDb = userPeakTrim;
     slewTrimDb = userSlewTrim;
  }
@@ -40,7 +40,7 @@ void PluginProcessor::loadUserDefaults()
     if (!f.existsAsFile()) return;
     std::unique_ptr<juce::XmlElement> xml(juce::XmlDocument::parse(f));
     if (xml == nullptr || !xml->hasTagName("meterdefaults")) return;
-    for (int i = 0; i < 12; ++i) {
+    for (int i = 0; i < kTuneCount; ++i) {
         const double v = xml->getDoubleAttribute(juce::String("tune")+juce::String(i), (double)userTune[i]);
         if (v >= 0.0 && v <= 1.0) userTune[i] = (float)v;
     }
@@ -53,6 +53,7 @@ void PluginProcessor::loadUserDefaults()
     }
     if (fileVer < 5) userTune[5] = fmin(1.0f - powf(1.0f - userTune[5], 3.375f), 0.98f); //version 5 spread the bright reading (13.5 instead of 4): same trigger point, new number
     if (fileVer < 6) {userTune[2] = 0.30f; userTune[3] = 0.30f; userTune[11] = 0.50f;} //older file: the dynamics settings measured something else, so they restart from the new defaults
+    if (fileVer < 7) {userTune[6] = 0.0f; userTune[7] = 0.0f; userTune[12] = 0.0f;} //version 7: Detail decay and fill gate start at 0 (stock)
     const double pt = xml->getDoubleAttribute("peaktrim", 0.0);
     const double st = xml->getDoubleAttribute("slewtrim", 0.0);
     userPeakTrim = (pt <= 0.0 && pt >= -24.0) ? (float)pt : 0.0f;
@@ -61,12 +62,12 @@ void PluginProcessor::loadUserDefaults()
 
 void PluginProcessor::saveUserDefaults(const float* tuneIn, float peakTrimIn, float slewTrimIn)
 {
-    for (int i = 0; i < 12; ++i) userTune[i] = tuneIn[i];
+    for (int i = 0; i < kTuneCount; ++i) userTune[i] = tuneIn[i];
     userPeakTrim = peakTrimIn;
     userSlewTrim = slewTrimIn;
     juce::XmlElement xml("meterdefaults");
-    for (int i = 0; i < 12; ++i) xml.setAttribute(juce::String("tune")+juce::String(i), (double)userTune[i]);
-    xml.setAttribute("ver", 6); //version 2: dark level reads dark<. Version 3: weight is a mass reading with a balance point. Version 4: the mass scale is stretched and balanced reads .50. Version 5: the bright reading is spread so its threshold sits like squashed (bright>.70). Version 6: dynamics is a spread reading with a balance point (tune 2, 3, 11)
+    for (int i = 0; i < kTuneCount; ++i) xml.setAttribute(juce::String("tune")+juce::String(i), (double)userTune[i]);
+    xml.setAttribute("ver", 7); //version 7: Detail decay/fill gate 0 = stock, tune12 = grade. version 2: dark level reads dark<. Version 3: weight is a mass reading with a balance point. Version 4: the mass scale is stretched and balanced reads .50. Version 5: the bright reading is spread so its threshold sits like squashed (bright>.70). Version 6: dynamics is a spread reading with a balance point (tune 2, 3, 11)
     xml.setAttribute("peaktrim", (double)userPeakTrim);
     xml.setAttribute("slewtrim", (double)userSlewTrim);
     const juce::File f = userDefaultsFile();
@@ -177,8 +178,8 @@ void PluginProcessor::getStateInformation (juce::MemoryBlock& destData)
     xml->setAttribute(juce::String("awm_height"), pluginHeight);
     xml->setAttribute(juce::String("awm_slewtrim"), (double)slewTrimDb);
     xml->setAttribute(juce::String("awm_peaktrim"), (double)peakTrimDb);
-    for (int i = 0; i < 12; ++i) xml->setAttribute(juce::String("awm_tune")+juce::String(i), (double)hintTune[i]);
-    xml->setAttribute("awm_tunever", 6); //version 5: bright reading spread so its level sits like squashed. Version 6: dynamics spread reading (older projects are converted or reset when loaded)
+    for (int i = 0; i < kTuneCount; ++i) xml->setAttribute(juce::String("awm_tune")+juce::String(i), (double)hintTune[i]);
+    xml->setAttribute("awm_tunever", 7); //version 7: Detail decay/fill gate 0 = stock, tune12 = grade. version 5: bright reading spread so its level sits like squashed. Version 6: dynamics spread reading (older projects are converted or reset when loaded)
     copyXmlToBinary(*xml, destData);
 }
 
@@ -201,7 +202,7 @@ void PluginProcessor::setStateInformation (const void* data, int sizeInBytes)
             if (slewTrimDb > 0.0f || slewTrimDb < -24.0f) slewTrimDb = userSlewTrim;
             peakTrimDb = (float)xmlState->getDoubleAttribute(juce::String("awm_peaktrim"), (double)userPeakTrim);
             if (peakTrimDb > 0.0f || peakTrimDb < -24.0f) peakTrimDb = userPeakTrim;
-            for (int i = 0; i < 12; ++i) {
+            for (int i = 0; i < kTuneCount; ++i) {
                 hintTune[i] = (float)xmlState->getDoubleAttribute(juce::String("awm_tune")+juce::String(i), (double)userTune[i]);
                 if (!(hintTune[i] >= 0.0f && hintTune[i] <= 1.0f)) hintTune[i] = userTune[i];
             }
@@ -213,6 +214,7 @@ void PluginProcessor::setStateInformation (const void* data, int sizeInBytes)
                 hintTune[9] = fmin(fmax(0.5f + (hintTune[9] - 0.45f)*1.765f, 0.0f), 0.98f);
             }
             if (xmlState->hasAttribute("awm_tune2") && stateVer < 6) {hintTune[2] = 0.30f; hintTune[3] = 0.30f; hintTune[11] = 0.50f;} //older project: dynamics settings restart from the new defaults
+            if (stateVer < 7) {hintTune[6] = 0.0f; hintTune[7] = 0.0f; hintTune[12] = 0.0f;} //older project: Detail decay and fill gate start at 0 (stock)
             if (xmlState->hasAttribute("awm_tune5") && stateVer < 5) hintTune[5] = fmin(1.0f - powf(1.0f - hintTune[5], 3.375f), 0.98f); //older project: same trigger point on the spread bright scale
         }
         updateHostDisplay();

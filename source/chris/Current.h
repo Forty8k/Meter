@@ -2,3 +2,4 @@
 #pragma once
 #include "Chris_v0_5_6_40bb6cc.h"
 namespace chris = chris_v0_5_6_40bb6cc;
+namespace chrisTuned = chris_v0_5_6_40bb6cc_tuned; //the same, with meterDARK's Detail decay and fill gate (used when "grade" is ticked)

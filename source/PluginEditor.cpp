@@ -22,10 +22,10 @@ PluginEditor::PluginEditor (PluginProcessor& p)
     meter.pluginColour = airwindowsLookAndFeel.defaultColour;
     meter.peakTrimDb = lastPeakTrimSeen = processorRef.peakTrimDb;
     meter.slewTrimDb = lastSlewTrimSeen = processorRef.slewTrimDb; //pick up the slew trim saved with the project
-    for (int i = 0; i < 12; ++i) {meter.tune[i] = lastTuneSeen[i] = processorRef.hintTune[i]; meter.tuneUser[i] = processorRef.userTune[i];}
+    for (int i = 0; i < kTuneCount; ++i) {meter.tune[i] = lastTuneSeen[i] = processorRef.hintTune[i]; meter.tuneUser[i] = processorRef.userTune[i];}
     meter.onSaveDefault = [this]() {
         processorRef.saveUserDefaults(meter.tune, meter.peakTrimDb, meter.slewTrimDb);
-        for (int i = 0; i < 12; ++i) meter.tuneUser[i] = processorRef.userTune[i];
+        for (int i = 0; i < kTuneCount; ++i) meter.tuneUser[i] = processorRef.userTune[i];
     };
     meter.setOpaque(true);
     meter.resetArrays();
@@ -126,6 +126,8 @@ void PluginEditor::resized()
     //Chris's meter underneath is the same size as yours, so it scores the same number of windows on screen as his plugin would
     chrisMeter.w = chrisMeter.displayWidth = meter.displayWidth;
     chrisMeter.h = chrisMeter.displayHeight = meter.displayHeight;
+    chrisTunedMeter.w = chrisTunedMeter.displayWidth = meter.displayWidth;
+    chrisTunedMeter.h = chrisTunedMeter.displayHeight = meter.displayHeight;
 }
 
 void PluginEditor::sliderValueChanged(juce::Slider *s) {}                           //there are no sliders
@@ -152,12 +154,18 @@ void PluginEditor::resetChris()
     chrisMeter.pluginColour = airwindowsLookAndFeel.defaultColour;
     chrisMeter.resetArrays();
     chrisMeter.outputR = 10.0; chrisMeter.outputG = 10.0; chrisMeter.outputB = 10.0;
+    chrisTunedMeter.w = chrisTunedMeter.displayWidth = meter.displayWidth;
+    chrisTunedMeter.h = chrisTunedMeter.displayHeight = meter.displayHeight;
+    chrisTunedMeter.pluginColour = airwindowsLookAndFeel.defaultColour;
+    chrisTunedMeter.resetArrays();
+    for (auto& b : chrisTunedMeter.f8kHitPrev) b = false;
+    for (auto& b : chrisTunedMeter.f8kHitNow) b = false;
+    chrisTunedMeter.outputR = 10.0; chrisTunedMeter.outputG = 10.0; chrisTunedMeter.outputB = 10.0;
 }
 
 //Everything Chris's meter worked out goes to the display: the grades, the scores behind the tone colour, the tone colour itself
-void PluginEditor::takeScores()
+template <typename M> void PluginEditor::takeScores(const M& c)
 {
-    const auto& c = chrisMeter;
     meter.outputR = c.outputR; meter.outputG = c.outputG; meter.outputB = c.outputB;
     meter.outputVol = c.outputVol; meter.outputMin = c.outputMin; meter.outputMax = c.outputMax; meter.gradientMin = c.gradientMin;
     meter.storeR = c.storeR; meter.storeG = c.storeG; meter.storeB = c.storeB; meter.cyanFix = c.cyanFix;
@@ -182,10 +190,15 @@ void PluginEditor::idle()
     while (windowsThisTick < 6 && processorRef.chrisAudio.audioToUI.pop(msg)) {
         bool chrisRepaint = false;
         chris::dispatch(chrisMeter, msg, chrisRepaint);
+        chrisTuned::dispatch(chrisTunedMeter, msg, chrisRepaint); //the tuned copy always runs alongside, so ticking "grade" mid-track has the whole history
         const juce::String what((int)msg.what >= 0 && (int)msg.what < chris::kNumWhats ? chris::kWhatNames[(int)msg.what] : "");
         if (what == "INCREMENT") {
             chrisMeter.paint(noDraw); //his scoring for this window
-            takeScores();
+            chrisTunedMeter.f8kDecay = meter.tune[6]; chrisTunedMeter.f8kGate = meter.tune[7];
+            chrisTunedMeter.paint(noDraw);
+            //"grade" ticked and a Detail setting above 0: the grade and tone colours come from the tuned copy. Otherwise they are exactly Chris's.
+            meter.gradeTuned = meter.tune[12] > 0.5f && (meter.tune[6] > 0.0f || meter.tune[7] > 0.0f);
+            if (meter.gradeTuned) takeScores(chrisTunedMeter); else takeScores(chrisMeter);
             meter.pushIncrement(); repaintTS = true;
             ++windowsThisTick;
             continue;
@@ -211,7 +224,7 @@ void PluginEditor::idle()
         meter.slewTrimDb = lastSlewTrimSeen = processorRef.slewTrimDb; //a project or preset loaded a different one
         meter.repaint();
     }
-    for (int i = 0; i < 12; ++i) { //hint tuning: same two-way sync as the trims
+    for (int i = 0; i < kTuneCount; ++i) { //hint tuning: same two-way sync as the trims
         if (meter.tune[i] != lastTuneSeen[i]) processorRef.hintTune[i] = lastTuneSeen[i] = meter.tune[i];
         else if (processorRef.hintTune[i] != lastTuneSeen[i]) {meter.tune[i] = lastTuneSeen[i] = processorRef.hintTune[i]; meter.repaint();}
     }

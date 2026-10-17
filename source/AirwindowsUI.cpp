@@ -65,6 +65,10 @@ static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, int disp
             const int x0 = tunePairX(displayWidth, vS, k);
             if (event.x >= x0 && event.x < x0+tuneLabelW(vS)) return sec*2 + k;
         }
+        if (sec == 2) for (int k = 0; k < 3; ++k) { //detail decay (6) at the far right, fill gate (7) beside it, the grade tick (12) beside that
+            const int x0 = tuneRightX(displayWidth, vS, k);
+            if (event.x >= x0 && event.x < x0+tuneLabelW(vS)) return k == 0 ? 6 : (k == 1 ? 7 : 12);
+        }
     }
     return -1;
 }
@@ -81,13 +85,14 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
             return;
         }
         if (event.x >= displayWidth-270 && event.x < displayWidth-196) { //back to the built-in values
-            for (int i = 0; i < 12; ++i) tune[i] = tuneDefault[i];
+            for (int i = 0; i < kTuneCount; ++i) tune[i] = tuneDefault[i];
             repaint();
             return;
         }
     }
     if (tuneOpen) {
         const int t = onTuneLabel(event, displayWidth, displayHeight, vS);
+        if (t == 12) {tune[12] = tune[12] > 0.5f ? 0.0f : 1.0f; tuneDragging = -1; repaint(); return;} //the grade tick: a click toggles it
         if (t >= 0) {
             if (event.getNumberOfClicks() > 1) {tune[t] = tuneUser[t]; tuneDragging = -1; repaint();}
             else {tuneDragging = t; tuneDragStart = tune[t];}
@@ -235,10 +240,15 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                     hintRedRun = (redNow > 0.5f) ? hintRedRun + 1.0f : hintRedRun*0.5f; //a single off window halves the run instead of ending it
                     hintGreenRun = (greenNow > 0.5f) ? hintGreenRun + 1.0f : hintGreenRun*0.5f;
                     const float redRamp = lab.lone + (1.0f - lab.lone)*fmin(hintRedRun / lab.runLength, 1.0f); //a lone hot window counts 40%, a run of 8 in a row counts fully
-                    const float redWeighted = redNow * redRamp;
+                    //meterDARK's Detail settings (0 = stock). Fill gate: a lone bright window (the one before was not) counts for less, more so the higher it sits.
+                    const float redUp = fmin(fmax((redNow > 0.0f ? fmax(slewL > peakL ? slewL : 0.0f, slewR > peakR ? slewR : 0.0f) : 0.0f)/200.0f, 0.0f), 1.0f);
+                    const float gateMult = (redNow > 0.0f && !hintRedPrev) ? 1.0f - 0.6f*tune[7]*redUp : 1.0f;
+                    hintRedPrev = redNow > 0.0f;
+                    const float redWeighted = redNow * redRamp * gateMult;
                     const float greenRamp = lab.lone + (1.0f - lab.lone)*fmin(hintGreenRun / lab.runLength, 1.0f);
                     const float greenWeighted = greenNow * greenRamp;
-                    hintRedAvg += (redWeighted - hintRedAvg) * avgRate;
+                    //Detail decay: once the brightness stops, the bright reading falls up to five times faster
+                    hintRedAvg += (redWeighted - hintRedAvg) * avgRate * (redWeighted < hintRedAvg ? 1.0f + 4.0f*tune[6] : 1.0f);
                     hintGreenAvg += (greenWeighted - hintGreenAvg) * avgRate;
                 }
             }
@@ -554,7 +564,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         }
     }
     
-    const juce::String scoreStr = bonusScore+totalPackage+authority+power+detail;
+    const juce::String scoreStr = bonusScore+totalPackage+authority+power+detail+(gradeTuned ? "*" : ""); //* = not Chris's grade: the Detail decay / fill gate are in the scoring
     float scaleFont = (sqrt(vS*64.0f)*1.618f);
     if (scaleFont > 10.0f) {
         g.setFont(scaleFont*1.618f);
@@ -680,6 +690,12 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                 };
                 setting(0, 0, "hint speed ", 8, 0.0f, false);
                 setting(0, 1, "push ", 10, 0.0f, false);                 //frequency push: low dots count heavier, high dots lighter
+                setting(2, 0, "detail decay ", 6, 0.0f, false);          //brief bright bursts fade from the Detail readings faster
+                setting(2, 1, "fill gate ", 7, 0.0f, false);             //lone bright windows count for less
+                {   //the grade tick: the two settings above also change the grade and tone colours (a copy of Chris's scoring with them added)
+                    const bool on = tune[12] > 0.5f, live = on && (tune[6] > 0.0f || tune[7] > 0.0f);
+                    railLabel(juce::String(on ? "[x] " : "[ ] ") + "grade" + (live ? "  (not stock)" : ""), tuneRightX(displayWidth, vS, 2), 2, rw, juce::Justification::centredLeft, on ? 1.0f : 0.8f);
+                }
                 {   //DEFAULT PRESET: "save default" keeps the current tune values and trims for every new instance, "factory" puts the built-in values back (here only)
                     const bool justSaved = (juce::Time::getMillisecondCounter() - savedAtMs) < 1600u;
                     g.setColour(labelCol);
