@@ -222,7 +222,48 @@ struct AirwindowsMeter : public juce::Component
     std::function<void()> onSaveDefault; //set by the editor: writes tune and trims to the preset file
     juce::uint32 savedAtMs = 0;
     //The bright reading is 1 - exp(-brightSpread * red share). It is spread so that the bright threshold sits 30% in from the far right edge, like squashed (about .70).
-    static constexpr float brightSpread = 13.5f;
+    static constexpr float brightSpread = 13.5f; //(the Lab setting lab.brightSpread is what the hints use; this is its factory value)
+    //LAB TUNING: the constants that shape the hint readings. Factory values below; the Analyser's Lab can export new ones to
+    //<user app data>/Meter F8K/lab-tuning.xml, which is read on start and again whenever it changes (checked about once a second).
+    struct LabTuning {
+        float lowFromPos = 139.0f, lowFullPos = 160.0f, highFromPos = 107.0f, highFullPos = 82.0f; //push ramps, in meter positions
+        float lowPushGain = 0.6f, highPushGain = 0.5f, peakInfluence = 1.0f, peakDiv = 140.0f, peakPow = 4.0f;
+        float massOffset = 2.0f, massRange = 3.4f, refOffsetDb = 4.5f, refTarget = 170.0f, fMax = 4.0f;
+        float dynRangeDb = 8.0f, followRate = 0.02f, gateDb = 18.0f, ceilRise = 0.04f, ceilFall = 0.01f;
+        float detailGate = 70.0f, runLength = 8.0f, lone = 0.4f, brightSpread = 13.5f, keepWeight = 0.04f;
+        juce::Time loadedTime; bool fromFile = false;
+        float gateRatio() const { return gateDb == 18.0f ? 0.355f : powf(10.0f, -gateDb/40.0f); } //18 dB = the factory 0.355 exactly
+        static float posFromHz(double hz) { return (float)fmin(sqrt(fmax(sqrt(22050.0/fmax(hz, 1.0))*6.0 - 6.0, 0.0))*16.2 - 20.0, 199.0); }
+        static float ramp(float v, float from, float full) { //0 at "from", 1 at "full", smoothstep between
+            const float w = fmax(fabsf(full - from), 0.5f), dir = (full >= from) ? 1.0f : -1.0f;
+            const float x = fmin(fmax(dir*(v - from)/w, 0.0f), 1.0f);
+            return x*x*(3.0f - 2.0f*x);
+        }
+        static juce::File file() { return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("Meter F8K").getChildFile("lab-tuning.xml"); }
+        void reloadIfChanged() {
+            const juce::File f = file();
+            if (!f.existsAsFile()) {if (fromFile) {*this = LabTuning();} return;}
+            const juce::Time t = f.getLastModificationTime();
+            if (fromFile && t == loadedTime) return;
+            std::unique_ptr<juce::XmlElement> x(juce::XmlDocument::parse(f));
+            if (x == nullptr || !x->hasTagName("meterlabtuning")) return;
+            LabTuning n;
+            auto get = [&](const char* k, float& v) {if (x->hasAttribute(k)) v = (float)x->getDoubleAttribute(k, v);};
+            double hz;
+            if (x->hasAttribute("lowPushHz")) {hz = x->getDoubleAttribute("lowPushHz"); n.lowFromPos = posFromHz(hz);}
+            if (x->hasAttribute("lowPushFullHz")) {hz = x->getDoubleAttribute("lowPushFullHz"); n.lowFullPos = posFromHz(hz);}
+            if (x->hasAttribute("highPushHz")) {hz = x->getDoubleAttribute("highPushHz"); n.highFromPos = posFromHz(hz);}
+            if (x->hasAttribute("highPushFullHz")) {hz = x->getDoubleAttribute("highPushFullHz"); n.highFullPos = posFromHz(hz);}
+            get("lowPushGain", n.lowPushGain); get("highPushGain", n.highPushGain); get("peakInfluence", n.peakInfluence); get("peakDiv", n.peakDiv); get("peakPow", n.peakPow);
+            get("massOffset", n.massOffset); get("massRange", n.massRange); get("refOffsetDb", n.refOffsetDb); get("refTarget", n.refTarget); get("fMax", n.fMax);
+            get("dynRangeDb", n.dynRangeDb); get("followRate", n.followRate); get("gateDb", n.gateDb); get("ceilRise", n.ceilRise); get("ceilFall", n.ceilFall);
+            get("detailGate", n.detailGate); get("runLength", n.runLength); get("lone", n.lone); get("brightSpread", n.brightSpread); get("keepWeight", n.keepWeight);
+            n.massRange = fmax(n.massRange, 0.05f); n.dynRangeDb = fmax(n.dynRangeDb, 0.1f); n.runLength = fmax(n.runLength, 1.0f); n.peakDiv = fmax(n.peakDiv, 1.0f);
+            n.loadedTime = t; n.fromFile = true;
+            *this = n;
+        }
+    } lab;
+    int labCheckCounter = 24;
     bool tuneOpen = false;
     int tuneDragging = -1;
     float tuneDragStart = 0.0f;

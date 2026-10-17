@@ -161,6 +161,7 @@ AirwindowsMeter::ColumnMetrics AirwindowsMeter::columnMetrics(unsigned long col)
 
 void AirwindowsMeter::scoreColumn(unsigned long col)
 {
+    if (++labCheckCounter >= 24) {labCheckCounter = 0; lab.reloadIfChanged();} //about once a second: settings exported from the Analyser's Lab take effect live
     const ColumnMetrics m = columnMetrics(col);
     const float peakL = m.peakL, peakR = m.peakR, slewL = m.slewL, slewR = m.slewR, bassL = m.bassL, bassR = m.bassR;
     const float psDotSizeL = m.psDotSizeL, psDotSizeR = m.psDotSizeR;
@@ -200,34 +201,32 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                 {
                     const float topPeakM = fmax(peakL, peakR);
                     if (topPeakM > 8.0f) {
-                        if (topPeakM > massCeil) massCeil += (topPeakM - massCeil) * 0.04f; else massCeil -= (massCeil - topPeakM) * 0.01f;
-                        if (topPeakM > 0.355f*massCeil) {
+                        if (topPeakM > massCeil) massCeil += (topPeakM - massCeil) * lab.ceilRise; else massCeil -= (massCeil - topPeakM) * lab.ceilFall;
+                        if (topPeakM > lab.gateRatio()*massCeil) {
                             //the reference level: the running mean peak (in dB) plus 4.5 dB, which is where a typical master's ceiling sits above its mean peak, so the scale stays where it was.
                             //Before the mean has started, the ceiling stands in for it.
-                            const float refLevel = spreadInit ? 200.0f*powf(10.0f, (spreadMean + 4.5f)/40.0f) : massCeil;
-                            const float f = fmin(fmax(170.0f/fmax(refLevel, 40.0f), 0.8f), 4.0f); //brings that reference level to about -1.5 dB
+                            const float refLevel = spreadInit ? 200.0f*powf(10.0f, (spreadMean + lab.refOffsetDb)/40.0f) : massCeil;
+                            const float f = fmin(fmax(lab.refTarget/fmax(refLevel, 40.0f), 0.8f), lab.fMax); //brings that reference level to about -1.5 dB
                             //FREQUENCY PUSH: dots low on the meter (below about 80 Hz, positions past 139) count extra, dots high on it (above about 180 Hz, positions under 107)
                             //count less. It ramps in smoothly rather than cutting off, and tune[10] sets how strong it is (0 = pure mass).
                             auto dotMass = [&](float meterZero, float peak, float dataP, float bassPos) {
-                                float x = fmin(fmax((bassPos - 139.0f)/21.0f, 0.0f), 1.0f);
-                                const float lowPush = x*x*(3.0f - 2.0f*x);
-                                x = fmin(fmax((107.0f - bassPos)/25.0f, 0.0f), 1.0f);
-                                const float highPush = x*x*(3.0f - 2.0f*x);
-                                const float push = 1.0f + tune[10]*(0.6f*lowPush - 0.5f*highPush);
-                                return (sqrtf(fmax(meterZero, 0.0f)*0.1f*dataP*f) + powf(fmin(peak*f, 200.0f)/140.0f, 4.0f)) * push;
+                                const float lowPush = LabTuning::ramp(bassPos, lab.lowFromPos, lab.lowFullPos);
+                                const float highPush = LabTuning::ramp(bassPos, lab.highFromPos, lab.highFullPos);
+                                const float push = 1.0f + tune[10]*(lab.lowPushGain*lowPush - lab.highPushGain*highPush);
+                                return (sqrtf(fmax(meterZero, 0.0f)*0.1f*dataP*f) + lab.peakInfluence*powf(fmin(peak*f, 200.0f)/lab.peakDiv, lab.peakPow)) * push;
                             };
                             const float massNow = 0.5f*(dotMass(m.meterZeroL, peakL, dataPL[col], bassL) + dotMass(m.meterZeroR, peakR, dataPR[col], bassR));
                             massAvg += (massNow - massAvg) * avgRate;
-                            hintUpperAvg[0] = fmin(fmax((massAvg - 2.0f)/3.4f, 0.0f), 1.0f); //the live weight reading, 0 = light, 0.5 = balanced, 1 = heavy
+                            hintUpperAvg[0] = fmin(fmax((massAvg - lab.massOffset)/lab.massRange, 0.0f), 1.0f); //the live weight reading, 0 = light, 0.5 = balanced, 1 = heavy
                             //DYNAMICS (spread): how far each window's peak lands from the slow mean peak level, in dB (the peak position is a square root of the level, so 40 per decade).
                             //Peaks that swing about give a wide spread (headroom, undercompressed). Peaks that all land in the same place give none (squashed). Level does not matter.
                             const float dbNow = 40.0f*log10f(fmax(topPeakM, 1.0f)/200.0f);
                             if (!spreadInit) {spreadMean = dbNow; spreadInit = true;}
                             else {
                                 spreadAvg += (fabsf(dbNow - spreadMean) - spreadAvg) * avgRate;
-                                spreadMean += (dbNow - spreadMean) * 0.02f;
+                                spreadMean += (dbNow - spreadMean) * lab.followRate;
                             }
-                            hintUpperAvg[1] = 1.0f - fmin(spreadAvg/8.0f, 1.0f); //the live dynamics reading, 0 = peaks swing 8 dB or more, 1 = a flat line
+                            hintUpperAvg[1] = 1.0f - fmin(spreadAvg/lab.dynRangeDb, 1.0f); //the live dynamics reading, 0 = peaks swing 8 dB or more, 1 = a flat line
                         }
                     }
                 }
@@ -235,13 +234,13 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                 //ahead. (Overflow bars and a high beam are normal on loud, well balanced masters, so they are not used.)
                 const float redNow = ((psDotSizeL <= 1.0f && slewL > peakL) ? 0.5f : 0.0f) + ((psDotSizeR <= 1.0f && slewR > peakR) ? 0.5f : 0.0f);
                 const float greenNow = ((psDotSizeL <= 1.0f && slewL <= peakL) ? 0.5f : 0.0f) + ((psDotSizeR <= 1.0f && slewR <= peakR) ? 0.5f : 0.0f);
-                if (fmax(peakL, peakR) > 70.0f) { //quiet gaps between notes (peak below about -18 dB) say nothing about balance, so they are skipped
+                if (fmax(peakL, peakR) > lab.detailGate) { //quiet gaps between notes (peak below about -18 dB) say nothing about balance, so they are skipped
                     //Consecutive windows count more: a lone hi-hat hit is often fine, a sustained run is not. A lone window counts 40%, rising to full over 8 in a row, and an off window only halves the run.
                     hintRedRun = (redNow > 0.5f) ? hintRedRun + 1.0f : hintRedRun*0.5f; //a single off window halves the run instead of ending it
                     hintGreenRun = (greenNow > 0.5f) ? hintGreenRun + 1.0f : hintGreenRun*0.5f;
-                    const float redRamp = 0.4f + 0.6f*fmin(hintRedRun / 8.0f, 1.0f); //a lone hot window counts 40%, a run of 8 in a row counts fully
+                    const float redRamp = lab.lone + (1.0f - lab.lone)*fmin(hintRedRun / lab.runLength, 1.0f); //a lone hot window counts 40%, a run of 8 in a row counts fully
                     const float redWeighted = redNow * redRamp;
-                    const float greenRamp = 0.4f + 0.6f*fmin(hintGreenRun / 8.0f, 1.0f);
+                    const float greenRamp = lab.lone + (1.0f - lab.lone)*fmin(hintGreenRun / lab.runLength, 1.0f);
                     const float greenWeighted = greenNow * greenRamp;
                     hintRedAvg += (redWeighted - hintRedAvg) * avgRate;
                     hintGreenAvg += (greenWeighted - hintGreenAvg) * avgRate;
@@ -868,22 +867,22 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     int state = hintState[hint];
                     bool overNow, overKeep, underNow, underKeep;
                     if (hint == 2) { //slews: colour balance. over = bright (red share), under = dark (green share)
-                        const float brightLive = 1.0f - expf(-brightSpread*hintRedAvg); //spreads the red share (rarely above 0.5, usually under 0.15) over the whole 0-1 range so it can be tuned
+                        const float brightLive = 1.0f - expf(-lab.brightSpread*hintRedAvg); //spreads the red share (rarely above 0.5, usually under 0.15) over the whole 0-1 range so it can be tuned
                         overNow = brightLive > tune[5];    overKeep = brightLive > fmax(tune[5]-0.06f, 0.0f);
                         const float darkRead = 1.0f - hintGreenAvg; //1 = nothing dark, 0 = fully dark, so dark sits on the left like light and headroom
                         underNow = darkRead < tune[4]; underKeep = darkRead < fmin(tune[4]+0.10f, 1.0f);
                     } else if (hint == 1) { //dynamics: the spread reading against the balance point. Peaks that all land in one place are squashed, peaks that swing about have headroom
                         const float headLevel = tune[11] - tune[2], squashLevel = tune[11] + tune[3];
                         overNow = hintUpperAvg[1] > squashLevel;
-                        overKeep = hintUpperAvg[1] > squashLevel - 0.04f;
+                        overKeep = hintUpperAvg[1] > squashLevel - lab.keepWeight;
                         underNow = hintUpperAvg[1] < headLevel;
-                        underKeep = hintUpperAvg[1] < headLevel + 0.04f;
+                        underKeep = hintUpperAvg[1] < headLevel + lab.keepWeight;
                     } else { //weight: the mass reading against the balance point. Below it by the light distance is light, above it by the heavy distance is heavy
                         const float lightLevel = tune[9] - tune[0], heavyLevel = tune[9] + tune[1];
                         overNow = hintUpperAvg[0] > heavyLevel;
-                        overKeep = hintUpperAvg[0] > heavyLevel - 0.04f;
+                        overKeep = hintUpperAvg[0] > heavyLevel - lab.keepWeight;
                         underNow = hintUpperAvg[0] < lightLevel;
-                        underKeep = hintUpperAvg[0] < lightLevel + 0.04f;
+                        underKeep = hintUpperAvg[0] < lightLevel + lab.keepWeight;
                     }
                     if (state == 1 && !overKeep) state = 0;
                     if (state == -1 && !underKeep) state = 0;
@@ -1007,7 +1006,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             threePoint(1, 2, 11, 3, "headroom", "squashed", hintUpperAvg[1], 1);
             {   //DETAIL: a pair of gauges. The hint shows when the dot crosses the tick in the arrow's direction.
                 const char* tuneNames[2] = {"dark<", "bright>"};
-                const float live[2] = {1.0f - hintGreenAvg, 1.0f - expf(-brightSpread*hintRedAvg)};
+                const float live[2] = {1.0f - hintGreenAvg, 1.0f - expf(-lab.brightSpread*hintRedAvg)};
                 for (int j = 0; j < 2; ++j) {
                     const int i = j + 4, sec = 2;
                     const bool active = (i%2 == 0) ? (hintState[sec] == -1) : (hintState[sec] == 1); //this label's hint is showing now
@@ -1038,6 +1037,10 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             g.setColour(labelCol);
             g.setOpacity(tuneOpen ? 0.9f : 0.4f);
             g.drawText("tune", displayWidth-62, displayHeight-24, 56, 20, juce::Justification::bottomRight);
+            if (lab.fromFile) { //the reading settings came from the Analyser's Lab
+                g.setColour(juce::Colour(255, 225, 40)); g.setOpacity(0.7f);
+                g.drawText("lab", displayWidth-110, displayHeight-24, 44, 20, juce::Justification::bottomRight);
+            }
             g.setFont(scaleFont*1.618f);
         }
         //detail is the intensity of varying slew energy, between maximum and minimum.
