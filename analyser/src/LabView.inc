@@ -10,7 +10,10 @@ public:
     std::function<std::shared_ptr<f8k::Library>()> getLibrary;
 
     LabView() {
-        for (auto* b : {&hintsMode, &scoreMode}) {addAndMakeVisible(b); styleButton(*b); b->setClickingTogglesState(true); b->setRadioGroupId(77);}
+        for (auto* b : {&hintsMode, &scoreMode}) {
+            addAndMakeVisible(b); styleButton(*b); b->setClickingTogglesState(true); b->setRadioGroupId(77);
+            b->setColour(juce::TextButton::buttonOnColourId, kSelect); b->setColour(juce::TextButton::textColourOnId, kAccent);
+        }
         hintsMode.setToggleState(true, juce::dontSendNotification);
         hintsMode.onClick = [this] { setMode(0); };
         scoreMode.onClick = [this] { setMode(1); };
