@@ -611,7 +611,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         }
     }
     
-    const juce::String scoreStr = bonusScore+totalPackage+authority+power+detail+(levelMode == 1 ? "N" : levelMode == 2 ? "M" : "")+(gradeTuned ? "*" : ""); //N / M = scored with the normalised / mix level gain. * = not Chris's grade: the Detail decay / fill gate are in the scoring
+    const juce::String scoreStr = bonusScore+totalPackage+authority+power+detail+((gradeTuned || levelMode != 0 || gradeConverted) ? "*" : ""); //* = not exactly Chris's stock grade: the Detail decay / fill gate are in the scoring, a level mode is on, or the audio is converted to the anchor rate
     float scaleFont = (sqrt(vS*64.0f)*1.618f);
     if (scaleFont > 10.0f) {
         g.setFont(scaleFont*1.618f);

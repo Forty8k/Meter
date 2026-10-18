@@ -56,6 +56,7 @@ void PluginProcessor::loadUserDefaults()
     if (fileVer < 6) {userTune[2] = 0.30f; userTune[3] = 0.30f; userTune[11] = 0.50f;} //older file: the dynamics settings measured something else, so they restart from the new defaults
     if (fileVer < 7) {userTune[6] = 0.0f; userTune[7] = 0.0f; userTune[12] = 0.0f;} //version 7: Detail decay and fill gate start at 0 (stock)
     if (fileVer < 8) {userTune[13] = 0.0f; userTune[14] = 0.0f; userTune[15] = kTuneInputAtDefault; userTune[16] = kTuneAsIfAtDefault;} //version 8: anchor rate and level mode start off (stock)
+    if (fileVer < 9) userTune[13] = 1.0f; //version 9: the 96 kHz anchor rate is on by default
     const double pt = xml->getDoubleAttribute("peaktrim", 0.0);
     const double st = xml->getDoubleAttribute("slewtrim", 0.0);
     userPeakTrim = (pt <= 0.0 && pt >= -24.0) ? (float)pt : 0.0f;
@@ -69,7 +70,7 @@ void PluginProcessor::saveUserDefaults(const float* tuneIn, float peakTrimIn, fl
     userSlewTrim = slewTrimIn;
     juce::XmlElement xml("meterdefaults");
     for (int i = 0; i < kTuneCount; ++i) xml.setAttribute(juce::String("tune")+juce::String(i), (double)userTune[i]);
-    xml.setAttribute("ver", 8); //version 8: tune13 anchor rate, tune14 level mode, tune15/16 their LUFS (0 = stock). Version 7: Detail decay/fill gate 0 = stock, tune12 = grade. version 2: dark level reads dark<. Version 3: weight is a mass reading with a balance point. Version 4: the mass scale is stretched and balanced reads .50. Version 5: the bright reading is spread so its threshold sits like squashed (bright>.70). Version 6: dynamics is a spread reading with a balance point (tune 2, 3, 11)
+    xml.setAttribute("ver", 9); //version 8: tune13 anchor rate, tune14 level mode, tune15/16 their LUFS (0 = stock). Version 7: Detail decay/fill gate 0 = stock, tune12 = grade. version 2: dark level reads dark<. Version 3: weight is a mass reading with a balance point. Version 4: the mass scale is stretched and balanced reads .50. Version 5: the bright reading is spread so its threshold sits like squashed (bright>.70). Version 6: dynamics is a spread reading with a balance point (tune 2, 3, 11)
     xml.setAttribute("peaktrim", (double)userPeakTrim);
     xml.setAttribute("slewtrim", (double)userSlewTrim);
     const juce::File f = userDefaultsFile();
@@ -203,7 +204,7 @@ void PluginProcessor::getStateInformation (juce::MemoryBlock& destData)
     xml->setAttribute(juce::String("awm_slewtrim"), (double)slewTrimDb);
     xml->setAttribute(juce::String("awm_peaktrim"), (double)peakTrimDb);
     for (int i = 0; i < kTuneCount; ++i) xml->setAttribute(juce::String("awm_tune")+juce::String(i), (double)hintTune[i]);
-    xml->setAttribute("awm_tunever", 8); //version 8: anchor rate and level mode (tune13-16, 0 = stock). Version 7: Detail decay/fill gate 0 = stock, tune12 = grade. version 5: bright reading spread so its level sits like squashed. Version 6: dynamics spread reading (older projects are converted or reset when loaded)
+    xml->setAttribute("awm_tunever", 9); //version 8: anchor rate and level mode (tune13-16, 0 = stock). Version 7: Detail decay/fill gate 0 = stock, tune12 = grade. version 5: bright reading spread so its level sits like squashed. Version 6: dynamics spread reading (older projects are converted or reset when loaded)
     copyXmlToBinary(*xml, destData);
 }
 
@@ -240,6 +241,7 @@ void PluginProcessor::setStateInformation (const void* data, int sizeInBytes)
             if (xmlState->hasAttribute("awm_tune2") && stateVer < 6) {hintTune[2] = 0.30f; hintTune[3] = 0.30f; hintTune[11] = 0.50f;} //older project: dynamics settings restart from the new defaults
             if (stateVer < 7) {hintTune[6] = 0.0f; hintTune[7] = 0.0f; hintTune[12] = 0.0f;} //older project: Detail decay and fill gate start at 0 (stock)
             if (stateVer < 8) {hintTune[13] = 0.0f; hintTune[14] = 0.0f; hintTune[15] = kTuneInputAtDefault; hintTune[16] = kTuneAsIfAtDefault;} //older project: anchor rate and level mode start off (stock)
+            if (stateVer < 9) hintTune[13] = 1.0f; //version 9: the 96 kHz anchor rate is on by default
             if (xmlState->hasAttribute("awm_tune5") && stateVer < 5) hintTune[5] = fmin(1.0f - powf(1.0f - hintTune[5], 3.375f), 0.98f); //older project: same trigger point on the spread bright scale
         }
         updateHostDisplay();

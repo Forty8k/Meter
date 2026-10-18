@@ -201,6 +201,11 @@ void PluginEditor::idle()
             meter.gradeTuned = meter.tune[12] > 0.5f && (meter.tune[6] > 0.0f || meter.tune[7] > 0.0f);
             if (meter.gradeTuned) takeScores(chrisTunedMeter); else takeScores(chrisMeter);
             meter.levelMode = meter.tune[14] > 0.75f ? 2 : (meter.tune[14] > 0.25f ? 1 : 0);
+            {   //* = the grade is not exactly Chris's stock grade: a level mode is on, or the audio is being converted to the anchor rate
+                const int anchorSel = meter.tune[13] > 0.75f ? 2 : (meter.tune[13] > 0.25f ? 1 : 0);
+                const double anchorRate = anchorSel == 2 ? 96000.0 : (anchorSel == 1 ? 44100.0 : 0.0), host = processorRef.getSampleRate();
+                meter.gradeConverted = anchorRate > 0.0 && std::fabs(host - anchorRate) > 0.5;
+            }
             meter.pushIncrement(); repaintTS = true;
             ++windowsThisTick;
             continue;

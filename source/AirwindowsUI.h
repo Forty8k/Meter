@@ -219,9 +219,9 @@ struct AirwindowsMeter : public juce::Component
     //DYNAMICS: the same idea. The reading is how flat the peaks are (0 = peaks swing a lot, 1 = every window peaks at the same level), measured as how far each window's
     //peak lands from the slow mean peak level, so it does not depend on how loud the material is. tune[11] = the balance point, tune[2] = how far BELOW it counts as headroom
     //(undercompressed), tune[3] = how far ABOVE it counts as squashed (a flat line, a test tone, an over-compressed or saturated sound).
-    float tune[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 0.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault};
-    static constexpr float tuneDefault[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 0.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault};
-    float tuneUser[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 0.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault}; //the saved default preset (double-click on a label goes back to this)
+    float tune[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault};
+    static constexpr float tuneDefault[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault};
+    float tuneUser[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault}; //the saved default preset (double-click on a label goes back to this)
     //LEVEL (not hints, they are about what Chris's scoring is given; see PluginProcessor::feedChris). tune[13] = anchor rate (0 off, .5 = 44.1 kHz, 1 = 96 kHz): the
     //audio is converted to that rate before Chris's loop. tune[14] = level mode (0 original, .5 normalised, 1 mix). tune[15] = "input at" and tune[16] = "score as if at"
     //(LUFS = -30 + 24 x value) for normalised. Everything on screen stays at the real level; only the scoring and the grade see the mode's gain (grade letter N or M).
@@ -293,6 +293,7 @@ struct AirwindowsMeter : public juce::Component
     //plus the slew colour shares and the track's own peak ceiling. Index 0 = low end, 1 = dynamics.
     float hintUpperAvg[3] = {0.5f, 0.5f, 0.5f};
     float hintRedAvg = 0.0f;   //slews: share of recent dots that are red (slews well ahead of peaks)
+    bool gradeConverted = false; //set by the editor: the audio is being converted to the anchor rate (also shown as *)
     bool gradeTuned = false; //set by the editor: the grade and tone colours come from the tuned copy of Chris's meter (shown as * after the grade)
     bool hintRedPrev = false; //the window before was red (for the fill gate on the bright reading)
     float hintRedRun = 0.0f, hintGreenRun = 0.0f; //how many windows in a row have been red / green: sustained runs count fully, brief ones count less
