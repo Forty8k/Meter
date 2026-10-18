@@ -16,6 +16,8 @@ public:
     Resampler() = default;
     Resampler(double inRate, double outRate) { setRates(inRate, outRate); }
 
+    // For real-time use: call once with the largest block you will pass to process(), so process() never has to allocate.
+    void reserve(size_t maxInput) { if (valid && !pass) work.reserve((size_t)taps + maxInput); }
     bool ok() const { return valid; }
     bool isPassThrough() const { return pass; }
     int latencyInputSamples() const { return 0; } // the output is already lined up with the input (output sample m is the input at time m*in/out); the filter's own delay is absorbed
