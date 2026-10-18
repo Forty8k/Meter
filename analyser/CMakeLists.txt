@@ -14,6 +14,7 @@ set(F8K_DEFS JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_USE_MP3AUDIOFORMAT=1 JUCE_U
     JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_MODAL_LOOPS_PERMITTED=1 F8K_BUILD_NUMBER=${F8K_BUILD_NUMBER})
 
 add_executable(F8KSelfTest tools/selftest.cpp src/Capture.cpp src/Estimates.cpp src/OriginalScorer.cpp) # no JUCE needed
+add_executable(F8KLevelTest tools/leveltest.cpp src/LabHints.cpp src/Capture.cpp src/Estimates.cpp src/OriginalScorer.cpp) # no JUCE needed
 
 juce_add_console_app(MeterF8KAnalyserCLI PRODUCT_NAME "MeterF8KAnalyserCLI" COMPANY_NAME "Forty8k")
 target_sources(MeterF8KAnalyserCLI PRIVATE src/MainCli.cpp ${F8K_ENGINE_SOURCES})

@@ -20,7 +20,7 @@ public:
         addAndMakeVisible(settingsView);
         settingsView.setViewedComponent(&settingsPanel, false);
         settingsView.setScrollBarsShown(true, false);
-        for (auto* b : {&fromLibrary, &resetButton, &exportButton, &rescoreButton, &saveButton}) {addAndMakeVisible(b); styleButton(*b);}
+        for (auto* b : {&fromLibrary, &resetButton, &exportButton, &rescoreButton, &saveButton, &levelTestButton}) {addAndMakeVisible(b); styleButton(*b);}
         addAndMakeVisible(percentBox);
         percentBox.addItem("10% each side", 10); percentBox.addItem("15% each side", 15); percentBox.addItem("20% each side", 20); percentBox.addItem("25% each side", 25);
         percentBox.setSelectedId(15, juce::dontSendNotification);
@@ -28,6 +28,7 @@ public:
         fromLibrary.onClick = [this] { setFromLibrary(percentBox.getSelectedId()/100.0); };
         resetButton.onClick = [this] { if (mode == 0) hints = f8k::HintSettings(); else score = f8k::ScoreParams(); paintEvery = 1; buildSettings(); recompute(); };
         exportButton.onClick = [this] { exportToMeter(); };
+        levelTestButton.onClick = [this] { runLevelTest(); };
         rescoreButton.onClick = [this] { rescore(); };
         saveButton.onClick = [this] { saveScoreSettings(); };
         addAndMakeVisible(status);
@@ -55,9 +56,10 @@ public:
         status.setBounds(top);
         r.removeFromTop(8);
         auto left = r.removeFromLeft(400);
-        auto buttons = left.removeFromBottom(mode == 0 ? 66 : 66);
+        auto buttons = left.removeFromBottom(mode == 0 ? 100 : 66);
         auto b1 = buttons.removeFromTop(30), b2 = buttons.removeFromBottom(30);
         if (mode == 0) {
+            auto b3 = buttons.removeFromTop(34).withTrimmedTop(4); levelTestButton.setBounds(b3.removeFromLeft(220));
             fromLibrary.setBounds(b1.removeFromLeft(220)); b1.removeFromLeft(6); percentBox.setBounds(b1);
             resetButton.setBounds(b2.removeFromLeft(196)); b2.removeFromLeft(8); exportButton.setBounds(b2);
         } else {
@@ -78,6 +80,7 @@ private:
     //---------------------------------------------------------------- data
     struct Track { juce::String id, file, grade, gradeBonus; double letterValue = 0; std::vector<std::string> names; std::vector<float> core; std::vector<std::string> names2; std::vector<float> core2; double sr = 44100; };
     std::vector<Track> tracks;          //loaded once per library (both the 0.5.5 data for the hints and the newest version's data for scoring)
+    bool testing = false;
     bool loading = false, loaded = false; const void* loadedFor = nullptr; int loadedChange = -1;
     std::vector<f8k::HintTrackResult> hintResults;
     struct ScoreRow { juce::String grade, bonus; double letterValue = 0; bool done = false; };
@@ -154,6 +157,39 @@ private:
                 hintResults = std::move(res);
                 summarise();
                 model.refresh(); dist.repaint();
+            });
+        });
+    }
+    //LEVEL TEST: the library's tracks replayed 0, 6, 12, 18 and 24 dB quieter through the hint maths with the current settings; shows how far each reading moves (target 0)
+    void runLevelTest() {
+        if (!loaded || loading || testing) return;
+        testing = true;
+        status.setText("Level test: replaying every track at five levels ...", juce::dontSendNotification);
+        const f8k::HintSettings s = hints;
+        juce::Component::SafePointer<LabView> sp(this);
+        pool.addJob([this, sp, s] {
+            std::vector<f8k::LevelTestRow> rows;
+            {
+                const juce::ScopedLock sl(dataLock);
+                std::vector<f8k::LevelTestTrack> tr;
+                for (auto& t : tracks) if (!t.core.empty()) tr.push_back({&t.names, &t.core});
+                rows = f8k::levelTest(tr, s, {0.0, -6.0, -12.0, -18.0, -24.0}, [&] { return sp == nullptr; });
+            }
+            const juce::String text = juce::String(f8k::levelTestReport(rows)) +
+                "\nHow to read it: each number is how far, on average, a reading (or the share of time a hint shows) moves when the same music is played that much quieter. "
+                "0 = the hint does not care about level. 'audible' is the share of the track the hints count at that level.\n"
+                "The settings used are the ones on the left now. 'level cut limit' lower than 0.8 (try 0.6) also flattens very hot masters.";
+            juce::MessageManager::callAsync([this, sp, text] {
+                if (sp == nullptr) return;
+                testing = false;
+                summarise();
+                auto* w = new juce::AlertWindow("Level test", {}, juce::MessageBoxIconType::NoIcon, this);
+                auto* ed = new juce::TextEditor();
+                ed->setMultiLine(true); ed->setReadOnly(true); ed->setText(text); ed->setSize(820, 360);
+                ed->setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::plain));
+                w->addCustomComponent(ed);
+                w->addButton("Close", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+                w->enterModalState(true, juce::ModalCallbackFunction::create([ed](int) { delete ed; }), true);
             });
         });
     }
@@ -343,7 +379,7 @@ private:
     }
     void setMode(int m) {
         mode = m;
-        for (auto* b : {&fromLibrary, &exportButton}) b->setVisible(m == 0);
+        for (auto* b : {&fromLibrary, &exportButton, &levelTestButton}) b->setVisible(m == 0);
         percentBox.setVisible(m == 0);
         for (auto* b : {&rescoreButton, &saveButton}) b->setVisible(m == 1);
         resetButton.setButtonText(m == 0 ? "Back to meterDARK's values" : "Back to the original");
@@ -467,7 +503,7 @@ private:
 
     juce::TextButton hintsMode{"meterDARK hints"}, scoreMode{"Original scoring (experiment)"};
     juce::TextButton fromLibrary{"Set triggers from the library"}, resetButton{"Back to meterDARK's values"}, exportButton{"Export to meterDARK"};
-    juce::TextButton rescoreButton{"Re-score library"}, saveButton{"Save settings..."};
+    juce::TextButton rescoreButton{"Re-score library"}, saveButton{"Save settings..."}, levelTestButton{"Level test"};
     juce::ComboBox percentBox;
     juce::Label status;
     juce::TableListBox table;

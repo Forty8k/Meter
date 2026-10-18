@@ -55,6 +55,8 @@ jobs:
         run: grep -iE "error|fatal" build.log | head -40 | while IFS= read -r l; do echo "::error::${l:0:900}"; done
       - name: Self-test (capture and original scoring)
         run: ./build/F8KSelfTest
+      - name: Level test (hint readings must not move with level)
+        run: ./build/F8KLevelTest | tee leveltest.txt
       - name: End-to-end check (command line on generated tones)
         run: |
           python3 - <<'PY' || python - <<'PY2'

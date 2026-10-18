@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include <array>
+#include <functional>
 
 namespace f8k {
 
@@ -35,5 +36,22 @@ struct HintTrackResult {
 
 // names/values: one track's stored Meter 0.5.5 core windows (PEAK_LEFT ... DEPT_RIGHT, as read by Library::readCore)
 HintTrackResult simulateHints(const std::vector<std::string>& names, const std::vector<float>& values, const HintSettings& s);
+
+// LEVEL TEST: how much do the readings move when the same music is played quieter? Each track's stored windows are scaled by the given
+// gains (peaks, which are square roots of amplitude, by sqrt(g); slews, beam, departure and RMS by g; zero-cross lengths unchanged: exactly
+// what the plugin's level modes do) and run through the hint maths again. A level-independent hint does not move.
+std::vector<float> scaleWindows(const std::vector<std::string>& names, const std::vector<float>& values, double db);
+struct LevelTestRow {
+    double db = 0;
+    double reading[4] = {};      // mean shift of weight, dynamics, dark and bright readings from the 0 dB result (signed)
+    double readingAbs[4] = {};   // mean size of the shift
+    double on[6] = {};           // mean shift of the share of time each hint shows (light, heavy, headroom, squashed, dark, bright), signed
+    double onAbs[6] = {};        // mean size of that shift
+    double audible = 0;          // mean share of the windows counted as audible
+    int tracks = 0;
+};
+struct LevelTestTrack { const std::vector<std::string>* names; const std::vector<float>* values; };
+std::vector<LevelTestRow> levelTest(const std::vector<LevelTestTrack>& tracks, const HintSettings& s, const std::vector<double>& dbs, const std::function<bool()>& shouldStop = {});
+std::string levelTestReport(const std::vector<LevelTestRow>& rows);
 
 } // namespace f8k

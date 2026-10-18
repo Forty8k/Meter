@@ -36,13 +36,16 @@ const std::vector<HintParam>& hintParams()
         {"massRange",    "weight", "mass range",         "",    0.5,  8,    3.4,  2, "how much mass moves the reading from 0 to 1 (bigger = wider sweet spot)"},
         {"refOffsetDb",  "weight", "reference above mean", " dB", 0,  12,   4.5,  1, "where the level reference sits above the mean peak"},
         {"refTarget",    "weight", "reference target",   "",    100,  200,  170,  0, "the level the reference is brought to (170 = about -1.5 dB)"},
-        {"fMax",         "weight", "level boost limit",  "x",   1,    16,   4,    1, "the most a quiet track is boosted to read like a loud one"},
+        {"fMax",         "weight", "level boost limit",  "x",   1,    40,   16,   1, "the most a quiet track is boosted to read like a loud one (4 = +24 dB, 16 = +48 dB)"},
+        {"fMin",         "weight", "level cut limit",    "x",   0.2,  1,    0.8,  2, "the most a LOUD track is turned down to read like the reference (0.8 = about -2 dB; lower reads hot masters the same as quiet copies of them)"},
         {"dynRangeDb",   "dynamics","dynamics range",    " dB", 2,    16,   8,    1, "this much peak swing reads as full headroom"},
         {"followRate",   "dynamics","level follow",      "",    0.002,0.1,  0.02, 3, "how fast the mean level reference catches up (per window)"},
         {"gateDb",       "all",    "quiet gate",         " dB", 6,    36,   18,   0, "windows this far under the recent ceiling are ignored by weight and dynamics"},
         {"ceilRise",     "all",    "ceiling rise",       "",    0.005,0.2,  0.04, 3, "how fast the ceiling rises to a louder part (per window)"},
         {"ceilFall",     "all",    "ceiling fall",       "",    0.001,0.1,  0.01, 3, "how fast it falls back in a quieter part (per window)"},
-        {"detailGate",   "detail", "detail quiet gate",  "",    20,   150,  70,   0, "windows with peaks under this position (70 = about -18 dB) are ignored by detail"},
+        {"detailGate",   "detail", "detail quiet gate",  "",    20,   150,  70,   0, "windows with peaks under this position (70 = about -18 dB under a full-scale ceiling) are ignored by detail"},
+        {"relativeGates","all",    "gates follow level",  "",    0,    1,    1,    0, "1 = Detail's quiet gate and the quiet fade of the strips and hints follow the track's own ceiling (stems read like masters); 0 = fixed levels, as before"},
+        {"detailLevelComp","detail","detail level match", "",    0,    1,    1,    0, "1 = Detail's red/green dot test is made as if the track sat at the reference level; 0 = as before"},
         {"runLength",    "detail", "run length",         " win",1,    32,   8,    0, "windows in a row before a red/green window counts fully"},
         {"lone",         "detail", "lone weight",        "",    0,    1,    0.4,  2, "how much a single red/green window counts"},
         {"brightSpread", "detail", "bright spread",      "",    1,    30,   13.5, 1, "spreads the red share over the bright reading"},
@@ -80,17 +83,18 @@ HintTrackResult simulateHints(const std::vector<std::string>& names, const std::
     const float tune8 = (float)s["tune8"], tune9 = (float)s["tune9"], tune10 = (float)s["tune10"], tune11 = (float)s["tune11"];
     const float lowFrom = posFromHz(s["lowPushHz"]), lowFull = posFromHz(s["lowPushFullHz"]), highFrom = posFromHz(s["highPushHz"]), highFull = posFromHz(s["highPushFullHz"]);
     const float lowGain = (float)s["lowPushGain"], highGain = (float)s["highPushGain"], peakInfl = (float)s["peakInfluence"], peakDiv = (float)s["peakDiv"], peakPow = (float)s["peakPow"];
-    const float massOffset = (float)s["massOffset"], massRange = (float)s["massRange"], refOffset = (float)s["refOffsetDb"], refTarget = (float)s["refTarget"], fMax = (float)s["fMax"];
+    const float massOffset = (float)s["massOffset"], massRange = (float)s["massRange"], refOffset = (float)s["refOffsetDb"], refTarget = (float)s["refTarget"], fMax = (float)s["fMax"], fMin = (float)s["fMin"];
     const float dynRange = (float)s["dynRangeDb"], followRate = (float)s["followRate"], gateRatio = (float)std::pow(10.0, -s["gateDb"]/40.0);
     const float ceilRise = (float)s["ceilRise"], ceilFall = (float)s["ceilFall"], detailGate = (float)s["detailGate"], runLen = (float)s["runLength"], lone = (float)s["lone"];
     const float brightSpread = (float)s["brightSpread"], keep = (float)s["keepWeight"];
+    const bool relGates = s["relativeGates"] > 0.5, detailComp = s["detailLevelComp"] > 0.5;
     auto ramp = [](float v, float from, float full) { //0 at "from", 1 at "full", smoothstep between
         const float w = std::fmax(std::fabs(full - from), 0.5f), dir = (full >= from) ? 1.0f : -1.0f;
         const float x = std::fmin(std::fmax(dir*(v - from)/w, 0.0f), 1.0f);
         return x*x*(3.0f - 2.0f*x);
     };
     //state, as the plugin starts it
-    float massAvg = 3.7f, massCeil = 0.0f, spreadMean = 0.0f, spreadAvg = 4.0f; bool spreadInit = false;
+    float massAvg = 3.7f, massCeil = 0.0f, spreadMean = 0.0f, spreadAvg = 4.0f, detailF = 1.0f; bool spreadInit = false;
     float reading[2] = {0.5f, 0.5f}, redAvg = 0, greenAvg = 0, redRun = 0, greenRun = 0; bool redPrev = false;
     int state[3] = {0, 0, 0};
     double sumW = 0, sumD = 0, sumDark = 0, sumBright = 0, cnt = 0, shows[6] = {};
@@ -113,7 +117,9 @@ HintTrackResult simulateHints(const std::vector<std::string>& names, const std::
             if (topPeakM > massCeil) massCeil += (topPeakM - massCeil)*ceilRise; else massCeil -= (massCeil - topPeakM)*ceilFall;
             if (topPeakM > gateRatio*massCeil) {
                 const float refLevel = spreadInit ? 200.0f*std::pow(10.0f, (spreadMean + refOffset)/40.0f) : massCeil;
-                const float f = std::fmin(std::fmax(refTarget/std::fmax(refLevel, 40.0f), 0.8f), fMax);
+                const float refFloor = refTarget/fMax;
+                const float f = std::fmin(std::fmax(refTarget/std::fmax(refLevel, refFloor), fMin), fMax);
+                detailF = std::fmin(std::fmax(refTarget/std::fmax(refLevel, refFloor), 1.0f), fMax);
                 auto dotMass = [&](float meterZero, float peak, float dataP, float bassPos) {
                     const float push = 1.0f + tune10*(lowGain*ramp(bassPos, lowFrom, lowFull) - highGain*ramp(bassPos, highFrom, highFull));
                     return (std::sqrt(std::fmax(meterZero, 0.0f)*0.1f*dataP*f) + peakInfl*std::pow(std::fmin(peak*f, 200.0f)/peakDiv, peakPow))*push;
@@ -128,13 +134,18 @@ HintTrackResult simulateHints(const std::vector<std::string>& names, const std::
             }
         }
         //DETAIL (the dot colours)
-        const float redNow = ((psL <= 1.0f && slewL > peakL) ? 0.5f : 0.0f) + ((psR <= 1.0f && slewR > peakR) ? 0.5f : 0.0f);
-        const float greenNow = ((psL <= 1.0f && slewL <= peakL) ? 0.5f : 0.0f) + ((psR <= 1.0f && slewR <= peakR) ? 0.5f : 0.0f);
-        if (std::fmax(peakL, peakR) > detailGate) {
+        const float fd = detailComp ? detailF : 1.0f;
+        const float peakLd = peakL*fd, peakRd = peakR*fd, slewLd = slewL*fd, slewRd = slewR*fd;
+        const float psLd = fd == 1.0f ? psL : (dataPL*fd*64.0f)/(std::fabs(peakLd*0.945433426957143f - slewLd) + 6.18033988749894f);
+        const float psRd = fd == 1.0f ? psR : (dataPR*fd*64.0f)/(std::fabs(peakRd*0.945433426957143f - slewRd) + 6.18033988749894f);
+        const float redNow = ((psLd <= 1.0f && slewLd > peakLd) ? 0.5f : 0.0f) + ((psRd <= 1.0f && slewRd > peakRd) ? 0.5f : 0.0f);
+        const float greenNow = ((psLd <= 1.0f && slewLd <= peakLd) ? 0.5f : 0.0f) + ((psRd <= 1.0f && slewRd <= peakRd) ? 0.5f : 0.0f);
+        const float gateScale = (relGates && massCeil > 0.0f) ? std::fmin(massCeil/200.0f, 1.0f) : 1.0f;
+        if (std::fmax(peakL, peakR) > detailGate*gateScale) {
             redRun = (redNow > 0.5f) ? redRun + 1.0f : redRun*0.5f;
             greenRun = (greenNow > 0.5f) ? greenRun + 1.0f : greenRun*0.5f;
             //meterDARK's Detail settings, as the plugin: fill gate (a lone bright window counts less, more so the higher it sits), detail decay (faster fall)
-            const float redUp = std::fmin(std::fmax((redNow > 0.0f ? std::fmax(slewL > peakL ? slewL : 0.0f, slewR > peakR ? slewR : 0.0f) : 0.0f)/200.0f, 0.0f), 1.0f);
+            const float redUp = std::fmin(std::fmax((redNow > 0.0f ? std::fmax(slewLd > peakLd ? slewLd : 0.0f, slewRd > peakRd ? slewRd : 0.0f) : 0.0f)/200.0f, 0.0f), 1.0f);
             const float gateMult = (redNow > 0.0f && !redPrev) ? 1.0f - 0.6f*tune7*redUp : 1.0f;
             redPrev = redNow > 0.0f;
             const float redW = redNow*(lone + (1.0f - lone)*std::fmin(redRun/runLen, 1.0f))*gateMult;
@@ -159,8 +170,9 @@ HintTrackResult simulateHints(const std::vector<std::string>& names, const std::
             state[h] = st;
         }
         //count the audible time only (the plugin fades its hints out in quiet passages)
-        const float outputVol = std::sqrt(std::fmax(std::fmax(dataPL, dataPR), std::fmax(v[iSL], v[iSR])));
-        if (std::fmin(outputVol*outputVol*8.0f, 1.0f) >= 0.5f) {
+        const float loud = std::fmax(std::fmax(dataPL, dataPR), std::fmax(v[iSL], v[iSR])); //Chris's outputVol squared
+        const float quiet = (relGates && massCeil > 0.0f) ? std::fmin(loud*8.0f*0.94f/std::fmax(std::fmin(massCeil/200.0f, 0.94f), 0.05f), 1.0f) : std::fmin(loud*8.0f, 1.0f);
+        if (quiet >= 0.5f) {
             cnt += 1; sumW += reading[0]; sumD += reading[1]; sumDark += darkRead; sumBright += brightLive;
             for (int h = 0; h < 3; ++h) {if (state[h] == -1) shows[h*2] += 1; if (state[h] == 1) shows[h*2+1] += 1;}
         }
@@ -169,6 +181,70 @@ HintTrackResult simulateHints(const std::vector<std::string>& names, const std::
     if (cnt > 0) {
         out.weight = sumW/cnt; out.dynamics = sumD/cnt; out.darkRead = sumDark/cnt; out.brightRead = sumBright/cnt;
         out.light = shows[0]/cnt; out.heavy = shows[1]/cnt; out.headroom = shows[2]/cnt; out.squashed = shows[3]/cnt; out.dark = shows[4]/cnt; out.bright = shows[5]/cnt;
+    }
+    return out;
+}
+
+std::vector<float> scaleWindows(const std::vector<std::string>& names, const std::vector<float>& values, double db)
+{
+    const double g = std::pow(10.0, db/20.0), sg = std::sqrt(g);
+    std::vector<double> mul(names.size(), 1.0);
+    for (size_t i = 0; i < names.size(); ++i) {
+        const auto& n = names[i];
+        if (n.rfind("PEAK", 0) == 0) mul[i] = sg;
+        else if (n.rfind("SLEW", 0) == 0 || n.rfind("BSLW", 0) == 0 || n.rfind("DSLW", 0) == 0 || n.rfind("BEAM", 0) == 0 || n.rfind("DEPT", 0) == 0
+                 || n.rfind("BRMS", 0) == 0 || n.rfind("DRMS", 0) == 0) mul[i] = g;
+    }
+    std::vector<float> out(values.size());
+    const size_t k = names.size();
+    for (size_t i = 0; i < values.size(); ++i) out[i] = (float)(values[i]*mul[i % k]);
+    return out;
+}
+
+std::vector<LevelTestRow> levelTest(const std::vector<LevelTestTrack>& tracks, const HintSettings& s, const std::vector<double>& dbs, const std::function<bool()>& shouldStop)
+{
+    std::vector<LevelTestRow> rows(dbs.size());
+    for (size_t d = 0; d < dbs.size(); ++d) rows[d].db = dbs[d];
+    for (auto& t : tracks) {
+        if (shouldStop && shouldStop()) break;
+        if (t.names == nullptr || t.values == nullptr || t.values->empty()) continue;
+        const HintTrackResult base = simulateHints(*t.names, *t.values, s);
+        if (base.audible == 0) continue;
+        for (size_t d = 0; d < dbs.size(); ++d) {
+            const HintTrackResult r = dbs[d] == 0.0 ? base : simulateHints(*t.names, scaleWindows(*t.names, *t.values, dbs[d]), s);
+            auto& row = rows[d];
+            ++row.tracks;
+            row.audible += (double)r.audible/std::max(1, r.windows);
+            const double rd[4] = {r.weight - base.weight, r.dynamics - base.dynamics, r.darkRead - base.darkRead, r.brightRead - base.brightRead};
+            const double on[6] = {r.light - base.light, r.heavy - base.heavy, r.headroom - base.headroom, r.squashed - base.squashed, r.dark - base.dark, r.bright - base.bright};
+            for (int i = 0; i < 4; ++i) {row.reading[i] += rd[i]; row.readingAbs[i] += std::fabs(rd[i]);}
+            for (int i = 0; i < 6; ++i) {row.on[i] += on[i]; row.onAbs[i] += std::fabs(on[i]);}
+            if (r.audible == 0) { /* the track vanished at this level: its hints all read 0 */ }
+        }
+    }
+    for (auto& row : rows) if (row.tracks > 0) {
+        const double n = row.tracks;
+        row.audible /= n;
+        for (int i = 0; i < 4; ++i) {row.reading[i] /= n; row.readingAbs[i] /= n;}
+        for (int i = 0; i < 6; ++i) {row.on[i] /= n; row.onAbs[i] /= n;}
+    }
+    return rows;
+}
+
+std::string levelTestReport(const std::vector<LevelTestRow>& rows)
+{
+    char b[400];
+    std::string out;
+    snprintf(b, sizeof b, "Level test: the same tracks played quieter, compared with 0 dB (%d tracks). Mean size of the shift; target = 0.\n\n", rows.empty() ? 0 : rows[0].tracks);
+    out += b;
+    snprintf(b, sizeof b, "%-8s %-28s %-48s %s\n", "level", "readings (0-1)", "share of time each hint shows (0-1)", "audible");
+    out += b;
+    snprintf(b, sizeof b, "%-8s %-6s %-6s %-6s %-6s  %-7s %-7s %-7s %-7s %-7s %-7s %s\n", "", "weight", "dynam", "dark", "bright", "light", "heavy", "headrm", "squash", "dark", "bright", "share");
+    out += b;
+    for (auto& r : rows) {
+        snprintf(b, sizeof b, "%+5.0f dB %6.3f %6.3f %6.3f %6.3f  %7.3f %7.3f %7.3f %7.3f %7.3f %7.3f  %5.2f\n", r.db, r.readingAbs[0], r.readingAbs[1], r.readingAbs[2], r.readingAbs[3],
+                 r.onAbs[0], r.onAbs[1], r.onAbs[2], r.onAbs[3], r.onAbs[4], r.onAbs[5], r.audible);
+        out += b;
     }
     return out;
 }

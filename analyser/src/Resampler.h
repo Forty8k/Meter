@@ -18,6 +18,8 @@ public:
 
     // For real-time use: call once with the largest block you will pass to process(), so process() never has to allocate.
     void reserve(size_t maxInput) { if (valid && !pass) work.reserve((size_t)taps + maxInput); }
+    // Back to the start (silence before the first sample), keeping the filter.
+    void reset() { if (valid && !pass) { history.assign((size_t)taps, 0.0f); phasePos = (int64_t)(taps/2)*L; } }
     bool ok() const { return valid; }
     bool isPassThrough() const { return pass; }
     int latencyInputSamples() const { return 0; } // the output is already lined up with the input (output sample m is the input at time m*in/out); the filter's own delay is absorbed
