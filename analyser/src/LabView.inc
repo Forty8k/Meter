@@ -8,6 +8,9 @@
 class LabView : public juce::Component, private juce::Timer {
 public:
     std::function<std::shared_ptr<f8k::Library>()> getLibrary;
+    std::function<f8k::LevelMode()> getLevel;                                      //the Library tab's level mode (original / normalised / mix)
+    std::function<std::shared_ptr<const std::set<juce::String>>()> getAllowed;      //the tracks to use (null = all of them)
+    std::function<int()> getFilterGen;                                             //goes up when the filters or the level mode change
 
     LabView() {
         for (auto* b : {&hintsMode, &scoreMode}) {
@@ -91,6 +94,16 @@ private:
     juce::ThreadPool pool{juce::jmax(1, (int)std::thread::hardware_concurrency() - 1)};
     std::atomic<int> generation{0};
     std::atomic<int> scoreDone{0}; int scoreTotal = 0; bool scoring = false;
+    std::vector<char> use;                       //1 = the track is used (the Library's filters), same order as tracks
+    f8k::LevelMode loadedLevel; int seenGen = -1;
+    std::atomic<int> loadDone{0}, loadTotal{0};
+    bool inUse(size_t i) const { return i >= use.size() || use[i]; }
+    void refreshUse() {
+        use.assign(tracks.size(), 1);
+        const auto allowed = getAllowed ? getAllowed() : nullptr;
+        if (allowed) for (size_t i = 0; i < tracks.size(); ++i) use[i] = allowed->count(tracks[i].id) ? 1 : 0;
+    }
+    int usedCount() const {int n = 0; for (size_t i = 0; i < tracks.size(); ++i) n += inUse(i); return n;}
 
     f8k::HintSettings hints;
     f8k::ScoreParams score;
@@ -101,7 +114,15 @@ private:
         handlePending();
         auto lib = getLibrary ? getLibrary() : nullptr;
         if (lib == nullptr) return;
-        if (!loading && !scoring && (!loaded || lib.get() != loadedFor || (isShowing() && lib->changeCount() != loadedChange))) load(lib);
+        const f8k::LevelMode lvNow = getLevel ? getLevel() : f8k::LevelMode();
+        if (!loading && !scoring && (!loaded || lib.get() != loadedFor || (isShowing() && (lib->changeCount() != loadedChange || lvNow.key() != loadedLevel.key())))) load(lib);
+        else if (loaded && !loading && !scoring && getFilterGen && getFilterGen() != seenGen) { //the Library's filters changed
+            seenGen = getFilterGen();
+            refreshUse(); origRanks = ranks(false); labRanks.clear(); scoreResults.assign(tracks.size(), {});
+            recompute(); model.refresh();
+        }
+        if (loading && loadTotal.load() > 0)
+            status.setText("Grading the library in " + juce::String(loadedLevel.mode == 1 ? "normalised" : "mix") + " mode: " + juce::String(loadDone.load()) + " of " + juce::String(loadTotal.load()) + " tracks ...", juce::dontSendNotification);
         if (scoring) {
             status.setText("Re-scoring with the Lab settings: " + juce::String(scoreDone.load()) + " of " + juce::String(scoreTotal) + " tracks ...", juce::dontSendNotification);
             if (scoreDone.load() >= scoreTotal) {scoring = false; finishRescore();}
@@ -111,14 +132,17 @@ private:
     void load(std::shared_ptr<f8k::Library> lib) {
         loading = true;
         loadedFor = lib.get(); loadedChange = lib->changeCount();
+        const f8k::LevelMode lm = getLevel ? getLevel() : f8k::LevelMode();
+        loadedLevel = lm; loadDone = 0; loadTotal = 0;
         status.setText("Loading the library's window data ...", juce::dontSendNotification);
         juce::Component::SafePointer<LabView> sp(this);
-        pool.addJob([this, sp, lib] {
+        pool.addJob([this, sp, lib, lm] {
             std::vector<Track> t;
             const auto idx = lib->index();
             const auto vids = f8k::Library::versionIds();
             const juce::String newest = juce::String(f8k::tunableVersionId());
-            const auto g = lib->grades(newest);
+            const auto g = lm.mode == 0 ? lib->grades(newest)
+                                        : lib->levelGrades(newest, 0, lm, true, [&] {return sp == nullptr;}, [&](int d, int n) {loadDone = d; loadTotal = n;});
             for (size_t r = 0; r < idx.rows.size(); ++r) {
                 Track tr; tr.id = idx.get(r, "id"); tr.file = idx.get(r, "file"); tr.sr = idx.get(r, "sample_rate").getDoubleValue();
                 const int gr = g.findRow("id", tr.id);
@@ -131,6 +155,8 @@ private:
                 if (sp == nullptr) return;
                 {const juce::ScopedLock sl(dataLock); tracks = std::move(t);}
                 loading = false; loaded = true;
+                seenGen = getFilterGen ? getFilterGen() : 0;
+                refreshUse();
                 scoreResults.assign(tracks.size(), {}); origRanks = ranks(false);
                 recompute();
             });
@@ -142,14 +168,17 @@ private:
         if (mode != 0) {model.refresh(); return;}
         const int gen = ++generation;
         const f8k::HintSettings s = hints;
+        const std::vector<char> useCopy = use;
         juce::Component::SafePointer<LabView> sp(this);
-        pool.addJob([this, sp, gen, s] {
+        pool.addJob([this, sp, gen, s, useCopy] {
             std::vector<f8k::HintTrackResult> res;
             {
                 const juce::ScopedLock sl(dataLock);
-                for (auto& t : tracks) {
+                for (size_t i = 0; i < tracks.size(); ++i) {
+                    const auto& t = tracks[i];
                     if (generation.load() != gen) return; //a newer change is coming
-                    res.push_back(t.core.empty() ? f8k::HintTrackResult() : f8k::simulateHints(t.names, t.core, s));
+                    const bool used = i >= useCopy.size() || useCopy[i];
+                    res.push_back(t.core.empty() || !used ? f8k::HintTrackResult() : f8k::simulateHints(t.names, t.core, s));
                 }
             }
             juce::MessageManager::callAsync([this, sp, gen, res = std::move(res)]() mutable {
@@ -172,7 +201,7 @@ private:
             {
                 const juce::ScopedLock sl(dataLock);
                 std::vector<f8k::LevelTestTrack> tr;
-                for (auto& t : tracks) if (!t.core.empty()) tr.push_back({&t.names, &t.core});
+                for (size_t i = 0; i < tracks.size(); ++i) if (!tracks[i].core.empty() && inUse(i)) tr.push_back({&tracks[i].names, &tracks[i].core});
                 rows = f8k::levelTest(tr, s, {0.0, -6.0, -12.0, -18.0, -24.0}, [&] { return sp == nullptr; });
             }
             const juce::String text = juce::String(f8k::levelTestReport(rows)) +
@@ -201,7 +230,7 @@ private:
             ++n;
             light += r.light > 0.5; heavy += r.heavy > 0.5; head += r.headroom > 0.5; squash += r.squashed > 0.5; dark += r.dark > 0.5; bright += r.bright > 0.5;
         }
-        status.setText(juce::String(n) + " tracks.  Hint showing most of the time:  light " + juce::String(light) + ", heavy " + juce::String(heavy)
+        status.setText(juce::String(n) + " tracks" + (usedCount() < (int)tracks.size() ? " (filtered from " + juce::String((int)tracks.size()) + ")" : juce::String()) + ".  Hint showing most of the time:  light " + juce::String(light) + ", heavy " + juce::String(heavy)
                        + "   |   headroom " + juce::String(head) + ", squashed " + juce::String(squash) + "   |   dark " + juce::String(dark) + ", bright " + juce::String(bright),
                        juce::dontSendNotification);
     }
@@ -256,34 +285,41 @@ private:
 
     //---------------------------------------------------------------- scoring
     std::vector<int> ranks(bool lab) const { //Chris's order: numbered first (1 up), then by letter value
-        std::vector<size_t> order(tracks.size());
-        for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+        std::vector<size_t> order;
+        for (size_t i = 0; i < tracks.size(); ++i) if (inUse(i) && (!lab || scoreResults[i].done)) order.push_back(i);
         auto key = [&](size_t i) {
             const juce::String b = lab ? juce::String(scoreResults[i].bonus) : tracks[i].gradeBonus;
             const double lv = lab ? scoreResults[i].letterValue : tracks[i].letterValue;
             return b.isNotEmpty() ? b.getDoubleValue() : 1000.0 - lv;
         };
         std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {return key(a) < key(b);});
-        std::vector<int> r(tracks.size());
+        std::vector<int> r(tracks.size(), 0);
         for (size_t k = 0; k < order.size(); ++k) r[order[k]] = (int)k + 1;
         return r;
     }
     void rescore() {
         if (scoring || tracks.empty()) return;
-        scoring = true; scoreDone = 0; scoreTotal = (int)tracks.size();
+        refreshUse(); origRanks = ranks(false);
+        scoring = true; scoreDone = 0; scoreTotal = usedCount();
         scoreResults.assign(tracks.size(), {});
+        if (scoreTotal == 0) {scoring = false; status.setText("No track passes the Library's filters.", juce::dontSendNotification); return;}
         const f8k::ScoreParams s = score; const int pe = paintEvery;
+        const f8k::LevelMode lv = getLevel ? getLevel() : f8k::LevelMode();
         for (size_t i = 0; i < tracks.size(); ++i) {
-            pool.addJob([this, i, s, pe] {
+            if (!inUse(i)) continue;
+            pool.addJob([this, i, s, pe, lv] {
                 f8k::scoreParams() = s; //this thread's settings
                 ScoreRow row;
                 {
                     const Track& t = tracks[i];
                     if (!t.core2.empty()) {
+                        std::vector<float> scaled; const std::vector<float>* src = &t.core2; //the level mode's gain on the stored windows
+                        if (lv.mode == 1) {scaled = f8k::scaleWindows(t.names2, t.core2, lv.asLufs - lv.inLufs); src = &scaled;}
+                        else if (lv.mode == 2) {scaled = f8k::scaleWindowsEach(t.names2, t.core2, f8k::mixWindowGains(t.names2, t.core2, t.sr)); src = &scaled;}
                         auto run = f8k::createTunableRun(t.sr, pe);
-                        for (size_t w = 0; w + t.names2.size() <= t.core2.size(); w += t.names2.size()) run->feedWindow(t.names2, &t.core2[w]);
+                        for (size_t w = 0; w + t.names2.size() <= src->size(); w += t.names2.size()) run->feedWindow(t.names2, &(*src)[w]);
                         const auto res = run->result();
-                        row.grade = juce::String(res.grade); row.bonus = juce::String(res.bonus); row.letterValue = res.letterValue;
+                        row.grade = juce::String(res.grade) + lv.suffix(); row.bonus = juce::String(res.bonus); row.letterValue = res.letterValue;
                     }
                     row.done = true;
                 }
@@ -295,9 +331,9 @@ private:
     void finishRescore() {
         labRanks = ranks(true);
         int changed = 0, moved = 0;
-        for (size_t i = 0; i < tracks.size(); ++i) {changed += scoreResults[i].grade != tracks[i].grade; moved += labRanks[i] != origRanks[i];}
+        for (size_t i = 0; i < tracks.size(); ++i) if (inUse(i)) {changed += scoreResults[i].grade != tracks[i].grade; moved += labRanks[i] != origRanks[i];}
         status.setText("Lab scoring (Meter " + juce::String(f8k::findMeterVersion(f8k::tunableVersionId())->version) + "):  " + juce::String(changed) + " of "
-                       + juce::String((int)tracks.size()) + " grades changed,  " + juce::String(moved) + " tracks moved in the ranking.", juce::dontSendNotification);
+                       + juce::String(usedCount()) + " grades changed,  " + juce::String(moved) + " tracks moved in the ranking.", juce::dontSendNotification);
         model.refresh();
     }
     void saveScoreSettings() {
@@ -432,8 +468,8 @@ private:
                 return pct ? juce::String(juce::roundToInt(num(i, col)*100.0)) : juce::String(num(i, col), 2);
             }
             if (col == 3) return i < (int)o.scoreResults.size() && o.scoreResults[(size_t)i].done ? o.scoreResults[(size_t)i].grade : juce::String();
-            if (col == 4) return juce::String(o.origRank((size_t)i));
-            if (o.labRanks.empty()) return {};
+            if (col == 4) return o.origRank((size_t)i) > 0 ? juce::String(o.origRank((size_t)i)) : juce::String();
+            if (o.labRanks.empty() || o.labRanks[(size_t)i] == 0) return {};
             if (col == 5) return juce::String(o.labRanks[(size_t)i]);
             const int mv = (int)num(i, 6);
             return mv == 0 ? juce::String("-") : (mv > 0 ? "up " + juce::String(mv) : "down " + juce::String(-mv));

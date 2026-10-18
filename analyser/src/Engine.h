@@ -5,6 +5,7 @@
 //  MEASURED  index.csv + tracks/*  written only by scanning. Never edited by hand.
 //  YOURS     user.csv + columns.json  your tag fixes, BPM/key corrections and your own columns. Scanning never touches these.
 #pragma once
+#include <cmath>
 #include <juce_core/juce_core.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <functional>
@@ -35,6 +36,17 @@ struct AnalyseOutcome {
 
 struct CustomColumn { juce::String key, name; bool numeric = false; };
 
+// How loud the audio is taken to be when a track is graded (the same three modes as meterDARK): 0 original = as the file is; 1 normalised = a fixed gain from
+// "input at" to "score as if at"; 2 mix = a floating gain that keeps the running peak ceiling at -1 dBFS (the plugin's maths).
+struct LevelMode {
+    int mode = 0; double inLufs = -14.0, asLufs = -11.0;
+    juce::String key() const { return mode == 1 ? "N" + juce::String(juce::roundToInt(inLufs)) + "_" + juce::String(juce::roundToInt(asLufs)) : mode == 2 ? juce::String("M") : juce::String(); }
+    juce::String suffix() const { return mode == 1 ? "N" : mode == 2 ? "M" : ""; }
+    double gain() const { return std::pow(10.0, (asLufs - inLufs)/20.0); }
+    bool operator==(const LevelMode& o) const { return key() == o.key(); }
+    bool operator!=(const LevelMode& o) const { return !(*this == o); }
+};
+
 class Library {
 public:
     explicit Library(const juce::File& folder);
@@ -61,6 +73,10 @@ public:
     // A copy of grades-<version>.csv: one Meter version's verdict on every track. rate = 0: the audio as the file has it.
     // rate = 44100 or 96000: the same audio converted to that rate first (tracks that already are at that rate answer from their own grades).
     Table grades(const juce::String& versionId, int rate = 0);
+    // The same, graded in a level mode by replaying the stored windows with the mode's gain (no audio needed). Results are kept in levelgrades-*.csv and only
+    // missing or out-of-date tracks are worked out (several cores). compute = false returns what is already kept and counts the rest in *missing.
+    Table levelGrades(const juce::String& versionId, int rate, const LevelMode& lm, bool compute, std::function<bool()> shouldStop = {},
+                      std::function<void(int done, int total)> progress = {}, int* missing = nullptr);
     static const std::vector<int>& anchorRates();       // the converted rates every track is also scanned at: 44100, 96000
     static std::vector<juce::String> versionIds();      // every Meter version the analyser has, oldest first
     std::map<juce::String, std::map<juce::String, juce::String>> userValues(); // id -> key -> value
@@ -90,6 +106,7 @@ private:
     void putIndexRow(const juce::StringArray& cells); // add, or replace the row with the same id
     void putGradeRow(const juce::String& vid, const juce::String& id, const OriginalResult& r, int rate = 0);
     juce::File gradesFile(const juce::String& vid, int rate = 0) const;
+    juce::File levelGradesFile(const juce::String& vid, int rate, const LevelMode& lm) const;
     juce::File rateCoreFile(const juce::String& id, const juce::String& vid, int rate) const;
     juce::File coreFile(const juce::String& id, const juce::String& vid) const;
     bool scanAudio(const juce::File& audio, Capture* cap, std::vector<Lane>& lanes, std::function<void(double)> progress,

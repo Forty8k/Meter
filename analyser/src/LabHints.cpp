@@ -201,6 +201,47 @@ std::vector<float> scaleWindows(const std::vector<std::string>& names, const std
     return out;
 }
 
+// Scales stored windows by a gain per window (the level modes: normalised = the same gain everywhere, mix = a gain that floats).
+std::vector<float> scaleWindowsEach(const std::vector<std::string>& names, const std::vector<float>& values, const std::vector<double>& gains)
+{
+    const size_t k = names.size();
+    std::vector<int> kind(k, 0); // 0 unchanged, 1 sqrt(g), 2 g
+    for (size_t i = 0; i < k; ++i) {
+        const auto& n = names[i];
+        if (n.rfind("PEAK", 0) == 0) kind[i] = 1;
+        else if (n.rfind("SLEW", 0) == 0 || n.rfind("BSLW", 0) == 0 || n.rfind("DSLW", 0) == 0 || n.rfind("BEAM", 0) == 0 || n.rfind("DEPT", 0) == 0
+                 || n.rfind("BRMS", 0) == 0 || n.rfind("DRMS", 0) == 0) kind[i] = 2;
+    }
+    std::vector<float> out(values.size());
+    for (size_t i = 0; i < values.size(); ++i) {
+        const size_t w = i/k; const double g = w < gains.size() ? gains[w] : 1.0;
+        out[i] = (float)(kind[i % k] == 1 ? values[i]*std::sqrt(g) : kind[i % k] == 2 ? values[i]*g : values[i]);
+    }
+    return out;
+}
+
+// The mix gain, worked out from the stored windows the way the plugin works it out from the audio: a running peak ceiling (a louder peak sets it at once,
+// held 8 s, then falling with a 20 s time constant), gain = -1 dBFS / ceiling, limited to 0.1 ... +24 dB. One gain per window.
+std::vector<double> mixWindowGains(const std::vector<std::string>& names, const std::vector<float>& values, double sampleRate)
+{
+    const size_t k = names.size(); if (k == 0) return {};
+    const size_t n = values.size()/k;
+    std::vector<int> pk;
+    for (size_t i = 0; i < k; ++i) if (names[i].rfind("PEAK", 0) == 0) pk.push_back((int)i);
+    const double win = 1881.0/44100.0*sampleRate;
+    std::vector<double> g(n, 1.0);
+    double ceiling = 0.0, hold = 0.0;
+    for (size_t w = 0; w < n; ++w) {
+        double p = 0.0;
+        for (int i : pk) { const double v = values[w*k + (size_t)i]; p = std::max(p, v*v); } // PEAK is sent as sqrt of the amplitude
+        if (p > ceiling) {ceiling = p; hold = 8.0*sampleRate;}
+        else if (hold > 0) hold -= win;
+        else ceiling *= std::exp(-win/(20.0*sampleRate));
+        g[w] = std::min(15.848931924611133, std::max(0.1, 0.8912509381337456/std::max(ceiling, 1.0e-9)));
+    }
+    return g;
+}
+
 std::vector<LevelTestRow> levelTest(const std::vector<LevelTestTrack>& tracks, const HintSettings& s, const std::vector<double>& dbs, const std::function<bool()>& shouldStop)
 {
     std::vector<LevelTestRow> rows(dbs.size());

@@ -41,6 +41,8 @@ HintTrackResult simulateHints(const std::vector<std::string>& names, const std::
 // gains (peaks, which are square roots of amplitude, by sqrt(g); slews, beam, departure and RMS by g; zero-cross lengths unchanged: exactly
 // what the plugin's level modes do) and run through the hint maths again. A level-independent hint does not move.
 std::vector<float> scaleWindows(const std::vector<std::string>& names, const std::vector<float>& values, double db);
+std::vector<float> scaleWindowsEach(const std::vector<std::string>& names, const std::vector<float>& values, const std::vector<double>& gains); // one gain per window
+std::vector<double> mixWindowGains(const std::vector<std::string>& names, const std::vector<float>& values, double sampleRate);               // the "mix" level mode
 struct LevelTestRow {
     double db = 0;
     double reading[4] = {};      // mean shift of weight, dynamics, dark and bright readings from the 0 dB result (signed)

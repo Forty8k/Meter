@@ -2,6 +2,7 @@
 #include "Capture.h"
 #include "OriginalScorer.h"
 #include "Estimates.h"
+#include "LabHints.h"
 #include <juce_cryptography/juce_cryptography.h>
 #include <thread>
 
@@ -214,6 +215,75 @@ Table Library::grades(const juce::String& vid, int rate)
         r.rows.push_back(cells);
     }
     return r;
+}
+
+juce::File Library::levelGradesFile(const juce::String& vid, int rate, const LevelMode& lm) const
+{
+    return folder.getChildFile("levelgrades-" + vid + (rate > 0 ? "@" + juce::String(rate) : juce::String()) + "~" + lm.key() + ".csv");
+}
+
+Table Library::levelGrades(const juce::String& vid, int rate, const LevelMode& lm, bool compute, std::function<bool()> shouldStop, std::function<void(int, int)> progress, int* missing)
+{
+    if (lm.mode == 0) {if (missing) *missing = 0; return grades(vid, rate);}
+    const Table base = grades(vid, rate);
+    Table cache;
+    { const juce::ScopedLock sl(lock); cache.load(levelGradesFile(vid, rate, lm)); }
+    juce::StringArray want; for (auto c : kGradeHeader) want.add(c);
+    if (cache.header != want) {cache = Table(); cache.header = want;}
+    std::map<juce::String, size_t> have;
+    for (size_t i = 0; i < cache.rows.size(); ++i) have[cache.get(i, "id")] = i;
+    Table out; out.header = want;
+    std::vector<size_t> todo; //base rows that need working out: not kept yet, or graded again since
+    for (size_t r = 0; r < base.rows.size(); ++r) {
+        auto it = have.find(base.get(r, "id"));
+        if (it != have.end() && cache.get(it->second, "scored") == base.get(r, "scored")) out.rows.push_back(cache.rows[it->second]);
+        else todo.push_back(r);
+    }
+    if (missing) *missing = (int)todo.size();
+    if (!compute || todo.empty()) return out;
+    Table idx = index();
+    std::map<juce::String, double> srOf;
+    for (size_t i = 0; i < idx.rows.size(); ++i) srOf[idx.get(i, "id")] = idx.get(i, "sample_rate").getDoubleValue();
+    const MeterVersion* mv = findMeterVersion(vid.toStdString());
+    if (mv == nullptr) return out;
+    std::atomic<int> next{0}, done{0};
+    juce::CriticalSection mine;
+    std::vector<juce::StringArray> made;
+    auto work = [&] {
+        for (int k; (k = next++) < (int)todo.size();) {
+            if (shouldStop && shouldStop()) return;
+            const size_t r = todo[(size_t)k];
+            const juce::String id = base.get(r, "id");
+            std::vector<std::string> names; std::vector<float> values;
+            if (readCoreAt(id, vid, rate, names, values) && !names.empty()) {
+                const double sr = rate > 0 ? (double)rate : srOf[id];
+                const std::vector<float> scaled = lm.mode == 1 ? scaleWindows(names, values, 20.0*std::log10(lm.gain()))
+                                                               : scaleWindowsEach(names, values, mixWindowGains(names, values, sr));
+                auto run = mv->create(sr, 1);
+                for (size_t w = 0; w + names.size() <= scaled.size(); w += names.size()) run->feedWindow(names, &scaled[w]);
+                const OriginalResult o = run->result();
+                const juce::StringArray cells{id, juce::String(o.grade) + lm.suffix(), juce::String(o.letter), juce::String(o.bonus), juce::String(o.authority), juce::String(o.power),
+                    juce::String(o.detail), juce::String(o.directionsMain), juce::String(o.directions), num(o.bassPrevGrade, 3), num(o.peakPrevGrade, 3), num(o.slewPrevGrade, 3),
+                    num(o.letterValue, 3), juce::String(o.bonusValue), juce::String((int)o.windows), base.get(r, "scored")};
+                const juce::ScopedLock sl(mine); made.push_back(cells);
+            }
+            const int d = ++done;
+            if (progress) progress(d, (int)todo.size());
+        }
+    };
+    const int nThreads = juce::jmax(1, (int)std::thread::hardware_concurrency() - 1);
+    std::vector<std::thread> th;
+    for (int i = 0; i < nThreads; ++i) th.emplace_back(work);
+    for (auto& t : th) t.join();
+    { //keep what was worked out (also when stopped half way), then answer with everything fresh
+        for (auto& c : made) {
+            auto it = have.find(c[0]);
+            if (it != have.end()) cache.rows[it->second] = c; else {have[c[0]] = cache.rows.size(); cache.rows.push_back(c);}
+            out.rows.push_back(c);
+        }
+        const juce::ScopedLock sl(lock); cache.save(levelGradesFile(vid, rate, lm));
+    }
+    return out;
 }
 
 static void writeCore(const juce::File& f, const MeterRun& run, double sr)
@@ -873,6 +943,8 @@ void Library::writeReadme()
         "grades-<version>@44100.csv, @96000.csv   the same, after the audio was converted to that sample rate first (a high-quality\r\n"
         "                       resampler, the same one meterDARK uses). The sample rate of the file changes what Meter reads, so the rate\r\n"
         "                       is a choice you make in the Library tab. A track already at that rate has no row in these files: its own grades are used.\r\n"
+        "levelgrades-<version>[@rate]~N<in>_<as>.csv, ~M.csv   the grades in the normalised / mix level mode (the stored windows replayed with a gain). They\r\n"
+        "                       are a cache: delete them and they are worked out again. filters.json   your Library filters and saved filter sets.\r\n"
         "tracks/<id>.core-<version>.csv   the original meter's own data: one row per audio window (1882 samples at 44.1 kHz, about 42.7 ms),\r\n"
         "                       the values the plugin sends to its display (peak is square-rooted, as in the plugin). Column names are in the header.\r\n"
         "tracks/<id>.core-<newest version>@44100.f32.gz, @96000.f32.gz   the same window data of the newest Meter version for the converted audio:\r\n"

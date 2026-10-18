@@ -57,6 +57,8 @@ jobs:
         run: ./build/F8KSelfTest
       - name: Level test (hint readings must not move with level)
         run: ./build/F8KLevelTest | tee leveltest.txt
+      - name: Replay test (stored windows with gain = really scaled audio)
+        run: ./build/F8KReplayTest | tee replaytest.txt
       - name: End-to-end check (command line on generated tones)
         run: |
           python3 - <<'PY' || python - <<'PY2'
@@ -138,6 +140,11 @@ jobs:
           PYR2
           "$CLI" --library testlib --rescan | tee -a cli.txt
           grep -q "Rescan: 5 of 5" cli.txt
+          # Level modes: grade the library with the stored windows plus a gain
+          "$CLI" --library testlib --levels | tee -a cli.txt
+          grep -q "Levels: normalised 5 of 5" cli.txt
+          grep -q "Levels: mix 5 of 5" cli.txt
+          ls testlib/levelgrades-*.csv
           cut -d, -f22 testlib/index.csv | sort | uniq -c
           ls -la testlib/tracks
           while IFS= read -r l; do echo "::notice title=CLI ${{ matrix.name }}::$l"; done < cli.txt
