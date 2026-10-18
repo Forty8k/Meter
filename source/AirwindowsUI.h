@@ -235,9 +235,13 @@ struct AirwindowsMeter : public juce::Component
     struct LabTuning {
         float lowFromPos = 139.0f, lowFullPos = 160.0f, highFromPos = 107.0f, highFullPos = 82.0f; //push ramps, in meter positions
         float lowPushGain = 0.6f, highPushGain = 0.5f, peakInfluence = 1.0f, peakDiv = 140.0f, peakPow = 4.0f;
-        float massOffset = 2.0f, massRange = 3.4f, refOffsetDb = 4.5f, refTarget = 170.0f, fMax = 4.0f;
+        float massOffset = 2.0f, massRange = 3.4f, refOffsetDb = 4.5f, refTarget = 170.0f, fMax = 16.0f; //fMax: the most a quiet track is boosted to read like a loud one (4 = +24 dB before, 16 = +48 dB)
         float dynRangeDb = 8.0f, followRate = 0.02f, gateDb = 18.0f, ceilRise = 0.04f, ceilFall = 0.01f;
         float detailGate = 70.0f, runLength = 8.0f, lone = 0.4f, brightSpread = 13.5f, keepWeight = 0.04f;
+        //LEVEL-INDEPENDENT HINTS (1 = on, 0 = how it was before): relativeGates = Detail's quiet gate and the quiet fade of the tone strips and hints follow the track's own
+        //ceiling instead of fixed levels, so a quiet stem is read like a loud master. detailLevelComp = Detail's red/green dot test is made as if the track sat at the reference level.
+        float relativeGates = 1.0f, detailLevelComp = 1.0f;
+        float fMin = 0.8f; //weight: the most a LOUD track is turned down to read like the reference (0.8 = about -2 dB; 0.6 makes hot masters read the same as quiet copies of themselves)
         juce::Time loadedTime; bool fromFile = false;
         float gateRatio() const { return gateDb == 18.0f ? 0.355f : powf(10.0f, -gateDb/40.0f); } //18 dB = the factory 0.355 exactly
         static float posFromHz(double hz) { return (float)fmin(sqrt(fmax(sqrt(22050.0/fmax(hz, 1.0))*6.0 - 6.0, 0.0))*16.2 - 20.0, 199.0); }
@@ -264,7 +268,7 @@ struct AirwindowsMeter : public juce::Component
             get("lowPushGain", n.lowPushGain); get("highPushGain", n.highPushGain); get("peakInfluence", n.peakInfluence); get("peakDiv", n.peakDiv); get("peakPow", n.peakPow);
             get("massOffset", n.massOffset); get("massRange", n.massRange); get("refOffsetDb", n.refOffsetDb); get("refTarget", n.refTarget); get("fMax", n.fMax);
             get("dynRangeDb", n.dynRangeDb); get("followRate", n.followRate); get("gateDb", n.gateDb); get("ceilRise", n.ceilRise); get("ceilFall", n.ceilFall);
-            get("detailGate", n.detailGate); get("runLength", n.runLength); get("lone", n.lone); get("brightSpread", n.brightSpread); get("keepWeight", n.keepWeight);
+            get("fMin", n.fMin); get("relativeGates", n.relativeGates); get("detailLevelComp", n.detailLevelComp); get("detailGate", n.detailGate); get("runLength", n.runLength); get("lone", n.lone); get("brightSpread", n.brightSpread); get("keepWeight", n.keepWeight);
             n.massRange = fmax(n.massRange, 0.05f); n.dynRangeDb = fmax(n.dynRangeDb, 0.1f); n.runLength = fmax(n.runLength, 1.0f); n.peakDiv = fmax(n.peakDiv, 1.0f);
             n.loadedTime = t; n.fromFile = true;
             *this = n;
@@ -275,6 +279,9 @@ struct AirwindowsMeter : public juce::Component
     int tuneDragging = -1;
     float tuneDragStart = 0.0f;
     float massAvg = 3.7f;        //weight: slow average of the weight dot size (peak part measured against the track's own ceiling), see scoreColumn
+    float quietNow = 1.0f;       //the quiet fade (0-1) of the latest window: tone strips and hint opacity use it (fixed level, or relative to the track's ceiling: see relativeQuiet)
+    float detailF = 1.0f;        //detail: how much the track is brought up to the reference level for its dot test (1 = not at all), set by the weight block
+    float relativeQuiet(float p) const; //p = the window's loudness (the larger of the peak and slew readings, as Chris's outputVol squared)
     float massCeil = 0.0f;       //weight and dynamics: the track's recent peak ceiling (rises in about a second, falls back in about 4), used only for their quiet gate
     float slewHotFill = 0.0f;    //detail: how full the hottest slew bins are right now, 0-1 (shown next to the decay setting)
     float gateEffectAvg = 0.0f;  //detail: share of slew fill the gate is currently holding back (shown next to the gate setting)
@@ -366,7 +373,7 @@ struct AirwindowsMeter : public juce::Component
         }
         hintRedAvg = 0.0f;
         hintGreenAvg = 0.0f;
-        massAvg = 3.7f; massCeil = 0.0f;
+        massAvg = 3.7f; massCeil = 0.0f; detailF = 1.0f; quietNow = 1.0f;
         spreadMean = 0.0f; spreadAvg = 4.0f; spreadInit = false;
         slewHotFill = 0.0f; gateEffectAvg = 0.0f; gateKept = 0.0f; gateAll = 0.0f;
         for (unsigned long b = 0; b < totalBins+2; ++b) {slewHitNow[b] = false; slewHitPrev[b] = false;}

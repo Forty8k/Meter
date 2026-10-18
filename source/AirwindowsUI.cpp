@@ -184,6 +184,17 @@ AirwindowsMeter::ColumnMetrics AirwindowsMeter::columnMetrics(unsigned long col)
     return m;
 }
 
+//The quiet fade: 1 = loud enough to count, 0 = silent. Fixed level: full at a peak position of 25 (-36 dBFS). Relative: the same, measured against the track's own
+//recent ceiling (a ceiling at or above a typical master's counts as the master, so loud material reads exactly as before), so a quiet stem or rough mix fades like a master.
+float AirwindowsMeter::relativeQuiet(float p) const
+{
+    if (lab.relativeGates > 0.5f && massCeil > 0.0f) {
+        const float ceilP = fmax(fmin(massCeil/200.0f, 0.94f), 0.05f);
+        return fmin(p*8.0f*0.94f/ceilP, 1.0f);
+    }
+    return fmin(p*8.0f, 1.0f);
+}
+
 void AirwindowsMeter::scoreColumn(unsigned long col)
 {
     if (++labCheckCounter >= 24) {labCheckCounter = 0; lab.reloadIfChanged();} //about once a second: settings exported from the Analyser's Lab take effect live
@@ -210,7 +221,9 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                 const float ratioZ = (float)(outputG/scoreMax); //zero crosses
                 const float ratioP = (float)(outputB/scoreMax); //peaks
                 const float ratioS = (float)(outputR/scoreMax); //slews
-                const float quietGate = (float)fmin(outputVol*outputVol*8.0, 1.0); //quiet passages fade to neutral, as the tone color does
+                const float quietGate = lab.relativeGates > 0.5f ? relativeQuiet(fmax(fmax(dataPL[col], dataPR[col]), fmax(dataSL[col], dataSR[col])))
+                                                                 : (float)fmin(outputVol*outputVol*8.0, 1.0); //quiet passages fade to neutral, as the tone color does (relative to the track's ceiling, or the fixed level)
+                quietNow = quietGate;
                 devZ[col] = (ratioZ - (ratioP+ratioS)*0.5f) * quietGate;
                 devP[col] = (ratioP - (ratioZ+ratioS)*0.5f) * quietGate;
                 devS[col] = (ratioS - (ratioZ+ratioP)*0.5f) * quietGate;
@@ -231,7 +244,9 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                             //the reference level: the running mean peak (in dB) plus 4.5 dB, which is where a typical master's ceiling sits above its mean peak, so the scale stays where it was.
                             //Before the mean has started, the ceiling stands in for it.
                             const float refLevel = spreadInit ? 200.0f*powf(10.0f, (spreadMean + lab.refOffsetDb)/40.0f) : massCeil;
-                            const float f = fmin(fmax(lab.refTarget/fmax(refLevel, 40.0f), 0.8f), lab.fMax); //brings that reference level to about -1.5 dB
+                            const float refFloor = lab.refTarget/lab.fMax; //(40 when fMax is 4: a quiet track can be brought up by at most fMax)
+                            const float f = fmin(fmax(lab.refTarget/fmax(refLevel, refFloor), lab.fMin), lab.fMax); //brings that reference level to about -1.5 dB
+                            detailF = fmin(fmax(lab.refTarget/fmax(refLevel, refFloor), 1.0f), lab.fMax); //the same for Detail, but a loud track is left as it is
                             //FREQUENCY PUSH: dots low on the meter (below about 80 Hz, positions past 139) count extra, dots high on it (above about 180 Hz, positions under 107)
                             //count less. It ramps in smoothly rather than cutting off, and tune[10] sets how strong it is (0 = pure mass).
                             auto dotMass = [&](float meterZero, float peak, float dataP, float bassPos) {
@@ -257,15 +272,23 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                 }
                 //SLEWS are judged by the dot colours, the meter's own balance measure: red = slews well ahead of peaks, green/teal = peaks well
                 //ahead. (Overflow bars and a high beam are normal on loud, well balanced masters, so they are not used.)
-                const float redNow = ((psDotSizeL <= 1.0f && slewL > peakL) ? 0.5f : 0.0f) + ((psDotSizeR <= 1.0f && slewR > peakR) ? 0.5f : 0.0f);
-                const float greenNow = ((psDotSizeL <= 1.0f && slewL <= peakL) ? 0.5f : 0.0f) + ((psDotSizeR <= 1.0f && slewR <= peakR) ? 0.5f : 0.0f);
-                if (fmax(peakL, peakR) > lab.detailGate) { //quiet gaps between notes (peak below about -18 dB) say nothing about balance, so they are skipped
+                //Level match for Detail's dot test: the track is read as if it sat at the reference level, so a quiet stem is judged like a loud master. The scale is in
+                //meter positions (the square root of the amplitude), so everything that is a peak or a slew position is multiplied by it. A loud track is left as it is.
+                const float fd = lab.detailLevelComp > 0.5f ? detailF : 1.0f;
+                const float peakLd = peakL*fd, peakRd = peakR*fd, slewLd = slewL*fd, slewRd = slewR*fd;
+                const float psLd = fd == 1.0f ? psDotSizeL : (dataPL[col]*fd*64.0f) / (fabs((peakLd*0.945433426957143f)-slewLd)+6.18033988749894f);
+                const float psRd = fd == 1.0f ? psDotSizeR : (dataPR[col]*fd*64.0f) / (fabs((peakRd*0.945433426957143f)-slewRd)+6.18033988749894f);
+                const float redNow = ((psLd <= 1.0f && slewLd > peakLd) ? 0.5f : 0.0f) + ((psRd <= 1.0f && slewRd > peakRd) ? 0.5f : 0.0f);
+                const float greenNow = ((psLd <= 1.0f && slewLd <= peakLd) ? 0.5f : 0.0f) + ((psRd <= 1.0f && slewRd <= peakRd) ? 0.5f : 0.0f);
+                //quiet gaps between notes say nothing about balance. The gate sits about 18 dB under the track's recent ceiling (detailGate 70 of a ceiling at 200), so it follows the level
+                const float gateScale = (lab.relativeGates > 0.5f && massCeil > 0.0f) ? fmin(massCeil/200.0f, 1.0f) : 1.0f;
+                if (fmax(peakL, peakR) > lab.detailGate*gateScale) { //quiet gaps between notes (peak below about -18 dB) say nothing about balance, so they are skipped
                     //Consecutive windows count more: a lone hi-hat hit is often fine, a sustained run is not. A lone window counts 40%, rising to full over 8 in a row, and an off window only halves the run.
                     hintRedRun = (redNow > 0.5f) ? hintRedRun + 1.0f : hintRedRun*0.5f; //a single off window halves the run instead of ending it
                     hintGreenRun = (greenNow > 0.5f) ? hintGreenRun + 1.0f : hintGreenRun*0.5f;
                     const float redRamp = lab.lone + (1.0f - lab.lone)*fmin(hintRedRun / lab.runLength, 1.0f); //a lone hot window counts 40%, a run of 8 in a row counts fully
                     //meterDARK's Detail settings (0 = stock). Fill gate: a lone bright window (the one before was not) counts for less, more so the higher it sits.
-                    const float redUp = fmin(fmax((redNow > 0.0f ? fmax(slewL > peakL ? slewL : 0.0f, slewR > peakR ? slewR : 0.0f) : 0.0f)/200.0f, 0.0f), 1.0f);
+                    const float redUp = fmin(fmax((redNow > 0.0f ? fmax(slewLd > peakLd ? slewLd : 0.0f, slewRd > peakRd ? slewRd : 0.0f) : 0.0f)/200.0f, 0.0f), 1.0f);
                     const float gateMult = (redNow > 0.0f && !hintRedPrev) ? 1.0f - 0.6f*tune[7]*redUp : 1.0f;
                     hintRedPrev = redNow > 0.0f;
                     const float redWeighted = redNow * redRamp * gateMult;
@@ -548,7 +571,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             //and quiet passages are gated out, as the tone color is.
             {
                 //Where each hint switches on is set by the tune controls (tune[0..5], see AirwindowsUI.h). It leaves a little before it entered, so hints don't flicker.
-                const float quietGate = (float)fmin(outputVol*outputVol*8.0, 1.0);
+                const float quietGate = lab.relativeGates > 0.5f ? quietNow : (float)fmin(outputVol*outputVol*8.0, 1.0);
                 //The hints name a state, not an order: a dominant sub, a bright top or a dark record can all be deliberate.
                 //(hintTextMore = under target, hintTextLess = over target)
                 hintTextMore[0] = juce::String("light");      hintTextLess[0] = juce::String("heavy");
