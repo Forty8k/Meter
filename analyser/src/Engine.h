@@ -11,6 +11,7 @@
 #include <map>
 #include "Capture.h"
 #include "OriginalScorer.h"
+#include "Resampler.h"
 
 namespace f8k {
 
@@ -44,13 +45,23 @@ public:
     // Fills in what later versions added: grades from Meter versions a track has not been scored by yet (replayed from its
     // stored window data, or scanned again from its audio if that version measures differently), and BPM. Uses several cores.
     int upgradeOldRows(std::function<bool()> shouldStop = {}, std::function<void(int done, int total, const juce::String& file)> progress = {});
+    // Scans again every track captured by an older analyser (capture version below the current one) from its stored source_path.
+    // Each finished track is committed at once, so stopping and starting again carries on where it stopped. Files that are gone are
+    // listed through `log` and left as they are. Your own values (user.csv) are never touched. Uses several cores.
+    int rescanLibrary(std::function<bool()> shouldStop = {}, std::function<void(int done, int total, const juce::String& file)> progress = {},
+                      std::function<void(const juce::String&)> log = {});
+    int tracksNeedingRescan(); // how many tracks rescanLibrary would scan
+    struct Lane; // one way of presenting a track's audio to the Meter versions (as the file has it, or converted to an anchor rate)
     int lastNoAudio = 0; // tracks whose audio was needed but could not be found (moved or deleted)
     static bool isAudioFile(const juce::File& f);
     static void collectAudioFiles(const juce::File& fileOrFolder, juce::Array<juce::File>& out);
 
     // reading and editing (any thread, all locked)
     Table index();                                      // a copy of index.csv
-    Table grades(const juce::String& versionId);        // a copy of grades-<version>.csv: one Meter version's verdict on every track
+    // A copy of grades-<version>.csv: one Meter version's verdict on every track. rate = 0: the audio as the file has it.
+    // rate = 44100 or 96000: the same audio converted to that rate first (tracks that already are at that rate answer from their own grades).
+    Table grades(const juce::String& versionId, int rate = 0);
+    static const std::vector<int>& anchorRates();       // the converted rates every track is also scanned at: 44100, 96000
     static std::vector<juce::String> versionIds();      // every Meter version the analyser has, oldest first
     std::map<juce::String, std::map<juce::String, juce::String>> userValues(); // id -> key -> value
     std::vector<CustomColumn> customColumns();
@@ -77,14 +88,17 @@ private:
     void writeReadme();
     void saveColumns(const std::vector<CustomColumn>& cols);
     void putIndexRow(const juce::StringArray& cells); // add, or replace the row with the same id
-    void putGradeRow(const juce::String& vid, const juce::String& id, const OriginalResult& r);
-    juce::File gradesFile(const juce::String& vid) const;
+    void putGradeRow(const juce::String& vid, const juce::String& id, const OriginalResult& r, int rate = 0);
+    juce::File gradesFile(const juce::String& vid, int rate = 0) const;
+    juce::File rateCoreFile(const juce::String& id, const juce::String& vid, int rate) const;
     juce::File coreFile(const juce::String& id, const juce::String& vid) const;
-    bool scanAudio(const juce::File& audio, Capture* cap, std::vector<std::unique_ptr<MeterRun>>& runs, std::function<void(double)> progress,
+    bool scanAudio(const juce::File& audio, Capture* cap, std::vector<Lane>& lanes, std::function<void(double)> progress,
                    std::function<bool()> shouldStop, juce::String& error, std::unique_ptr<juce::AudioFormatReader>* readerOut);
     bool scanVersions(const juce::String& id, const juce::File& audio, const std::vector<juce::String>& vids, std::function<void(double)> progress, std::function<bool()> shouldStop);
 public:
     bool readCore(const juce::String& id, const juce::String& vid, std::vector<std::string>& names, std::vector<float>& values);
+    // The window data of the newest Meter version at a converted rate (44100 / 96000). For a track already at that rate this is its normal core.
+    bool readCoreAt(const juce::String& id, const juce::String& vid, int rate, std::vector<std::string>& names, std::vector<float>& values);
 private:
 };
 

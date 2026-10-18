@@ -15,7 +15,7 @@
 
 namespace f8k {
 
-constexpr const char* kCaptureVersion = "1.1"; // 1.1 added the pitch layer
+constexpr const char* kCaptureVersion = "1.2"; // 1.1 added the pitch layer; 1.2 added the 44.1 kHz / 96 kHz runs of every Meter version
 
 // One CORE window, exactly as the original plugin sends it (peak is already square-rooted, as in the plugin).
 struct CoreWindow { float peakL, peakR, slewL, slewR, zeroL, zeroR, beamL, beamR, deptL, deptR; };

@@ -103,6 +103,40 @@ jobs:
           CLI=build/MeterF8KAnalyserCLI_artefacts/Release/MeterF8KAnalyserCLI
           "$CLI" --library testlib t_sine50.wav t_sine2k.wav t_noise.wav t_beat128_Amin.wav | tee cli.txt
           "$CLI" --library testlib t_sine50.wav | tee -a cli.txt
+          # a 48 kHz file, so the converted-rate files exist for both anchors
+          python3 -c "
+          import wave, struct, math
+          sr=48000
+          with wave.open('t_48k.wav','wb') as o:
+              o.setnchannels(2); o.setsampwidth(2); o.setframerate(sr)
+              fr=bytearray()
+              for i in range(sr*8):
+                  t=i/sr; v=0.4*math.sin(2*math.pi*220*t)+0.2*math.sin(2*math.pi*3100*t)*(0.5+0.5*math.sin(2*math.pi*3*t))
+                  s=int(v*32767); fr+=struct.pack('<hh',s,s)
+              o.writeframes(bytes(fr))
+          " || python -c "print('no python')"
+          "$CLI" --library testlib t_48k.wav | tee -a cli.txt
+          ls testlib | tee -a cli.txt
+          for f in testlib/grades-*@44100.csv testlib/grades-*@96000.csv; do test -s "$f" || { echo "missing $f"; exit 1; }; done
+          ls testlib/tracks/*@44100.f32.gz testlib/tracks/*@96000.f32.gz
+          grep -q rate_runs testlib/tracks/*.meta.json
+          # Rescan: pretend the library was scanned by an older analyser, then rescan it
+          python3 - <<'PYR' || python - <<'PYR2'
+          import csv
+          rows=list(csv.reader(open('testlib/index.csv', newline='')))
+          c=rows[0].index('capture_version')
+          for r in rows[1:]: r[c]='1.1'
+          csv.writer(open('testlib/index.csv','w',newline='')).writerows(rows)
+          PYR
+          import csv
+          rows=list(csv.reader(open('testlib/index.csv', newline='')))
+          c=rows[0].index('capture_version')
+          for r in rows[1:]: r[c]='1.1'
+          csv.writer(open('testlib/index.csv','w',newline='')).writerows(rows)
+          PYR2
+          "$CLI" --library testlib --rescan | tee -a cli.txt
+          grep -q "Rescan: 5 of 5" cli.txt
+          cut -d, -f22 testlib/index.csv | sort | uniq -c
           ls -la testlib/tracks
           while IFS= read -r l; do echo "::notice title=CLI ${{ matrix.name }}::$l"; done < cli.txt
           cut -d, -f2,17,27-32 testlib/index.csv | while IFS= read -r l; do echo "::notice title=index ${{ matrix.name }}::$l"; done

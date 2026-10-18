@@ -163,7 +163,10 @@ void Library::putIndexRow(const juce::StringArray& cells)
 static const char* kGradeHeader[] = {"id", "grade", "letter", "bonus", "authority", "power", "detail", "directions_main", "directions_end",
     "authority_value", "power_value", "detail_value", "letter_value", "bonus_value", "windows", "scored"};
 
-juce::File Library::gradesFile(const juce::String& vid) const { return folder.getChildFile("grades-" + vid + ".csv"); }
+juce::File Library::gradesFile(const juce::String& vid, int rate) const { return folder.getChildFile("grades-" + vid + (rate > 0 ? "@" + juce::String(rate) : juce::String()) + ".csv"); }
+juce::File Library::rateCoreFile(const juce::String& id, const juce::String& vid, int rate) const { return folder.getChildFile("tracks").getChildFile(id + ".core-" + vid + "@" + juce::String(rate) + ".f32.gz"); }
+
+const std::vector<int>& Library::anchorRates() { static const std::vector<int> r{44100, 96000}; return r; }
 juce::File Library::coreFile(const juce::String& id, const juce::String& vid) const { return folder.getChildFile("tracks").getChildFile(id + ".core-" + vid + ".csv"); }
 
 std::vector<juce::String> Library::versionIds()
@@ -173,10 +176,10 @@ std::vector<juce::String> Library::versionIds()
     return v;
 }
 
-void Library::putGradeRow(const juce::String& vid, const juce::String& id, const OriginalResult& o)
+void Library::putGradeRow(const juce::String& vid, const juce::String& id, const OriginalResult& o, int rate)
 {
     const juce::ScopedLock sl(lock);
-    Table t; t.load(gradesFile(vid));
+    Table t; t.load(gradesFile(vid, rate));
     juce::StringArray want; for (auto c : kGradeHeader) want.add(c);
     if (t.header != want) {Table n; n.header = want; for (size_t r = 0; r < t.rows.size(); ++r) {n.rows.push_back({}); for (auto& c : want) n.rows.back().add(t.get(r, c));} t = n;}
     const juce::StringArray cells{id, juce::String(o.grade), juce::String(o.letter), juce::String(o.bonus), juce::String(o.authority), juce::String(o.power),
@@ -184,15 +187,33 @@ void Library::putGradeRow(const juce::String& vid, const juce::String& id, const
         num(o.letterValue, 3), juce::String(o.bonusValue), juce::String((int)o.windows), juce::Time::getCurrentTime().toISO8601(true)};
     const int existing = t.findRow("id", id);
     if (existing >= 0) t.rows[(size_t)existing] = cells; else t.rows.push_back(cells);
-    t.save(gradesFile(vid));
+    t.save(gradesFile(vid, rate));
     ++changes;
 }
 
-Table Library::grades(const juce::String& vid)
+Table Library::grades(const juce::String& vid, int rate)
 {
     const juce::ScopedLock sl(lock);
     Table t; t.load(gradesFile(vid));
-    return t;
+    if (rate <= 0) return t;
+    Table r; r.load(gradesFile(vid, rate));
+    if (r.header.isEmpty()) r.header = t.header;
+    if (r.header.isEmpty()) return r;
+    //tracks that already are at this rate were not converted: their own grades are the answer
+    Table idx; idx.load(indexFile());
+    std::map<juce::String, size_t> have, nat;
+    for (size_t i = 0; i < r.rows.size(); ++i) have[r.get(i, "id")] = i;
+    for (size_t i = 0; i < t.rows.size(); ++i) nat[t.get(i, "id")] = i;
+    for (size_t i = 0; i < idx.rows.size(); ++i) {
+        if (juce::roundToInt(idx.get(i, "sample_rate").getDoubleValue()) != rate) continue;
+        const juce::String id = idx.get(i, "id");
+        auto n = nat.find(id);
+        if (n == nat.end() || have.count(id)) continue;
+        juce::StringArray cells;
+        for (auto& h : r.header) cells.add(t.get(n->second, h));
+        r.rows.push_back(cells);
+    }
+    return r;
 }
 
 static void writeCore(const juce::File& f, const MeterRun& run, double sr)
@@ -212,6 +233,34 @@ static void writeCore(const juce::File& f, const MeterRun& run, double sr)
         csv << "\r\n";
     }
     f.replaceWithText(csv, false, false, "\r\n");
+}
+
+// The window data at a converted rate: float32 rows (one per window, the version's messages in order), gzip compressed. The column names live in meta.json.
+static void writeCoreGz(const juce::File& f, const MeterRun& run)
+{
+    f.deleteFile();
+    juce::FileOutputStream fos(f);
+    if (!fos.openedOk()) return;
+    juce::GZIPCompressorOutputStream gz(fos, 6, juce::GZIPCompressorOutputStream::windowBitsGZIP);
+    for (float v : run.core) gz.writeFloat(v);
+    gz.flush();
+}
+
+static bool readFloats(const juce::File& f, std::vector<float>& out);
+
+bool Library::readCoreAt(const juce::String& id, const juce::String& vid, int rate, std::vector<std::string>& names, std::vector<float>& values)
+{
+    if (rate <= 0) return readCore(id, vid, names, values);
+    const juce::var meta = juce::JSON::parse(folder.getChildFile("tracks").getChildFile(id + ".meta.json"));
+    if (juce::roundToInt((double)meta.getProperty("sample_rate", 0.0)) == rate) return readCore(id, vid, names, values);
+    if (auto* arr = meta.getProperty("rate_runs", juce::var()).getArray())
+        for (auto& r : *arr) {
+            if (juce::roundToInt((double)r.getProperty("rate", 0.0)) != rate || r.getProperty("core_version", "").toString() != vid) continue;
+            names.clear(); values.clear();
+            if (auto* nm = r.getProperty("core_columns", juce::var()).getArray()) for (auto& n : *nm) names.push_back(n.toString().toStdString());
+            return !names.empty() && readFloats(rateCoreFile(id, vid, rate), values) && values.size() % names.size() == 0;
+        }
+    return false;
 }
 
 // Reads a stored core file. Files from the first analyser versions (<id>.core.csv) hold Meter 0.5.5's ten values under short names.
@@ -236,8 +285,62 @@ bool Library::readCore(const juce::String& id, const juce::String& vid, std::vec
     return !values.empty();
 }
 
-// Decodes the audio once and feeds it to the extras capture (if wanted) and to each Meter version's own audio loop.
-bool Library::scanAudio(const juce::File& audio, Capture* cap, std::vector<std::unique_ptr<MeterRun>>& runs, std::function<void(double)> progress,
+// One way of presenting the audio to the Meter versions: as the file has it, or converted to an anchor rate first.
+struct Library::Lane {
+    int rate = 0;                    // 0 = as the file has it, else the anchor rate
+    std::vector<std::unique_ptr<MeterRun>> runs; // one per Meter version asked for
+    std::unique_ptr<f8kdsp::Resampler> rl, rr;
+    std::vector<float> bl, br;
+    size_t skip = 0;                 // converted samples still to drop (the filter's delay), so the converted audio lines up with the original
+    void feed(const float* L, const float* R, int n, bool mono)
+    {
+        if (!rl) {for (auto& r : runs) r->process(L, R, n); return;}
+        bl.clear(); rl->process(L, (size_t)n, bl);
+        if (mono) br = bl; else {br.clear(); rr->process(R, (size_t)n, br);}
+        push();
+    }
+    void finish(bool mono)
+    {
+        if (!rl) return;
+        bl.clear(); rl->flush(bl);
+        if (mono) br = bl; else {br.clear(); rr->flush(br);}
+        push();
+    }
+    void push()
+    {
+        size_t off = std::min(skip, bl.size()); skip -= off;
+        if (bl.size() > off && br.size() == bl.size()) for (auto& r : runs) r->process(bl.data() + off, br.data() + off, (int)(bl.size() - off));
+    }
+};
+
+// A lane for the file's own rate (rate 0) and one for each anchor rate it is not already at.
+// rate 0 = the file's own rate. Returns false when that conversion is not possible.
+static bool addLane(std::vector<Library::Lane>& lanes, double fileRate, int rate, const std::vector<juce::String>& vids)
+{
+    Library::Lane ln; ln.rate = rate;
+    const double runRate = rate > 0 ? (double)rate : fileRate;
+    if (rate > 0) {
+        ln.rl = std::make_unique<f8kdsp::Resampler>(fileRate, (double)rate);
+        ln.rr = std::make_unique<f8kdsp::Resampler>(fileRate, (double)rate);
+        if (!ln.rl->ok()) return false;
+        ln.skip = (size_t)std::llround(ln.rl->latencyInputSamples()*(double)rate/fileRate);
+    }
+    for (auto& v : vids) if (auto* mv = findMeterVersion(v.toStdString())) ln.runs.push_back(mv->create(runRate, 1));
+    lanes.push_back(std::move(ln));
+    return true;
+}
+
+// The native lane, then a lane for each anchor rate the file is not already at.
+static std::vector<Library::Lane> makeLanes(double fileRate, const std::vector<juce::String>& vids)
+{
+    std::vector<Library::Lane> lanes;
+    addLane(lanes, fileRate, 0, vids);
+    for (int a : Library::anchorRates()) if (juce::roundToInt(fileRate) != a) addLane(lanes, fileRate, a, vids);
+    return lanes;
+}
+
+// Decodes the audio once and feeds it to the extras capture (if wanted) and to every lane (each Meter version's own audio loop).
+bool Library::scanAudio(const juce::File& audio, Capture* cap, std::vector<Lane>& lanes, std::function<void(double)> progress,
                         std::function<bool()> shouldStop, juce::String& error, std::unique_ptr<juce::AudioFormatReader>* readerOut)
 {
     juce::AudioFormatManager fm; fm.registerBasicFormats(); //one per scan, so several scans can run side by side
@@ -247,6 +350,7 @@ bool Library::scanAudio(const juce::File& audio, Capture* cap, std::vector<std::
     const juce::int64 length = reader->lengthInSamples;
     if (reader->sampleRate < 8000.0 || numCh < 1 || length < 1) {error = "no usable audio in this file"; return false;}
     const int chunk = 65536;
+    const bool mono = numCh < 2; //mono plays as dual mono, as on a stereo track
     juce::AudioBuffer<float> buf(juce::jmax(2, numCh), chunk);
     for (juce::int64 pos = 0; pos < length; pos += chunk) {
         if (shouldStop && shouldStop()) {error = "stopped"; return false;}
@@ -254,11 +358,12 @@ bool Library::scanAudio(const juce::File& audio, Capture* cap, std::vector<std::
         buf.clear();
         reader->read(&buf, 0, n, pos, true, numCh > 1);
         const float* L = buf.getReadPointer(0);
-        const float* R = numCh > 1 ? buf.getReadPointer(1) : L; //mono plays as dual mono, as on a stereo track
+        const float* R = numCh > 1 ? buf.getReadPointer(1) : L;
         if (cap) cap->process(L, R, n);
-        for (auto& r : runs) r->process(L, R, n);
+        for (auto& ln : lanes) ln.feed(L, R, n, mono);
         if (progress) progress((double)(pos + n) / (double)length * 0.9);
     }
+    for (auto& ln : lanes) ln.finish(mono);
     if (cap) cap->finish();
     if (readerOut) *readerOut = std::move(reader);
     return true;
@@ -289,18 +394,19 @@ AnalyseOutcome Library::analyse(const juce::File& audio, std::function<void(doub
     missing = versionIds();
 
     std::unique_ptr<juce::AudioFormatReader> reader;
-    std::vector<std::unique_ptr<MeterRun>> runs;
+    std::vector<Lane> lanes;
     std::unique_ptr<Capture> capPtr;
     {
         juce::AudioFormatManager fm; fm.registerBasicFormats();
         std::unique_ptr<juce::AudioFormatReader> probe(fm.createReaderFor(audio));
         if (probe == nullptr) {out.message = "could not open this file as audio"; return out;}
-        for (auto& v : meterVersions()) runs.push_back(v.create(probe->sampleRate, 1));
+        lanes = makeLanes(probe->sampleRate, versionIds());
         capPtr = std::make_unique<Capture>(probe->sampleRate);
     }
     juce::String error;
     Capture& cap = *capPtr;
-    if (!scanAudio(audio, &cap, runs, progress, shouldStop, error, &reader)) {out.message = error; return out;}
+    if (!scanAudio(audio, &cap, lanes, progress, shouldStop, error, &reader)) {out.message = error; return out;}
+    auto& runs = lanes[0].runs; //the file's own rate
     const double sr = reader->sampleRate;
     const int numCh = (int)reader->numChannels;
     const juce::int64 length = reader->lengthInSamples;
@@ -325,6 +431,14 @@ AnalyseOutcome Library::analyse(const juce::File& audio, std::function<void(doub
         writeCore(coreFile(id, vid), *runs[i], sr);
         results.push_back(runs[i]->result());
         putGradeRow(vid, id, results.back());
+    }
+    //the same audio converted to each anchor rate: every version's grade, and the newest version's window data
+    for (size_t li = 1; li < lanes.size(); ++li) {
+        for (size_t i = 0; i < lanes[li].runs.size(); ++i) putGradeRow(juce::String(meterVersions()[i].id), id, lanes[li].runs[i]->result(), lanes[li].rate);
+        writeCoreGz(rateCoreFile(id, juce::String(meterVersions().back().id), lanes[li].rate), *lanes[li].runs.back());
+    }
+    for (int a : anchorRates()) if (juce::roundToInt(sr) == a || std::none_of(lanes.begin() + 1, lanes.end(), [&](const Lane& l) { return l.rate == a; })) {
+        for (auto& v : versionIds()) rateCoreFile(id, v, a).deleteFile(); //nothing stale left from an earlier scan
     }
     tracks.getChildFile(id + ".core.csv").deleteFile(); //the first analyser versions' file, now replaced by core-<version>.csv
     if (progress) progress(0.93);
@@ -381,6 +495,25 @@ AnalyseOutcome Library::analyse(const juce::File& audio, std::function<void(doub
             mv.add(juce::var(v));
         }
         o->setProperty("meter_versions", mv);
+        {   //the same audio converted to each anchor rate (a rate the file already has is not repeated: its own data is used)
+            juce::Array<juce::var> rr;
+            for (size_t li = 1; li < lanes.size(); ++li) {
+                auto* r = new juce::DynamicObject();
+                const int rate = lanes[li].rate;
+                const auto& last = *lanes[li].runs.back();
+                r->setProperty("rate", rate);
+                juce::Array<juce::var> gs;
+                for (size_t i = 0; i < lanes[li].runs.size(); ++i) {auto* g = new juce::DynamicObject(); g->setProperty("id", juce::String(meterVersions()[i].id)); g->setProperty("grade", juce::String(lanes[li].runs[i]->result().grade)); gs.add(juce::var(g));}
+                r->setProperty("grades", gs);
+                r->setProperty("core_version", juce::String(meterVersions().back().id));
+                r->setProperty("core_file", rateCoreFile(id, juce::String(meterVersions().back().id), rate).getFileName());
+                juce::Array<juce::var> nm; for (auto& n : last.names) nm.add(juce::String(n));
+                r->setProperty("core_columns", nm); r->setProperty("core_windows", (int)last.windowCount());
+                r->setProperty("core_window_samples", (int)std::floor((1881.0/44100.0)*rate) + 1);
+                rr.add(juce::var(r));
+            }
+            o->setProperty("rate_runs", rr);
+        }
         o->setProperty("core_window_samples", (int)std::floor((1881.0/44100.0)*sr) + 1);
         o->setProperty("fine_block_samples", cap.fineBlockSamples);
         o->setProperty("fine_blocks", (int)cap.fineRows());
@@ -413,19 +546,24 @@ AnalyseOutcome Library::analyse(const juce::File& audio, std::function<void(doub
     return out;
 }
 
-// Runs only the given Meter versions over a track already in the library (for versions added after it was scanned).
+// Runs only the given Meter versions over a track already in the library (for versions added after it was scanned),
+// at the file's own rate and at each anchor rate.
 bool Library::scanVersions(const juce::String& id, const juce::File& audio, const std::vector<juce::String>& vids, std::function<void(double)> progress, std::function<bool()> shouldStop)
 {
     juce::AudioFormatManager fm; fm.registerBasicFormats();
     std::unique_ptr<juce::AudioFormatReader> probe(fm.createReaderFor(audio));
     if (probe == nullptr) return false;
-    std::vector<std::unique_ptr<MeterRun>> runs;
-    for (auto& v : vids) if (auto* mv = findMeterVersion(v.toStdString())) runs.push_back(mv->create(probe->sampleRate, 1));
     const double sr = probe->sampleRate;
     probe.reset();
+    std::vector<Lane> lanes = makeLanes(sr, vids);
     juce::String error;
-    if (!scanAudio(audio, nullptr, runs, progress, shouldStop, error, nullptr)) return false;
-    for (size_t i = 0; i < runs.size(); ++i) {writeCore(coreFile(id, vids[i]), *runs[i], sr); putGradeRow(vids[i], id, runs[i]->result());}
+    if (!scanAudio(audio, nullptr, lanes, progress, shouldStop, error, nullptr)) return false;
+    for (auto& ln : lanes)
+        for (size_t i = 0; i < ln.runs.size(); ++i) {
+            if (ln.rate == 0) writeCore(coreFile(id, vids[i]), *ln.runs[i], sr);
+            else if (vids[i] == juce::String(meterVersions().back().id)) writeCoreGz(rateCoreFile(id, vids[i], ln.rate), *ln.runs[i]);
+            putGradeRow(vids[i], id, ln.runs[i]->result(), ln.rate);
+        }
     return true;
 }
 
@@ -530,9 +668,12 @@ bool Library::removeTrack(const juce::String& id)
     for (auto* ext : {".core.csv", ".fine.f32.gz", ".pitch.f32.gz", ".meta.json"}) folder.getChildFile("tracks").getChildFile(id + ext).deleteFile();
     for (auto& v : versionIds()) {
         coreFile(id, v).deleteFile();
-        Table gt; gt.load(gradesFile(v));
-        const int gr = gt.findRow("id", id);
-        if (gr >= 0) {gt.rows.erase(gt.rows.begin() + gr); gt.save(gradesFile(v));}
+        for (int rate : {0, 44100, 96000}) {
+            if (rate > 0) rateCoreFile(id, v, rate).deleteFile();
+            Table gt; gt.load(gradesFile(v, rate));
+            const int gr = gt.findRow("id", id);
+            if (gr >= 0) {gt.rows.erase(gt.rows.begin() + gr); gt.save(gradesFile(v, rate));}
+        }
     }
     Table u; u.load(userFile());
     const int ur = u.findRow("id", id);
@@ -674,6 +815,51 @@ int Library::upgradeOldRows(std::function<bool()> shouldStop, std::function<void
     return changed.load();
 }
 
+int Library::tracksNeedingRescan()
+{
+    const Table t = index();
+    int n = 0;
+    for (size_t r = 0; r < t.rows.size(); ++r) if (t.get(r, "capture_version").getDoubleValue() < juce::String(kCaptureVersion).getDoubleValue()) ++n;
+    return n;
+}
+
+int Library::rescanLibrary(std::function<bool()> shouldStop, std::function<void(int, int, const juce::String&)> progress, std::function<void(const juce::String&)> log)
+{
+    const Table t = index();
+    struct Job { juce::String id, file, path; };
+    std::vector<Job> jobs;
+    const double want = juce::String(kCaptureVersion).getDoubleValue();
+    for (size_t r = 0; r < t.rows.size(); ++r)
+        if (t.get(r, "capture_version").getDoubleValue() < want) jobs.push_back({t.get(r, "id"), t.get(r, "file"), t.get(r, "source_path")});
+    if (jobs.empty()) return 0;
+    std::atomic<int> next{0}, done{0}, rescanned{0}, missing{0};
+    juce::CriticalSection logLock;
+    auto say = [&](const juce::String& m) { if (log) {const juce::ScopedLock sl(logLock); log(m);} };
+    auto work = [&] {
+        for (int k; (k = next++) < (int)jobs.size();) {
+            if (shouldStop && shouldStop()) return;
+            const Job& j = jobs[(size_t)k];
+            const juce::File src(j.path);
+            if (j.path.isEmpty() || !src.existsAsFile()) {++missing; say("not found, left as it is: " + (j.path.isEmpty() ? j.file : j.path));}
+            else if (juce::SHA256(src).toHexString().substring(0, 16) != j.id) {++missing; say("the file at this path is not the one that was scanned, left as it is: " + j.path);}
+            else {
+                const AnalyseOutcome o = analyse(src, {}, shouldStop);
+                if (o.status == AnalyseOutcome::Updated || o.status == AnalyseOutcome::AlreadyThere) ++rescanned;
+                else if (o.message != "stopped") say("could not rescan " + j.file + ": " + o.message);
+            }
+            const int d = ++done;
+            if (progress) progress(d, (int)jobs.size(), j.file);
+        }
+    };
+    const int threads = juce::jlimit(1, 8, (int)std::thread::hardware_concurrency() - 1);
+    std::vector<std::thread> pool;
+    for (int i = 1; i < threads; ++i) pool.emplace_back(work);
+    work();
+    for (auto& th : pool) th.join();
+    lastNoAudio = missing.load();
+    return rescanned.load();
+}
+
 void Library::writeReadme()
 {
     const juce::File f = folder.getChildFile("README.txt");
@@ -682,9 +868,15 @@ void Library::writeReadme()
         "=================\r\n"
         "Made by meterDARK Analyser. Each track you add is captured once and kept here. Nothing is ever interpreted on the way in:\r\n"
         "every gauge, grade or hint can be worked out again later from these files, without the audio.\r\n\r\n"
-        "index.csv              one row per track: tags, format, levels, loudness, and what the ORIGINAL Airwindows Meter 0.5.5 reads.\r\n"
-        "tracks/<id>.core.csv   the original meter's own data: one row per audio window (1882 samples at 44.1 kHz, about 42.7 ms),\r\n"
-        "                       the ten values the plugin sends to its display (peak is square-rooted, as in the plugin).\r\n"
+        "index.csv              one row per track: tags, format, levels, loudness, BPM and key estimates, and where the file was.\r\n"
+        "grades-<version>.csv   what each ORIGINAL Airwindows Meter version reads for every track, with the audio as the file has it.\r\n"
+        "grades-<version>@44100.csv, @96000.csv   the same, after the audio was converted to that sample rate first (a high-quality\r\n"
+        "                       resampler, the same one meterDARK uses). The sample rate of the file changes what Meter reads, so the rate\r\n"
+        "                       is a choice you make in the Library tab. A track already at that rate has no row in these files: its own grades are used.\r\n"
+        "tracks/<id>.core-<version>.csv   the original meter's own data: one row per audio window (1882 samples at 44.1 kHz, about 42.7 ms),\r\n"
+        "                       the values the plugin sends to its display (peak is square-rooted, as in the plugin). Column names are in the header.\r\n"
+        "tracks/<id>.core-<newest version>@44100.f32.gz, @96000.f32.gz   the same window data of the newest Meter version for the converted audio:\r\n"
+        "                       gzip-compressed little-endian float32, one row per window; the column names are in <id>.meta.json (rate_runs).\r\n"
         "tracks/<id>.fine.f32.gz  short blocks (256 samples at 44.1 kHz, about 5.8 ms), gzip-compressed little-endian float32 rows.\r\n"
         "                       The columns are listed in <id>.meta.json (fine_columns). Peaks, slews, zero-cross positions, beam and\r\n"
         "                       departure combine exactly into any longer window. Extras: RMS, DC, true peak, K-weighted loudness,\r\n"

@@ -1,5 +1,6 @@
 // Self-test: (1) rebuilding the core windows from fine blocks matches the plugin's own windows,
 // (2) the original scorer runs and gives sensible results on test tones. Build: see tools/run_selftest.sh
+#include "../src/Resampler.h"
 #include "../src/Capture.h"
 #include "../src/OriginalScorer.h"
 #include <cstdio>
@@ -93,6 +94,75 @@ static void runSignal(const char* name, double sr, double seconds, std::function
     printf("    %s%s\n", r.directionsMain.c_str(), others.c_str());
 }
 
+
+// Rate invariance: the same band-limited music-like signal made at 44.1, 48 and 96 kHz. Read at its own rate the Meter versions disagree;
+// converted to one anchor rate first (the analyser's rate runs) they must agree closely. Prints every number.
+static bool rateInvariance()
+{
+    const double rates[3] = {44100.0, 48000.0, 96000.0};
+    const int anchors[2] = {44100, 96000};
+    const double seconds = 40.0;
+    const int nPart = 70;
+    std::mt19937 rng(7); std::uniform_real_distribution<double> ur(0.0, 1.0);
+    struct P { double f, a, ph, pan, rate, depth; } parts[nPart];
+    for (int i = 0; i < nPart; ++i) parts[i] = {60.0*std::pow(17000.0/60.0, (double)i/(nPart - 1)) * (0.97 + 0.06*ur(rng)), std::pow(10.0, -(0.5 + 1.5*ur(rng))), ur(rng)*6.2831853, ur(rng), 0.5 + 3.0*ur(rng), ur(rng)};
+    auto makeSignal = [&](double sr, std::vector<float>& L, std::vector<float>& R) {
+        const long n = (long)(seconds*sr); L.assign((size_t)n, 0.f); R.assign((size_t)n, 0.f);
+        for (long i = 0; i < n; ++i) {
+            const double t = i/sr; double l = 0, r = 0;
+            const double beat = std::fmod(t, 0.5), hit = std::exp(-beat*18.0)*(0.5 - 0.5*std::cos(3.14159265358979*std::min(beat/0.008, 1.0))); //8 ms smooth attack: no content above ~20 kHz
+            for (auto& p : parts) {
+                const double env = (0.35 + 0.65*hit)*(1.0 - p.depth*0.5 + 0.5*p.depth*std::sin(6.2831853*p.rate*0.2*t + p.ph));
+                const double v = p.a*env*std::sin(6.2831853*p.f*t + p.ph);
+                l += v*(1.0 - 0.5*p.pan); r += v*(0.5 + 0.5*p.pan);
+            }
+            L[(size_t)i] = (float)(0.8*l); R[(size_t)i] = (float)(0.8*r);
+        }
+    };
+    struct Row { std::string grade; double letter, power, detail, authority; int bonus; };
+    auto runAt = [&](const MeterVersion& mv, double sr, const std::vector<float>& L, const std::vector<float>& R) {
+        auto run = mv.create(sr, 1);
+        for (size_t pos = 0; pos < L.size(); pos += 65536) { const int n = (int)std::min<size_t>(65536, L.size() - pos); run->process(&L[pos], &R[pos], n); }
+        const auto r = run->result();
+        return Row{r.grade, r.letterValue, r.peakPrevGrade, r.slewPrevGrade, r.bassPrevGrade, r.bonusValue};
+    };
+    bool ok = true;
+    double worstAnchor = 0, worstNative = 0;
+    for (auto& mv : meterVersions()) {
+        std::vector<std::vector<float>> L(3), R(3);
+        for (int k = 0; k < 3; ++k) makeSignal(rates[k], L[k], R[k]);
+        printf("\nRate invariance, Meter %s (same signal made at three rates)\n", mv.version.c_str());
+        printf("  %-18s %-24s letter  power  detail  authority  bonus\n", "read at", "grade");
+        std::vector<Row> nat; 
+        for (int k = 0; k < 3; ++k) {
+            nat.push_back(runAt(mv, rates[k], L[k], R[k]));
+            printf("  %-18s %-24s %6.2f %6.2f %6.2f %9.2f %6d\n", (std::to_string((int)rates[k]) + " (own)").c_str(), nat.back().grade.c_str(), nat.back().letter, nat.back().power, nat.back().detail, nat.back().authority, nat.back().bonus);
+        }
+        for (int a : anchors) {
+            std::vector<Row> rows;
+            for (int k = 0; k < 3; ++k) {
+                if (std::lround(rates[k]) == a) {rows.push_back(nat[(size_t)k]); continue;}
+                f8kdsp::Resampler rl(rates[k], a), rr(rates[k], a);
+                std::vector<float> cl, cr;
+                for (size_t pos = 0; pos < L[k].size(); pos += 65536) { const size_t n = std::min<size_t>(65536, L[k].size() - pos); rl.process(&L[k][pos], n, cl); rr.process(&R[k][pos], n, cr); }
+                rl.flush(cl); rr.flush(cr);
+                rows.push_back(runAt(mv, a, cl, cr));
+            }
+            for (int k = 0; k < 3; ++k) printf("  %-18s %-24s %6.2f %6.2f %6.2f %9.2f %6d\n", ("-> " + std::to_string(a) + " from " + std::to_string((int)rates[k])).c_str(), rows[(size_t)k].grade.c_str(), rows[(size_t)k].letter, rows[(size_t)k].power, rows[(size_t)k].detail, rows[(size_t)k].authority, rows[(size_t)k].bonus);
+            double spread = 0;
+            for (int i = 0; i < 3; ++i) for (int j = i + 1; j < 3; ++j)
+                spread = std::max({spread, std::fabs(rows[(size_t)i].power - rows[(size_t)j].power), std::fabs(rows[(size_t)i].detail - rows[(size_t)j].detail), std::fabs(rows[(size_t)i].authority - rows[(size_t)j].authority)});
+            double natSpread = 0;
+            for (int i = 0; i < 3; ++i) for (int j = i + 1; j < 3; ++j)
+                natSpread = std::max({natSpread, std::fabs(nat[(size_t)i].power - nat[(size_t)j].power), std::fabs(nat[(size_t)i].detail - nat[(size_t)j].detail), std::fabs(nat[(size_t)i].authority - nat[(size_t)j].authority)});
+            printf("  anchor %d: largest difference of power/detail/authority across start rates = %.4f   (read at own rates: %.4f)\n", a, spread, natSpread);
+            worstAnchor = std::max(worstAnchor, spread); worstNative = std::max(worstNative, natSpread);
+        }
+    }
+    printf("\nrate invariance: converted-to-anchor spread %.4f, own-rate spread %.4f\n", worstAnchor, worstNative);
+    return ok && worstAnchor < 0.05 && worstAnchor <= worstNative;
+}
+
 int main()
 {
     const double sr = 44100.0; const double tau = 2.0*M_PI;
@@ -128,7 +198,9 @@ int main()
         if (!ok) ++estFails;
         printf("song %5.1f BPM %-8s -> %5.1f BPM (conf %.2f), %s (conf %.3f)  %s\n", t.bpm, t.key, b.bpm, b.confidence, k.name.c_str(), k.confidence, ok ? "ok" : "WRONG");
     }
+    const bool rateOk = rateInvariance();
     printf("worst merge error %g\n", gWorst);
+    if (!rateOk) {printf("RATE INVARIANCE FAILED\n"); return 1;}
     if (estFails) return 1;
     return gWorst < 1e-5 ? 0 : 1;
 }

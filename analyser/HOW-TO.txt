@@ -45,6 +45,22 @@ HOW TO READ A GRADE  (also behind the "How to read a grade" button)
   What pulls the letter down is one of the three lagging behind the other two. Best possible: 1-AJJK. Worst: Zssv.
   Sorting by Grade follows Chris's order: numbered tracks first (1 to 80), then the rest by letter, A first.
 
+Sample rate ("Rate")
+  The sample rate of a file changes what the original Meter reads, even for identical audio (it measures steps between
+  samples, so a 96 kHz file looks "smoother" to it than the same audio at 48 kHz). So every track is read three ways: as
+  the file has it, and after the audio is converted (with a high-quality converter) to 44.1 kHz and to 96 kHz.
+  "Rate" next to "compare with" chooses which one the Library shows: "as file" (default), "44.1 kHz" or "96 kHz". Using
+  one of the two fixed rates puts every track on a level playing field. A track already at that rate is read as it is.
+  The choice is remembered for the library.
+
+Rescan library...  (Add tracks tab)
+  Tracks added before the rate readings existed (capture version 1.1) have only the "as file" readings. "Rescan library..."
+  reads each of them again from where the file was when you added it and adds the 44.1 and 96 kHz readings. It uses
+  several cores, keeps each finished track at once (so you can close the app and carry on later - it picks up the tracks
+  not done yet), and shows an estimate of the time left. A track whose file has moved, been deleted or changed is listed in
+  the log and left exactly as it is. Your own values are never touched.
+  From the command line: MeterF8KAnalyserCLI --library <folder> --rescan
+
 Meter versions
   "Grades from" chooses which original Meter's grades the Library shows (the newest by default). "compare with" adds a
   second Grade column from another version, so you can see what a new version changed.
@@ -92,7 +108,9 @@ What is in the library
                            (opens in Excel)
   tracks\<id>.core-<version>.csv  each original Meter version's own data: one row per 42.7 ms window, exactly the
                            values that version sends to its display (0.5.6 sends twenty)
-  grades-<version>.csv     each original Meter version's grade for every track
+  grades-<version>.csv     each original Meter version's grade for every track, audio as the file has it
+  grades-<version>@44100.csv, @96000.csv   the same after the audio was converted to 44.1 / 96 kHz
+  tracks\<id>.core-<newest version>@44100.f32.gz, @96000.f32.gz   the newest version's window data for the converted audio
   tracks\<id>.fine.f32.gz  ~5.8 ms blocks with enough detail to rebuild any longer window, plus extras
                            (RMS, true peak, loudness, stereo, ten octave bands)
   tracks\<id>.pitch.f32.gz how strongly each of the 12 notes sounds, every ~93 ms (used for the key)
@@ -112,7 +130,7 @@ The original meter's grade
   why rendering faster than real time in a DAW changes its readings; the analyser does not have that problem.
 
 Command line (optional)
-  MeterF8KAnalyserCLI.exe [--library <folder>] <files or folders...>
+  MeterF8KAnalyserCLI.exe [--library <folder>] [--rescan] <files or folders...>
 
 For analysis scripts
   f8k_library.py (Python 3 + numpy) reads a library and rebuilds windows of any length from the fine blocks.

@@ -36,19 +36,36 @@ public:
     explicit Worker(juce::Component& ownerComp) : juce::Thread("analyser"), owner(&ownerComp) {}
     ~Worker() override { stopThread(6000); }
     void setLibrary(std::shared_ptr<f8k::Library> l) { const juce::ScopedLock sl(lock); library = std::move(l); needUpgrade = true; notify(); }
+    void startRescan() { { const juce::ScopedLock sl(lock); needRescan = true; } notify(); }
     void add(const juce::Array<juce::File>& files) {
         { const juce::ScopedLock sl(lock); for (auto& f : files) queue.add(f); total += files.size(); }
         notify();
     }
     void run() override {
         while (!threadShouldExit()) {
-            juce::File next; std::shared_ptr<f8k::Library> lib; bool upgrade = false;
+            juce::File next; std::shared_ptr<f8k::Library> lib; bool upgrade = false, rescan = false;
             {
                 const juce::ScopedLock sl(lock);
-                lib = library; upgrade = needUpgrade; needUpgrade = false;
-                if (!upgrade && queue.size() > 0) next = queue.removeAndReturn(0);
+                lib = library; upgrade = needUpgrade; needUpgrade = false; rescan = needRescan && !upgrade; if (rescan) needRescan = false;
+                if (!upgrade && !rescan && queue.size() > 0) next = queue.removeAndReturn(0);
             }
             if (lib == nullptr) {wait(-1); continue;}
+            if (rescan) { //every track scanned by an older analyser is scanned again from its file; each finished track is kept at once
+                const double t0 = juce::Time::getMillisecondCounterHiRes();
+                const int want = lib->tracksNeedingRescan();
+                postLog("Rescanning " + juce::String(want) + " tracks. You can close the app at any time; the next rescan carries on with the tracks not done yet.");
+                const int n = lib->rescanLibrary([this] { return threadShouldExit(); },
+                    [this, t0](int d, int t, const juce::String& f) {
+                        const double secs = (juce::Time::getMillisecondCounterHiRes() - t0)/1000.0;
+                        const double left = d > 0 ? secs/d*(t - d) : 0.0;
+                        juce::String eta = d >= 3 ? "   about " + (left >= 5400 ? juce::String(left/3600.0, 1) + " hours" : juce::String(juce::roundToInt(left/60.0)) + " min") + " left" : juce::String();
+                        post(d, t, 0.0, "rescanning " + f + eta);
+                    },
+                    [this](const juce::String& m) { postLog(m); });
+                postLog("Rescan finished: " + juce::String(n) + " tracks scanned again" + (lib->lastNoAudio > 0 ? ", " + juce::String(lib->lastNoAudio) + " left as they were (file not found or changed)" : juce::String()) + ".");
+                post(0, 0, 0.0, {});
+                continue;
+            }
             if (upgrade) { //tracks scanned by an earlier version get the newer values worked out from their saved data
                 const int n = lib->upgradeOldRows([this] { return threadShouldExit(); },
                     [this](int d, int t, const juce::String& f) { post(d, t, 0.0, "updating the library for the newest Meter: " + f); });
@@ -76,7 +93,7 @@ private:
     juce::CriticalSection lock;
     juce::Array<juce::File> queue;
     std::shared_ptr<f8k::Library> library;
-    bool needUpgrade = false;
+    bool needUpgrade = false, needRescan = false;
     std::atomic<int> done{0}, total{0};
     juce::Component::SafePointer<juce::Component> owner; //the worker lives inside its owner, so a live owner means a live worker
 };
@@ -85,9 +102,10 @@ private:
 class AddPanel : public juce::Component, public juce::FileDragAndDropTarget {
 public:
     std::function<void(const juce::Array<juce::File>&)> onFiles;
-    std::function<void()> onOpenFolder, onChangeFolder;
+    std::function<void()> onOpenFolder, onChangeFolder, onRescan;
     AddPanel() {
-        for (auto* b : {&addButton, &openButton, &changeButton}) {addAndMakeVisible(b); styleButton(*b);}
+        for (auto* b : {&addButton, &openButton, &changeButton, &rescanButton}) {addAndMakeVisible(b); styleButton(*b);}
+        rescanButton.onClick = [this] { if (onRescan) onRescan(); };
         addChildComponent(updateButton); styleButton(updateButton);
         updateButton.setColour(juce::TextButton::buttonColourId, kAccent.withAlpha(0.25f));
         addButton.onClick = [this] { chooseFiles(); };
@@ -144,6 +162,7 @@ public:
         addButton.setBounds(buttons.removeFromLeft(140)); buttons.removeFromLeft(8);
         openButton.setBounds(buttons.removeFromLeft(160)); buttons.removeFromLeft(8);
         changeButton.setBounds(buttons.removeFromLeft(170)); buttons.removeFromLeft(8);
+        rescanButton.setBounds(buttons.removeFromLeft(150)); buttons.removeFromLeft(8);
         if (updateButton.isVisible()) updateButton.setBounds(buttons);
         r.removeFromTop(10);
         r.removeFromTop(22);
@@ -176,7 +195,7 @@ private:
                 if (fc.getResults().size()) queue(list, fc.getResults().size());
             });
     }
-    juce::TextButton addButton{"Add files..."}, openButton{"Open library folder"}, changeButton{"Change library folder..."}, updateButton;
+    juce::TextButton addButton{"Add files..."}, openButton{"Open library folder"}, changeButton{"Change library folder..."}, rescanButton{"Rescan library..."}, updateButton;
     double progress = 0.0;
     juce::ProgressBar progressBar{progress};
     juce::TextEditor logBox;
@@ -228,13 +247,16 @@ public:
         importButton.onClick = [this] { importDialog(); };
         showButton.onClick = [this] { if (auto* r = selectedRow()) revealTrack(*r); };
         removeButton.onClick = [this] { removeSelected(); };
-        for (auto* l : {&gradeLabel, &compareLabel}) {addAndMakeVisible(l); l->setColour(juce::Label::textColourId, kDim); l->setJustificationType(juce::Justification::centredRight);}
-        for (auto* b : {&gradeBox, &compareBox}) {
+        for (auto* l : {&gradeLabel, &compareLabel, &rateLabel}) {addAndMakeVisible(l); l->setColour(juce::Label::textColourId, kDim); l->setJustificationType(juce::Justification::centredRight);}
+        for (auto* b : {&gradeBox, &compareBox, &rateBox}) {
             addAndMakeVisible(b);
             b->setColour(juce::ComboBox::backgroundColourId, kPanel); b->setColour(juce::ComboBox::textColourId, kText); b->setColour(juce::ComboBox::outlineColourId, kPanel);
         }
         gradeBox.onChange = [this] { const int i = gradeBox.getSelectedId() - 1; const auto v = f8k::Library::versionIds(); if (i >= 0 && i < (int)v.size() && v[(size_t)i] != gradeVersion) {gradeVersion = v[(size_t)i]; saveVersions(); rebuildColumns(); applyFilter();} };
         compareBox.onChange = [this] { const int i = compareBox.getSelectedId() - 2; const auto v = f8k::Library::versionIds(); const juce::String nv = (i >= 0 && i < (int)v.size()) ? v[(size_t)i] : juce::String(); if (nv != compareVersion) {compareVersion = nv; saveVersions(); rebuildColumns(); applyFilter();} };
+        rateBox.addItem("as file", 1); rateBox.addItem("44.1 kHz", 2); rateBox.addItem("96 kHz", 3);
+        rateBox.setSelectedId(1, juce::dontSendNotification);
+        rateBox.onChange = [this] { const int nr = rateBox.getSelectedId() == 2 ? 44100 : rateBox.getSelectedId() == 3 ? 96000 : 0; if (nr != gradeRate) {gradeRate = nr; saveVersions(); reload();} };
         for (auto* b : {&dupButton, &howButton}) {addAndMakeVisible(b); styleButton(*b);}
         dupButton.onClick = [this] { dupOnly = !dupOnly; applyFilter(); };
         howButton.onClick = [this] { showHowToRead(); };
@@ -254,9 +276,15 @@ public:
         const juce::String selectedId = selectedRow() ? selectedRow()->id : juce::String();
         idx = lib->index();
         user = lib->userValues();
+        if (rateLoadedFor != lib.get()) { //the rate you left this library on
+            rateLoadedFor = lib.get();
+            const int saved = (int)juce::JSON::parse(lib->folder.getChildFile("view.json")).getProperty("rate", 0);
+            gradeRate = (saved == 44100 || saved == 96000) ? saved : 0;
+            rateBox.setSelectedId(gradeRate == 44100 ? 2 : gradeRate == 96000 ? 3 : 1, juce::dontSendNotification);
+        }
         grades.clear(); gradeRow.clear();
         for (auto& v : f8k::Library::versionIds()) {
-            grades[v] = lib->grades(v);
+            grades[v] = lib->grades(v, gradeRate);
             auto& m = gradeRow[v];
             for (size_t r = 0; r < grades[v].rows.size(); ++r) m[grades[v].get(r, "id")] = r;
         }
@@ -351,8 +379,9 @@ public:
         countLabel.setBounds(top);
         r.removeFromTop(6);
         auto row2 = r.removeFromTop(26);
-        gradeLabel.setBounds(row2.removeFromLeft(84)); gradeBox.setBounds(row2.removeFromLeft(190)); row2.removeFromLeft(4);
-        compareLabel.setBounds(row2.removeFromLeft(96)); compareBox.setBounds(row2.removeFromLeft(190)); row2.removeFromLeft(12);
+        gradeLabel.setBounds(row2.removeFromLeft(84)); gradeBox.setBounds(row2.removeFromLeft(170)); row2.removeFromLeft(4);
+        compareLabel.setBounds(row2.removeFromLeft(96)); compareBox.setBounds(row2.removeFromLeft(170)); row2.removeFromLeft(4);
+        rateLabel.setBounds(row2.removeFromLeft(44)); rateBox.setBounds(row2.removeFromLeft(100)); row2.removeFromLeft(12);
         dupButton.setBounds(row2.removeFromLeft(190)); row2.removeFromLeft(6);
         howButton.setBounds(row2.removeFromLeft(150));
         r.removeFromTop(6);
@@ -599,7 +628,7 @@ private:
         const juce::File f = lib->folder.getChildFile("view.json");
         juce::var j = juce::JSON::parse(f);
         if (!j.isObject()) j = juce::var(new juce::DynamicObject());
-        j.getDynamicObject()->setProperty("grades", gradeVersion); j.getDynamicObject()->setProperty("compare", compareVersion);
+        j.getDynamicObject()->setProperty("grades", gradeVersion); j.getDynamicObject()->setProperty("compare", compareVersion); j.getDynamicObject()->setProperty("rate", gradeRate);
         f.replaceWithText(juce::JSON::toString(j));
     }
 
@@ -791,8 +820,10 @@ private:
     juce::String gradeVersion, compareVersion;
     std::map<juce::String, juce::String> dupOf;                      //track id -> the file names it may duplicate
     bool dupOnly = false;
-    juce::ComboBox gradeBox, compareBox;
-    juce::Label gradeLabel{{}, "Grades from"}, compareLabel{{}, "compare with"};
+    juce::ComboBox gradeBox, compareBox, rateBox;
+    int gradeRate = 0;                      //0 = the audio as the file has it, else the sample rate it was converted to first
+    const void* rateLoadedFor = nullptr;
+    juce::Label gradeLabel{{}, "Grades from"}, compareLabel{{}, "compare with"}, rateLabel{{}, "Rate"};
     juce::TextButton dupButton, howButton{"How to read a grade"};
     std::map<juce::String, std::map<juce::String, juce::String>> user;
     std::vector<f8k::CustomColumn> custom;
@@ -826,6 +857,15 @@ public:
         addPanel.onFiles = [this](const juce::Array<juce::File>& f) { worker.add(f); };
         addPanel.onOpenFolder = [this] { folder.createDirectory(); folder.startAsProcess(); };
         addPanel.onChangeFolder = [this] { chooseLibrary(); };
+        addPanel.onRescan = [this] {
+            const int n = library != nullptr ? library->tracksNeedingRescan() : 0;
+            if (n == 0) {juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon, "Rescan library", "Every track in the library was scanned by this version already.", "OK", this); return;}
+            juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::QuestionIcon, "Rescan library",
+                juce::String(n) + " tracks were scanned by an older version. Rescanning reads each one's audio file again (from where it was when you added it) and adds the readings "
+                "at 44.1 kHz and 96 kHz. Your own values (artist, BPM, your columns) are not touched. A track whose file cannot be found is left as it is.\n\n"
+                "It runs on several cores and keeps every finished track straight away, so you can close the app and carry on later. Start now?", "Rescan", "Cancel", this,
+                juce::ModalCallbackFunction::create([this](int r) { if (r == 1) worker.startRescan(); }));
+        };
         libraryView.getLibrary = [this] { return library; };
         labView.getLibrary = [this] { return library; };
         tabs.addTab("Add tracks", kBg, &addPanel, false);
