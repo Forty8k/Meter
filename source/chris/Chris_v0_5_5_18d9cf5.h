@@ -54,7 +54,7 @@ enum Parameters
             INCREMENT
         } what{NEW_VALUE};
         Parameters which;
-        float newValue = 0.0;
+        float newValue = 0.0; float f8kGain = 1.0f; //(added) gain the scratch audio carried when this window was measured
     };
     //This is kinds of information the audio thread can give the interface.
     
@@ -117,7 +117,9 @@ enum Parameters
 
 
     ::juce::AudioProcessor* host = nullptr; //(added) the real processor
-    double getSampleRate() const { return host->getSampleRate(); }
+    double f8kRate = 0.0;     //(added) 0 = the host's sample rate; else the anchor rate meterDARK converted the audio to
+    double f8kGainNow = 1.0;  //(added) the level gain on the audio being measured (1 = none)
+    double getSampleRate() const { return f8kRate > 0.0 ? f8kRate : host->getSampleRate(); }
     int getTotalNumInputChannels() const { return host->getTotalNumInputChannels(); }
     int getTotalNumOutputChannels() const { return host->getTotalNumOutputChannels(); }
     ::juce::AudioProcessor::Bus* getBus(bool in, int i) { return host->getBus(in, i); }
@@ -216,7 +218,7 @@ void processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessa
         
         if (windowCount > windowSize)
         {
-            AudioToUIMessage msg; //define the thing we're telling JUCE
+            AudioToUIMessage msg; msg.f8kGain = (float)f8kGainNow; //(added) //define the thing we're telling JUCE
             msg.what = AudioToUIMessage::PEAK_LEFT; msg.newValue = (float)sqrt(peakLeft); audioToUI.push(msg);
             msg.what = AudioToUIMessage::PEAK_RIGHT; msg.newValue = (float)sqrt(peakRight); audioToUI.push(msg);
             msg.what = AudioToUIMessage::SLEW_LEFT; msg.newValue = (float)slewLeft; audioToUI.push(msg);
@@ -335,7 +337,7 @@ void processBlock (juce::AudioBuffer<double>& buffer, juce::MidiBuffer& midiMess
         
         if (windowCount > windowSize)
         {
-            AudioToUIMessage msg; //define the thing we're telling JUCE
+            AudioToUIMessage msg; msg.f8kGain = (float)f8kGainNow; //(added) //define the thing we're telling JUCE
             msg.what = AudioToUIMessage::PEAK_LEFT; msg.newValue = (float)sqrt(peakLeft); audioToUI.push(msg);
             msg.what = AudioToUIMessage::PEAK_RIGHT; msg.newValue = (float)sqrt(peakRight); audioToUI.push(msg);
             msg.what = AudioToUIMessage::SLEW_LEFT; msg.newValue = (float)slewLeft; audioToUI.push(msg);

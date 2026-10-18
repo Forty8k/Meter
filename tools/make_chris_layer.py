@@ -48,6 +48,14 @@ for d in dirs:
     pe = f["PluginEditor.cpp"]; s = pe.find("switch (msg.what)")
     if s < 0: fail(f"{vid}: editor message switch not found")
     sw = block_from(pe, s)
+    # (added) the level gain: meterDARK can give the audio loop a scratch copy of the audio at an anchor sample rate and with a gain. Each message
+    # carries the gain that audio had, so meterDARK's own display can take it off again. 1 = nothing applied = exactly Chris's code.
+    m2 = re.search(r"struct AudioToUIMessage\s*\{.*?float newValue = 0\.0;", members, re.S)
+    if m2 is None: fail(f"{vid}: AudioToUIMessage not shaped as expected")
+    members = members[:m2.end()] + " float f8kGain = 1.0f; //(added) gain the scratch audio carried when this window was measured" + members[m2.end():]
+    for i in range(2):
+        if blocks[i].count("AudioToUIMessage msg;") != 1: fail(f"{vid}: message creation not shaped as expected")
+        blocks[i] = blocks[i].replace("AudioToUIMessage msg;", "AudioToUIMessage msg; msg.f8kGain = (float)f8kGainNow; //(added)", 1)
     names = ", ".join(f'"{w}"' for w in whats)
     # THE TUNED COPY (namespace <ns>_tuned): the same meter with meterDARK's two Detail settings added to its slew bins. With both at 0
     # it is identical to the original. Only used when "grade" is ticked; the original above always runs too.
@@ -86,7 +94,9 @@ static constexpr const char* kCommit = "{up['commit']}";
 struct PluginProcessor {{
 {members}
     ::juce::AudioProcessor* host = nullptr; //(added) the real processor
-    double getSampleRate() const {{ return host->getSampleRate(); }}
+    double f8kRate = 0.0;     //(added) 0 = the host's sample rate; else the anchor rate meterDARK converted the audio to
+    double f8kGainNow = 1.0;  //(added) the level gain on the audio being measured (1 = none)
+    double getSampleRate() const {{ return f8kRate > 0.0 ? f8kRate : host->getSampleRate(); }}
     int getTotalNumInputChannels() const {{ return host->getTotalNumInputChannels(); }}
     int getTotalNumOutputChannels() const {{ return host->getTotalNumOutputChannels(); }}
     ::juce::AudioProcessor::Bus* getBus(bool in, int i) {{ return host->getBus(in, i); }}

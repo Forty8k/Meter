@@ -2,8 +2,12 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "chris/Current.h"
-//meterDARK's tune settings: 0-11 the hint and Detail controls, 12 = "grade" (1 = the Detail decay and fill gate also change the grade and tone colours)
-static constexpr int kTuneCount = 13;
+#include "Resampler.h"
+//meterDARK's tune settings: 0-11 the hint and Detail controls, 12 = "grade" (1 = the Detail decay and fill gate also change the grade and tone colours),
+//13 = anchor rate (0 off = the host's rate, 0.5 = 44.1 kHz, 1 = 96 kHz), 14 = level mode (0 original, 0.5 normalised, 1 mix),
+//15 = "input at" (LUFS = -30 + 24 x value, default -14), 16 = "score as if at" (default -11)
+static constexpr int kTuneCount = 17;
+static constexpr float kTuneInputAtDefault = 16.0f/24.0f, kTuneAsIfAtDefault = 19.0f/24.0f;
 
 #if (MSVC)
 #include "ipps.h"
@@ -147,19 +151,36 @@ public:
     int windowCount = 0;
     bool audioPlaying = true;
     bool playheadMoving = false;
-    float hintTune[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f}; //where each hint switches on (see the meter's tune controls), saved with the project
+    float hintTune[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 0.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault}; //where each hint switches on (see the meter's tune controls), saved with the project
     chris::PluginProcessor chrisAudio; //Chris's original audio thread (measures each window and sends it to the display)
     float peakTrimDb = 0.0f; //display-only level trim for the peak meter, same idea as slewTrimDb
     float slewTrimDb = 0.0f; //display-only zoom for the slew meter (0 = original). Saved with the project, never touches the audio or the scoring
     //YOUR DEFAULT PRESET: the tune values and the two display trims, kept in a small file in the user's application data folder. New instances
     //start from it, and a project that lacks a value falls back to it. (The numbers in the code are the factory ones, used when there is no file.)
-    float userTune[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f};
+    float userTune[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 0.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault};
     float userPeakTrim = 0.0f;
     float userSlewTrim = 0.0f;
+    //WHAT CHRIS'S AUDIO LOOP IS GIVEN: a scratch copy of the audio, never the host's buffer (the host's audio passes through untouched).
+    //With the anchor rate and the level mode both off the copy is exact, so he measures the same as ever. The anchor rate converts the audio
+    //to 44.1 or 96 kHz first (so a file's sample rate no longer changes the reading). The level mode applies a gain before his loop: normalised =
+    //fixed gain from "input at" to "score as if at"; mix = a slowly floating gain that keeps the running peak ceiling at -1 dBFS (max +24 dB).
+    //Each window message carries the gain, and the display takes it off again, so what you see stays at the real level.
+    void requestLevelReset() {levelResetPending = true;}
+    static double tuneToLufs(float v) {return -30.0 + std::round(24.0*(double)v);}
     static juce::File userDefaultsFile();
     void loadUserDefaults();
     void saveUserDefaults(const float* tuneIn, float peakTrimIn, float slewTrimIn);
 
 private:
+    template <typename T> void feedChris(juce::AudioBuffer<T>& buffer, juce::MidiBuffer& midi);
+    void prepareAnchors(double sampleRate, int samplesPerBlock);
+    double levelGain(int mode, const float* l, const float* r, int count, double rate);
+    juce::AudioBuffer<float> scratchF;
+    juce::AudioBuffer<double> scratchD;
+    f8kdsp::Resampler anchorL[2], anchorR[2]; //0 = to 44.1 kHz, 1 = to 96 kHz
+    std::vector<float> rsOutL, rsOutR, convL, convR;
+    int lastAnchorSel = 0;
+    double mixCeiling = 0.0; int mixHold = 0;
+    std::atomic<bool> levelResetPending{false};
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginProcessor)
 };

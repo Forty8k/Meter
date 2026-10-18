@@ -161,6 +161,7 @@ void PluginEditor::resetChris()
     for (auto& b : chrisTunedMeter.f8kHitPrev) b = false;
     for (auto& b : chrisTunedMeter.f8kHitNow) b = false;
     chrisTunedMeter.outputR = 10.0; chrisTunedMeter.outputG = 10.0; chrisTunedMeter.outputB = 10.0;
+    processorRef.requestLevelReset(); //the mix gain starts again too
 }
 
 //Everything Chris's meter worked out goes to the display: the grades, the scores behind the tone colour, the tone colour itself
@@ -199,11 +200,20 @@ void PluginEditor::idle()
             //"grade" ticked and a Detail setting above 0: the grade and tone colours come from the tuned copy. Otherwise they are exactly Chris's.
             meter.gradeTuned = meter.tune[12] > 0.5f && (meter.tune[6] > 0.0f || meter.tune[7] > 0.0f);
             if (meter.gradeTuned) takeScores(chrisTunedMeter); else takeScores(chrisMeter);
+            meter.levelMode = meter.tune[14] > 0.75f ? 2 : (meter.tune[14] > 0.25f ? 1 : 0);
             meter.pushIncrement(); repaintTS = true;
             ++windowsThisTick;
             continue;
         }
-        const float v = msg.newValue;
+        //meterDARK's display shows the REAL level: take the level gain (normalised / mix modes) off again. Peaks are square-rooted amplitudes, slews and the beam/departure
+        //lines scale with amplitude, zero-cross lengths do not change.
+        const double gn = msg.f8kGain > 0.0f ? (double)msg.f8kGain : 1.0;
+        float v = msg.newValue;
+        if (gn != 1.0) {
+            if (what.startsWith("PEAK")) v = (float)(v/std::sqrt(gn));
+            else if (what.startsWith("SLEW") || what.startsWith("BSLW") || what.startsWith("DSLW") || what.startsWith("BEAM") || what.startsWith("DEPT")
+                     || what.startsWith("BRMS") || what.startsWith("DRMS")) v = (float)(v/gn);
+        }
         if (what == "PEAK_LEFT") meter.pushPeakL(v); else if (what == "PEAK_RIGHT") meter.pushPeakR(v);
         else if (what == "SLEW_LEFT") meter.pushSlewL(v); else if (what == "SLEW_RIGHT") meter.pushSlewR(v);
         else if (what == "ZERO_LEFT") meter.pushZeroL(v); else if (what == "ZERO_RIGHT") meter.pushZeroR(v);

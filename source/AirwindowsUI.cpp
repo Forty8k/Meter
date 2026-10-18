@@ -21,6 +21,15 @@ static int tuneCentreX(int displayWidth, float vS) {return displayWidth/2 - tune
 static int tunePairX(int displayWidth, float vS, int k) {return tuneCentreX(displayWidth, vS) + k*(tuneLabelW(vS)+tuneGap(vS));}
 static int tuneRightX(int displayWidth, float vS, int k) {return displayWidth - (k+1)*(tuneLabelW(vS)+tuneGap(vS)) - (int)(tuneFont(vS)*0.5f);} //k = 0 is the rightmost label
 
+//THE LEVEL SETTINGS sit along the bottom row between "on Airwindows Meter ..." and "factory" (tune open): anchor rate, level mode, input at, score as if at.
+static void levelSlot(int displayWidth, float vS, int k, int& x, int& w)
+{
+    const int start = (int)tuneFont(vS)/2 + 270, end = displayWidth - 280;
+    const int avail = end - start > 120 ? end - start : 120;
+    const float frac[5] = {0.0f, 0.19f, 0.51f, 0.76f, 1.0f};
+    x = start + (int)((float)avail*frac[k]); w = (int)((float)avail*(frac[k+1] - frac[k]));
+}
+
 //The trim labels live on the left of the peaks rail (1) and the slews rail (2). Returns which one a click at this position is on, or 0 for neither.
 static int onTrimLabel(const juce::MouseEvent &event, int displayWidth, float vS)
 {
@@ -39,6 +48,10 @@ static bool onTuneToggle(const juce::MouseEvent &event, int displayWidth, int di
 static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, int displayHeight, float vS)
 {
     if (displayWidth < 700 || tuneFont(vS) <= 10.0f) return -1;
+    if (event.y >= displayHeight-28) {
+        for (int k = 0; k < 4; ++k) {int x, w; levelSlot(displayWidth, vS, k, x, w); if (event.x >= x && event.x < x+w) return 13 + k;}
+        return -1;
+    }
     if (onRail(event, 0, vS)) {
         const int x0 = tuneCentreX(displayWidth, vS), span = 2*tuneLabelW(vS) + tuneGap(vS);
         if (event.x >= x0 && event.x < x0+span) { //the weight gauge is one control in three parts: light distance, balance point, heavy distance
@@ -93,6 +106,11 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
     if (tuneOpen) {
         const int t = onTuneLabel(event, displayWidth, displayHeight, vS);
         if (t == 12) {tune[12] = tune[12] > 0.5f ? 0.0f : 1.0f; tuneDragging = -1; repaint(); return;} //the grade tick: a click toggles it
+        if (t == 13 || t == 14) { //anchor rate and level mode: a click steps to the next choice, a double-click goes back to the saved default
+            if (event.getNumberOfClicks() > 1) tune[t] = tuneUser[t];
+            else tune[t] = (float)(((tune[t] > 0.75f ? 2 : (tune[t] > 0.25f ? 1 : 0)) + 1) % 3) * 0.5f;
+            tuneDragging = -1; repaint(); return;
+        }
         if (t >= 0) {
             if (event.getNumberOfClicks() > 1) {tune[t] = tuneUser[t]; tuneDragging = -1; repaint();}
             else {tuneDragging = t; tuneDragStart = tune[t];}
@@ -112,6 +130,12 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
 
 void AirwindowsMeter::mouseDrag(const juce::MouseEvent &event)
 {
+    if (tuneDragging >= 15) { //input at / score as if at: one dB per step
+        float v = tuneDragStart - (float)event.getDistanceFromDragStartY() * 0.01f;
+        v = std::round(fmin(fmax(v, 0.0f), 1.0f) * 24.0f) / 24.0f;
+        if (v != tune[tuneDragging]) {tune[tuneDragging] = v; repaint();}
+        return;
+    }
     if (tuneDragging >= 0) {
         float v = tuneDragStart - (float)event.getDistanceFromDragStartY() * 0.004f; //drag up = higher
         v = std::round(v * 100.0f) / 100.0f;
@@ -564,7 +588,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         }
     }
     
-    const juce::String scoreStr = bonusScore+totalPackage+authority+power+detail+(gradeTuned ? "*" : ""); //* = not Chris's grade: the Detail decay / fill gate are in the scoring
+    const juce::String scoreStr = bonusScore+totalPackage+authority+power+detail+(levelMode == 1 ? "N" : levelMode == 2 ? "M" : "")+(gradeTuned ? "*" : ""); //N / M = scored with the normalised / mix level gain. * = not Chris's grade: the Detail decay / fill gate are in the scoring
     float scaleFont = (sqrt(vS*64.0f)*1.618f);
     if (scaleFont > 10.0f) {
         g.setFont(scaleFont*1.618f);
@@ -704,6 +728,22 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     g.drawText(justSaved ? "saved" : "save default", displayWidth-190, displayHeight-24, 114, 20, juce::Justification::bottomRight);
                     g.setOpacity(0.7f);
                     g.drawText("factory", displayWidth-270, displayHeight-24, 74, 20, juce::Justification::bottomRight);
+                }
+            }
+            {   //THE LEVEL SETTINGS (what Chris's scoring is given): shown while tune is open, or while something other than stock is on
+                const int anchorSel = tune[13] > 0.75f ? 2 : (tune[13] > 0.25f ? 1 : 0), modeSel = tune[14] > 0.75f ? 2 : (tune[14] > 0.25f ? 1 : 0);
+                const char* rateNames[3] = {"off", "44.1k", "96k"}; const char* modeNames[3] = {"original", "normalised", "mix"};
+                auto slotText = [&](int k, const juce::String& t, float op) {
+                    int x, w; levelSlot(displayWidth, vS, k, x, w);
+                    g.setColour(labelCol); g.setOpacity(op);
+                    g.drawText(t, x, displayHeight-24, w, 20, juce::Justification::bottomLeft);
+                };
+                const float op = tuneOpen ? 0.9f : 0.5f;
+                if (tuneOpen || anchorSel > 0) slotText(0, juce::String("rate ") + rateNames[anchorSel], anchorSel > 0 ? op : 0.7f*op);
+                if (tuneOpen || modeSel > 0) slotText(1, juce::String("level ") + modeNames[modeSel], modeSel > 0 ? op : 0.7f*op);
+                if (tuneOpen || modeSel == 1) {
+                    slotText(2, "input at " + juce::String((int)PluginProcessor::tuneToLufs(tune[15])), modeSel == 1 ? op : 0.5f*op);
+                    slotText(3, "as if at " + juce::String((int)PluginProcessor::tuneToLufs(tune[16])), modeSel == 1 ? op : 0.5f*op);
                 }
             }
             g.setColour(labelCol);
