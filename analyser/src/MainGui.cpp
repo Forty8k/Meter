@@ -227,7 +227,6 @@ public:
     std::function<std::shared_ptr<f8k::Library>()> getLibrary;
 
     //For the Lab: the level mode chosen here, and the ids of the tracks the Lab should use (null = all of them).
-    f8k::LevelMode levelMode() const { return level; }
     std::shared_ptr<const std::set<juce::String>> labIds() const {
         if (!filters.labUses) return nullptr;
         return std::make_shared<const std::set<juce::String>>(labSet());
@@ -259,31 +258,13 @@ public:
         importButton.onClick = [this] { importDialog(); };
         showButton.onClick = [this] { if (auto* r = selectedRow()) revealTrack(*r); };
         removeButton.onClick = [this] { removeSelected(); };
-        for (auto* l : {&gradeLabel, &compareLabel, &rateLabel}) {addAndMakeVisible(l); l->setColour(juce::Label::textColourId, kDim); l->setJustificationType(juce::Justification::centredRight);}
-        for (auto* b : {&gradeBox, &compareBox, &rateBox}) {
+        for (auto* l : {&gradeLabel, &compareLabel}) {addAndMakeVisible(l); l->setColour(juce::Label::textColourId, kDim); l->setJustificationType(juce::Justification::centredRight);}
+        for (auto* b : {&gradeBox, &compareBox}) {
             addAndMakeVisible(b);
             b->setColour(juce::ComboBox::backgroundColourId, kPanel); b->setColour(juce::ComboBox::textColourId, kText); b->setColour(juce::ComboBox::outlineColourId, kPanel);
         }
         gradeBox.onChange = [this] { const int i = gradeBox.getSelectedId() - 1; const auto v = f8k::Library::versionIds(); if (i >= 0 && i < (int)v.size() && v[(size_t)i] != gradeVersion) {gradeVersion = v[(size_t)i]; saveVersions(); rebuildColumns(); applyFilter();} };
         compareBox.onChange = [this] { const int i = compareBox.getSelectedId() - 2; const auto v = f8k::Library::versionIds(); const juce::String nv = (i >= 0 && i < (int)v.size()) ? v[(size_t)i] : juce::String(); if (nv != compareVersion) {compareVersion = nv; saveVersions(); rebuildColumns(); applyFilter();} };
-        rateBox.addItem("as file", 1); rateBox.addItem("44.1 kHz", 2); rateBox.addItem("96 kHz", 3);
-        rateBox.setSelectedId(1, juce::dontSendNotification);
-        rateBox.onChange = [this] { const int nr = rateBox.getSelectedId() == 2 ? 44100 : rateBox.getSelectedId() == 3 ? 96000 : 0; if (nr != gradeRate) {gradeRate = nr; saveVersions(); reload();} };
-        for (auto* l : {&levelLabel, &inLabel, &asLabel}) {addAndMakeVisible(l); l->setColour(juce::Label::textColourId, kDim); l->setJustificationType(juce::Justification::centredRight);}
-        addAndMakeVisible(levelBox);
-        levelBox.setColour(juce::ComboBox::backgroundColourId, kPanel); levelBox.setColour(juce::ComboBox::textColourId, kText); levelBox.setColour(juce::ComboBox::outlineColourId, kPanel);
-        levelBox.addItem("original (the file as it is)", 1); levelBox.addItem("normalised (fixed gain)", 2); levelBox.addItem("mix (floating gain)", 3);
-        levelBox.setSelectedId(1, juce::dontSendNotification);
-        levelBox.setTooltip("How loud the track is taken to be when it is graded. Replays the stored windows with the gain; the sound and the measured LUFS are not changed. "
-                            "Grades get N (normalised) or M (mix) on the end.");
-        for (auto* e : {&inEdit, &asEdit}) {
-            addAndMakeVisible(e); e->setColour(juce::TextEditor::backgroundColourId, kPanel); e->setColour(juce::TextEditor::textColourId, kText); e->setColour(juce::TextEditor::outlineColourId, kPanel);
-            e->setInputRestrictions(6, "-0123456789."); e->onReturnKey = [this] {levelChanged();}; e->onFocusLost = [this] {levelChanged();};
-        }
-        inEdit.setText("-14", false); asEdit.setText("-11", false);
-        inEdit.setTooltip("Normalised: how loud the file is taken to be (LUFS). -14 = a streaming service with normalisation on.");
-        asEdit.setTooltip("Normalised: the loudness Chris's meter is assumed to be tuned for (LUFS). The default -11 is the median of the author's library.");
-        levelBox.onChange = [this] {levelChanged();};
         addAndMakeVisible(filterButton); styleButton(filterButton);
         filterButton.onClick = [this] {openFilters();};
         for (auto* b : {&dupButton, &howButton}) {addAndMakeVisible(b); styleButton(*b);}
@@ -296,7 +277,7 @@ public:
         startTimer(700);
     }
 
-    ~LibraryView() override { table.getHeader().removeListener(&headerWatcher); if (levelJob) levelJob->stopThread(20000); if (filterWindow != nullptr) delete filterWindow.getComponent(); }
+    ~LibraryView() override { table.getHeader().removeListener(&headerWatcher); if (filterWindow != nullptr) delete filterWindow.getComponent(); }
 
     void reload() {
         auto lib = getLibrary ? getLibrary() : nullptr;
@@ -305,37 +286,16 @@ public:
         const juce::String selectedId = selectedRow() ? selectedRow()->id : juce::String();
         idx = lib->index();
         user = lib->userValues();
-        if (rateLoadedFor != lib.get()) { //the rate you left this library on
+        if (rateLoadedFor != lib.get()) { //a different library: its filters
             rateLoadedFor = lib.get();
-            const int saved = (int)juce::JSON::parse(lib->folder.getChildFile("view.json")).getProperty("rate", 0);
-            gradeRate = (saved == 44100 || saved == 96000) ? saved : 0;
-            rateBox.setSelectedId(gradeRate == 44100 ? 2 : gradeRate == 96000 ? 3 : 1, juce::dontSendNotification);
-            const juce::var lv = juce::JSON::parse(lib->folder.getChildFile("view.json")).getProperty("level", juce::var());
-            level = f8k::LevelMode();
-            level.mode = juce::jlimit(0, 2, (int)lv.getProperty("mode", 0));
-            if (lv.hasProperty("in")) level.inLufs = (double)lv.getProperty("in", -14.0);
-            if (lv.hasProperty("as")) level.asLufs = (double)lv.getProperty("as", -11.0);
-            levelBox.setSelectedId(level.mode + 1, juce::dontSendNotification);
-            inEdit.setText(juce::String(level.inLufs, 1), false); asEdit.setText(juce::String(level.asLufs, 1), false);
-            inEdit.setEnabled(level.mode == 1); asEdit.setEnabled(level.mode == 1);
             filters.load(lib->folder);
-            if (levelJob) {levelJob->stopThread(20000); levelJob.reset();}
         }
         refreshVersionBoxes();
         grades.clear(); gradeRow.clear();
-        std::vector<juce::String> levelTodo;
         for (auto& v : f8k::Library::versionIds()) {
-            if (level.mode != 0 && (v == gradeVersion || v == compareVersion)) { //graded in the chosen level mode (replayed from the stored windows)
-                int missing = 0;
-                grades[v] = lib->levelGrades(v, gradeRate, level, false, {}, {}, &missing);
-                if (missing > 0) levelTodo.push_back(v);
-            } else
-            grades[v] = lib->grades(v, gradeRate);
+            grades[v] = readingsAt96k(*lib, v);
             auto& m = gradeRow[v];
             for (size_t r = 0; r < grades[v].rows.size(); ++r) m[grades[v].get(r, "id")] = r;
-        }
-        if (!levelTodo.empty() && (levelJob == nullptr || !levelJob->isThreadRunning())) {
-            levelJob.reset(new LevelJob()); levelJob->lib = lib; levelJob->vids = levelTodo; levelJob->rate = gradeRate; levelJob->lm = level; levelJob->startThread();
         }
         findDuplicates();
         custom = lib->customColumns();
@@ -429,14 +389,10 @@ public:
         auto row2 = r.removeFromTop(26);
         gradeLabel.setBounds(row2.removeFromLeft(84)); gradeBox.setBounds(row2.removeFromLeft(170)); row2.removeFromLeft(4);
         compareLabel.setBounds(row2.removeFromLeft(96)); compareBox.setBounds(row2.removeFromLeft(170)); row2.removeFromLeft(4);
-        rateLabel.setBounds(row2.removeFromLeft(44)); rateBox.setBounds(row2.removeFromLeft(100)); row2.removeFromLeft(12);
         dupButton.setBounds(row2.removeFromLeft(190)); row2.removeFromLeft(6);
         howButton.setBounds(row2.removeFromLeft(150));
         r.removeFromTop(6);
         auto row3 = r.removeFromTop(26);
-        levelLabel.setBounds(row3.removeFromLeft(84)); levelBox.setBounds(row3.removeFromLeft(210)); row3.removeFromLeft(10);
-        inLabel.setBounds(row3.removeFromLeft(64)); inEdit.setBounds(row3.removeFromLeft(48)); row3.removeFromLeft(10);
-        asLabel.setBounds(row3.removeFromLeft(100)); asEdit.setBounds(row3.removeFromLeft(48)); row3.removeFromLeft(24);
         filterButton.setBounds(row3.removeFromLeft(220));
         r.removeFromTop(6);
         hint = r.removeFromBottom(34);
@@ -476,13 +432,6 @@ private:
     juce::Rectangle<int> hintArea() const { return hint; }
 
     void timerCallback() override {
-        if (levelJob != nullptr) {
-            if (levelJob->isThreadRunning()) {
-                countLabel.setText("Grading in " + juce::String(level.mode == 1 ? "normalised" : "mix") + " mode: " + juce::String(levelJob->done.load()) + " of " + juce::String(levelJob->total.load()) + " tracks ...", juce::dontSendNotification);
-                return;
-            }
-            levelJob.reset(); reload(); return;
-        }
         auto lib = getLibrary ? getLibrary() : nullptr;
         if (lib != nullptr && (lib.get() != lastLib || lib->changeCount() != lastChange)) {lastLib = lib.get(); reload();}
     }
@@ -540,6 +489,22 @@ private:
             h.setSortColumnId(sortCol, sortForwards);
         }
         restoringLayout = false;
+    }
+
+    //a Meter version's grades with the audio converted to 96 kHz; a track not rescanned yet (no 96 kHz reading) shows its own readings
+    static f8k::Table readingsAt96k(f8k::Library& lib, const juce::String& vid) {
+        f8k::Table t = lib.grades(vid, gradeRate);
+        if (t.header.isEmpty()) return lib.grades(vid);
+        const f8k::Table nat = lib.grades(vid);
+        std::set<juce::String> have;
+        for (size_t i = 0; i < t.rows.size(); ++i) have.insert(t.get(i, "id"));
+        for (size_t i = 0; i < nat.rows.size(); ++i) {
+            const juce::String id = nat.get(i, "id");
+            if (have.count(id)) continue;
+            juce::StringArray cells; for (auto& h : t.header) cells.add(nat.get(i, h));
+            t.rows.push_back(cells);
+        }
+        return t;
     }
 
     //a value for a row: "g:x" = column x of the chosen Meter version's grades, "c:x" = of the compared version, else index.csv
@@ -603,23 +568,32 @@ private:
         //grades read best-first when sorted "forwards" (A before B, high authority before low, bonus 1 before 80)
         const bool higherFirst = c.kind == Kind::Grade || c.kind == Kind::Letter || c.kind == Kind::SubGrade;
         std::stable_sort(shown.begin(), shown.end(), [&](const RowRef& a, const RowRef& b) {
-            if (c.kind == Kind::Grade) { //Chris's order: the numbered tracks (his "double top 40") first, 1 before 80, then the rest by letter, A first
-                const juce::String pa = c.base.substring(0, 2), ba = field(a, pa + "bonus"), bb = field(b, pa + "bonus");
-                const juce::String ga = field(a, pa + "grade"), gb = field(b, pa + "grade");
-                if (ga.isEmpty() != gb.isEmpty()) return gb.isEmpty(); //no grade (not scored by this version) last
-                double ka, kb;
-                if (ba.isNotEmpty() != bb.isNotEmpty()) {ka = ba.isNotEmpty() ? 0 : 1; kb = 1 - ka;}
-                else if (ba.isNotEmpty()) {ka = ba.getDoubleValue(); kb = bb.getDoubleValue();}
-                else {ka = -field(a, pa + "letter_value").getDoubleValue(); kb = -field(b, pa + "letter_value").getDoubleValue();}
-                if (ka == kb) return false;
-                return sortForwards ? ka < kb : ka > kb;
+            if (c.kind == Kind::Grade) { //Chris's order: the numbered tracks (his "double top 40") first, 1 before 80, then the rest by letter, A first.
+                //Ties (the letter value is rarely exactly equal, but many tracks share a bonus number's neighbours) are settled by the bonus number
+                //behind the hidden ones, then by authority + power + detail, then by name, so the order never depends on how the list was sorted before.
+                const juce::String pa = c.base.substring(0, 2);
+                auto key = [&](const RowRef& r, double k[4]) {
+                    const bool numbered = field(r, pa + "bonus").isNotEmpty();
+                    k[0] = numbered ? 0 : 1;
+                    k[1] = numbered ? field(r, pa + "bonus").getDoubleValue() : -field(r, pa + "letter_value").getDoubleValue();
+                    const juce::String bv = field(r, pa + "bonus_value");
+                    k[2] = bv.isNotEmpty() ? bv.getDoubleValue() : 1.0e9;
+                    k[3] = -(field(r, pa + "authority_value").getDoubleValue() + field(r, pa + "power_value").getDoubleValue() + field(r, pa + "detail_value").getDoubleValue());
+                };
+                const bool gradeA = field(a, pa + "grade").isNotEmpty(), gradeB = field(b, pa + "grade").isNotEmpty();
+                if (gradeA != gradeB) return gradeA; //no grade (not scored by this version) always last
+                if (!gradeA) return field(a, "file").compareNatural(field(b, "file")) < 0;
+                double ka[4], kb[4];
+                key(a, ka); key(b, kb);
+                for (int i = 0; i < 4; ++i) if (ka[i] != kb[i]) return sortForwards ? ka[i] < kb[i] : ka[i] > kb[i];
+                return field(a, "file").compareNatural(field(b, "file")) < 0;
             }
             if (numeric) {
                 bool ba = false, bb = false;
                 const double va = sortNumber(a, c, ba), vb = sortNumber(b, c, bb);
                 if (ba != bb) return bb; //blanks last
                 if (ba) return false;
-                if (va == vb) return false;
+                if (va == vb) return field(a, "file").compareNatural(field(b, "file")) < 0;
                 const bool less = higherFirst ? va > vb : va < vb;
                 return sortForwards ? less : !less;
             }
@@ -627,6 +601,7 @@ private:
             const juce::String sa = display(a, c, y, u), sb = display(b, c, y, u);
             if (sa.isEmpty() != sb.isEmpty()) return sb.isEmpty();
             const int cmp = sa.compareNatural(sb);
+            if (cmp == 0) return field(a, "file").compareNatural(field(b, "file")) < 0;
             return sortForwards ? cmp < 0 : cmp > 0;
         });
     }
@@ -693,8 +668,7 @@ private:
         const juce::File f = lib->folder.getChildFile("view.json");
         juce::var j = juce::JSON::parse(f);
         if (!j.isObject()) j = juce::var(new juce::DynamicObject());
-        j.getDynamicObject()->setProperty("grades", gradeVersion); j.getDynamicObject()->setProperty("compare", compareVersion); j.getDynamicObject()->setProperty("rate", gradeRate);
-        {auto* lv = new juce::DynamicObject(); lv->setProperty("mode", level.mode); lv->setProperty("in", level.inLufs); lv->setProperty("as", level.asLufs); j.getDynamicObject()->setProperty("level", juce::var(lv));}
+        j.getDynamicObject()->setProperty("grades", gradeVersion); j.getDynamicObject()->setProperty("compare", compareVersion);;
         f.replaceWithText(juce::JSON::toString(j));
     }
 
@@ -727,19 +701,6 @@ private:
             auto addTo = [&](size_t x, size_t y) {juce::String& s2 = dupOf[ids[x]]; if (s2.isNotEmpty()) s2 << ", "; s2 << files[y];};
             addTo(a, b); addTo(b, a);
         }
-    }
-
-    //---- level mode
-    void levelChanged() {
-        f8k::LevelMode nl;
-        nl.mode = juce::jmax(0, levelBox.getSelectedId() - 1);
-        nl.inLufs = inEdit.getText().containsAnyOf("0123456789") ? juce::jlimit(-60.0, 0.0, inEdit.getText().getDoubleValue()) : level.inLufs;
-        nl.asLufs = asEdit.getText().containsAnyOf("0123456789") ? juce::jlimit(-60.0, 0.0, asEdit.getText().getDoubleValue()) : level.asLufs;
-        inEdit.setEnabled(nl.mode == 1); asEdit.setEnabled(nl.mode == 1);
-        if (nl == level && nl.inLufs == level.inLufs && nl.asLufs == level.asLufs) return;
-        level = nl; ++filterGen;
-        if (levelJob) {levelJob->stopThread(20000); levelJob.reset();}
-        saveVersions(); reload();
     }
 
     //---- filters
@@ -816,7 +777,6 @@ private:
             std::map<size_t, size_t> best; //group -> index into `all` of the copy to keep
             auto better = [&](size_t a, size_t b) { //is `a` a better copy than `b`?
                 const double ra = idx.get(all[a].row, "sample_rate").getDoubleValue(), rb = idx.get(all[b].row, "sample_rate").getDoubleValue();
-                if (gradeRate > 0) {const bool ma = std::lround(ra) == gradeRate, mb = std::lround(rb) == gradeRate; if (ma != mb) return ma;}
                 if (ra != rb) return ra > rb;
                 return idx.get(all[a].row, "file").compareIgnoreCase(idx.get(all[b].row, "file")) < 0;
             };
@@ -1016,30 +976,16 @@ private:
     juce::String gradeVersion, compareVersion;
     std::map<juce::String, juce::String> dupOf;                      //track id -> the file names it may duplicate
     bool dupOnly = false;
-    juce::ComboBox gradeBox, compareBox, rateBox, levelBox;
-    juce::Label levelLabel{{}, "Level"}, inLabel{{}, "input at"}, asLabel{{}, "score as if at"};
-    juce::TextEditor inEdit, asEdit;
+    juce::ComboBox gradeBox, compareBox;
     juce::TextButton filterButton{"Filters..."};
-    f8k::LevelMode level;
+    const f8k::LevelMode level;                                        //always original: the files are graded as they are
     FilterStore filters;
     int filterGen = 0;
     std::vector<std::pair<size_t, size_t>> dupPairs;                   //rows of index.csv that may be the same song
     juce::Component::SafePointer<juce::DialogWindow> filterWindow;
-    struct LevelJob : public juce::Thread {
-        std::shared_ptr<f8k::Library> lib; std::vector<juce::String> vids; int rate = 0; f8k::LevelMode lm; std::atomic<int> done{0}, total{0};
-        LevelJob() : juce::Thread("level grades") {}
-        void run() override {
-            for (auto& v : vids) {
-                if (threadShouldExit()) return;
-                done = 0; total = 0;
-                lib->levelGrades(v, rate, lm, true, [this] {return threadShouldExit();}, [this](int d, int t) {done = d; total = t;});
-            }
-        }
-    };
-    std::unique_ptr<LevelJob> levelJob;
-    int gradeRate = 0;                      //0 = the audio as the file has it, else the sample rate it was converted to first
+    static constexpr int gradeRate = 96000; //every track is shown as read after conversion to 96 kHz (the meterDARK plugin's default anchor rate); a track not rescanned yet shows its own readings
     const void* rateLoadedFor = nullptr;
-    juce::Label gradeLabel{{}, "Grades from"}, compareLabel{{}, "compare with"}, rateLabel{{}, "Rate"};
+    juce::Label gradeLabel{{}, "Grades from"}, compareLabel{{}, "compare with"};
     juce::TextButton dupButton, howButton{"How to read a grade"};
     std::map<juce::String, std::map<juce::String, juce::String>> user;
     std::vector<f8k::CustomColumn> custom;
@@ -1084,7 +1030,6 @@ public:
         };
         libraryView.getLibrary = [this] { return library; };
         labView.getLibrary = [this] { return library; };
-        labView.getLevel = [this] { return libraryView.levelMode(); };
         labView.getAllowed = [this] { return libraryView.labIds(); };
         labView.getFilterGen = [this] { return libraryView.filterGeneration(); };
         tabs.addTab("Add tracks", kBg, &addPanel, false);

@@ -141,14 +141,22 @@ private:
             const auto idx = lib->index();
             const auto vids = f8k::Library::versionIds();
             const juce::String newest = juce::String(f8k::tunableVersionId());
-            const auto g = lm.mode == 0 ? lib->grades(newest)
-                                        : lib->levelGrades(newest, 0, lm, true, [&] {return sp == nullptr;}, [&](int d, int n) {loadDone = d; loadTotal = n;});
+            //everything the Lab reads is at 96 kHz (as the Library shows it); a track not rescanned yet is read as the file has it
+            auto g = lm.mode == 0 ? lib->grades(newest, 96000)
+                                  : lib->levelGrades(newest, 96000, lm, true, [&] {return sp == nullptr;}, [&](int d, int n) {loadDone = d; loadTotal = n;});
+            {
+                const auto nat = lib->grades(newest);
+                if (g.header.isEmpty()) g = nat;
+                else for (size_t i = 0; i < nat.rows.size(); ++i) if (g.findRow("id", nat.get(i, "id")) < 0) {juce::StringArray c; for (auto& h : g.header) c.add(nat.get(i, h)); g.rows.push_back(c);}
+            }
             for (size_t r = 0; r < idx.rows.size(); ++r) {
                 Track tr; tr.id = idx.get(r, "id"); tr.file = idx.get(r, "file"); tr.sr = idx.get(r, "sample_rate").getDoubleValue();
                 const int gr = g.findRow("id", tr.id);
                 if (gr >= 0) {tr.grade = g.get((size_t)gr, "grade"); tr.gradeBonus = g.get((size_t)gr, "bonus"); tr.letterValue = g.get((size_t)gr, "letter_value").getDoubleValue();}
-                lib->readCore(tr.id, vids.front(), tr.names, tr.core);
-                lib->readCore(tr.id, newest, tr.names2, tr.core2);
+                if (!lib->readCoreAt(tr.id, newest, 96000, tr.names2, tr.core2)) lib->readCore(tr.id, newest, tr.names2, tr.core2); //the newest version's windows at 96 kHz
+                else tr.sr = 96000.0;
+                tr.names = tr.names2; tr.core = tr.core2; //the hints read the same windows (they only need peak, slew and zero)
+                if (tr.core.empty()) lib->readCore(tr.id, vids.front(), tr.names, tr.core);
                 if (!tr.core.empty() || !tr.core2.empty()) t.push_back(std::move(tr));
             }
             juce::MessageManager::callAsync([this, sp, t = std::move(t)]() mutable {

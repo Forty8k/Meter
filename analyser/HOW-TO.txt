@@ -45,38 +45,13 @@ HOW TO READ A GRADE  (also behind the "How to read a grade" button)
   What pulls the letter down is one of the three lagging behind the other two. Best possible: 1-AJJK. Worst: Zssv.
   Sorting by Grade follows Chris's order: numbered tracks first (1 to 80), then the rest by letter, A first.
 
-Sample rate ("Rate")
+Sample rate
   The sample rate of a file changes what the original Meter reads, even for identical audio (it measures steps between
-  samples, so a 96 kHz file looks "smoother" to it than the same audio at 48 kHz). So every track is read three ways: as
-  the file has it, and after the audio is converted (with a high-quality converter) to 44.1 kHz and to 96 kHz.
-  "Rate" next to "compare with" chooses which one the Library shows: "as file" (default), "44.1 kHz" or "96 kHz". Using
-  one of the two fixed rates puts every track on a level playing field. A track already at that rate is read as it is.
-  The choice is remembered for the library.
-
-Level  (Library tab: "original", "normalised", "mix")
-  How loud the track is taken to be when it is graded. Your files and the LUFS / peak columns are never changed: the
-  grades are worked out again from the stored window readings with a gain on them (no audio is read), so it is quick.
-    original    the file as it is (what Chris's meter would see if you played it).
-    normalised  a fixed gain from "input at" (default -14 LUFS, a streaming service with normalisation on) to
-                "score as if at" (default -11 LUFS, the middle of the author's library; Chris's real target is unknown).
-    mix         a gain that floats so the running peak ceiling sits at -1 dBFS (it holds 8 s, lets go over 20 s, never
-                more than +24 dB), so a mix or stem with headroom is not marked down for it. Same maths as meterDARK.
-  Grades get N (normalised) or M (mix) on the end. The first time you pick a mode a progress count shows while the library
-  is graded (several cores); the answers are kept in the library folder (levelgrades-*.csv) and only new or changed tracks
-  are worked out later. The Lab follows the same choice: its "Original grade" column and its Re-score use the same gain.
-  Accuracy: the replay was compared with really scaling the audio first (levels +12 to -24 dB and mix, 80 cases): the
-  grade text matched in all of them; the largest letter difference was 0.02 of 27. Chris's slew line has a fixed small
-  threshold, so at very low levels the bonus number can be off by a place or two. (CI runs this test every build.)
-
-Filters  (Library tab: "Filters...")
-  Narrow the list with lines such as "Folder contains Playlists", "Length at least 3:00", "LUFS below -9", "Letter is B",
-  "Detail: capital", "Power at least 12" (any column, including your own). Every line must pass. "Save as..." keeps the
-  set under a name; choose it again later from "Saved filters". Folder = the folder the file was in when you added it.
-  "The Lab uses the filtered tracks" makes "Set triggers from the library", "Re-score library" and the Level test use only
-  those tracks. For that use it also (each can be switched off): leaves out tracks under 60 s, over 10 min, quieter than
-  -25 LUFS or with no grade, and keeps one copy of each song (the possible duplicates; it keeps the one at the chosen
-  Rate, otherwise the highest sample rate). The dialog shows how many tracks the Lab would use.
-  Filters are kept in filters.json in the library folder.
+  samples, so a 96 kHz file looks "smoother" to it than the same audio at 48 kHz). So every track is also read after its
+  audio is converted (with a high-quality converter) to 96 kHz, and the Library and the Lab always show those readings,
+  with no setting to choose. The meterDARK plugin does the same by default (its "rate" setting in tune is on at 96k), so a
+  track reads the same in your 48 kHz session as it does here. A track that has not been rescanned yet shows its readings as
+  the file has it until "Rescan library..." has done it. (44.1 kHz readings are also stored, for later.)
 
 Rescan library...  (Add tracks tab)
   Tracks added before the rate readings existed (capture version 1.1) have only the "as file" readings. "Rescan library..."
