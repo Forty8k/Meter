@@ -29,6 +29,6 @@ if (F8K_BUILD_GUI)
     juce_add_gui_app(MeterF8KAnalyser PRODUCT_NAME "meterDARK Analyser" COMPANY_NAME "Forty8k" VERSION 1.1.0)
     target_sources(MeterF8KAnalyser PRIVATE src/MainGui.cpp ${F8K_ENGINE_SOURCES})
     target_compile_definitions(MeterF8KAnalyser PRIVATE ${F8K_DEFS} JUCE_APPLICATION_NAME_STRING="meterDARK Analyser" JUCE_APPLICATION_VERSION_STRING="1.1.0")
-    target_link_libraries(MeterF8KAnalyser PRIVATE juce::juce_gui_basics juce::juce_audio_formats juce::juce_cryptography
+    target_link_libraries(MeterF8KAnalyser PRIVATE juce::juce_gui_basics juce::juce_audio_devices juce::juce_audio_formats juce::juce_cryptography
         juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 endif()

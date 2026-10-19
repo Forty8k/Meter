@@ -1004,6 +1004,7 @@ private:
 
 //=============================================================================================== "Lab"
 #include "LabView.inc"
+#include "GlanceView.inc"
 
 //=============================================================================================== the window
 class MainComponent : public juce::Component {
@@ -1032,7 +1033,10 @@ public:
         labView.getAllowed = [this] { return libraryView.labIds(); };
         labView.getFilterGen = [this] { return libraryView.filterGeneration(); };
         tabs.addTab("Add tracks", kBg, &addPanel, false);
-        tabs.addTab("Library", kBg, &libraryView, false);
+        libraryTab.glance.getLibrary = [this] { return library; };
+        libraryTab.glance.getAllowed = [this] { return libraryView.labIds(); };
+        libraryTab.glance.getFilterGen = [this] { return libraryView.filterGeneration(); };
+        tabs.addTab("Library", kBg, &libraryTab, false);
         tabs.addTab("hintLAB", kBg, &labView, false);
         tabs.setColour(juce::TabbedComponent::outlineColourId, kBg);
         tabs.setColour(juce::TabbedButtonBar::tabTextColourId, kDim);
@@ -1072,10 +1076,13 @@ public:
     //for automated checks: pictures of both tabs
     void snapshot(const juce::File& outDir) {
         outDir.createDirectory();
-        const char* names[3] = {"tab-add.png", "tab-library.png", "tab-lab.png"};
-        for (int t = 0; t < 3; ++t) {
-            tabs.setCurrentTabIndex(t);
-            if (t == 1) libraryView.reload();
+        const char* names[4] = {"tab-add.png", "tab-library.png", "tab-lab.png", "tab-table.png"};
+        if (library != nullptr) library->buildLeanRecords(false, false);
+        for (int t = 0; t < 4; ++t) {
+            tabs.setCurrentTabIndex(t == 3 ? 1 : t);
+            if (t == 1 || t == 3) libraryView.reload();
+            libraryTab.showFull(t == 3);
+            if (t == 1) { libraryTab.glance.reloadNow(); juce::MessageManager::getInstance()->runDispatchLoopUntil(1500); }
             const auto img = createComponentSnapshot(getLocalBounds(), true, 1.0f);
             juce::FileOutputStream os(outDir.getChildFile(names[t]));
             if (os.openedOk()) {os.setPosition(0); os.truncate(); juce::PNGImageFormat().writeImageToStream(img, os);}
@@ -1104,6 +1111,7 @@ private:
     std::shared_ptr<f8k::Library> library;
     AddPanel addPanel;
     LibraryView libraryView;
+    LibraryTab libraryTab{libraryView};
     LabView labView;
     Worker worker{*this};
     juce::TabbedComponent tabs{juce::TabbedButtonBar::TabsAtTop};
