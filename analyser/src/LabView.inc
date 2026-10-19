@@ -440,7 +440,9 @@ private:
     }
 
     //---------------------------------------------------------------- settings panel
-    struct Row { juce::Label name; juce::Slider slider; juce::String group; bool header = false; };
+    struct ClickLabel : public juce::Label { std::function<void()> onClick; void mouseUp(const juce::MouseEvent&) override { if (onClick) onClick(); } };
+    bool advancedOpen = false;
+    struct Row { ClickLabel name; juce::Slider slider; juce::String group; bool header = false; };
     juce::OwnedArray<Row> rows;
     juce::Component settingsPanel;
     juce::Viewport settingsView;
@@ -470,11 +472,25 @@ private:
         };
         if (mode == 0) {
             const char* groups[4][2] = {{"tone", "TONE  (thin / full)"}, {"punch", "PUNCH  (headroom / squashed)"}, {"detail", "DETAIL  (dark / bright, one gauge)"}, {"all", "ALL THREE"}};
+            //the settings meterDARK shows (its "tuneN" settings) come first; the constants inside its code, which it has no controls for, sit behind ADVANCED
             for (auto& g : groups) {
                 addHeader(g[1]);
                 for (size_t i = 0; i < mdark::hintParams().size(); ++i) {
                     const auto& p = mdark::hintParams()[i];
-                    if (juce::String(p.group) != g[0]) continue;
+                    if (juce::String(p.group) != g[0] || !juce::String(p.key).startsWith("tune")) continue;
+                    addSlider(p.label, p.lo, p.hi, hints.v[i], p.decimals, p.unit, p.help, [this, i](double v) {hints.v[i] = v;}, p.def);
+                }
+            }
+            addHeader(juce::String(advancedOpen ? "v " : "> ") + "ADVANCED  (fixed inside meterDARK, no controls there)");
+            rows.getLast()->name.setMouseCursor(juce::MouseCursor::PointingHandCursor);
+            rows.getLast()->name.setTooltip("Click to show or hide. These shape how the readings are measured. \"Set triggers from the library\" does not touch them; Export sends them to meterDARK.");
+            rows.getLast()->name.onClick = [this] { advancedOpen = !advancedOpen; juce::MessageManager::callAsync([this] { buildSettings(); }); };
+            if (advancedOpen) for (auto& g : groups) {
+                bool any = false;
+                for (size_t i = 0; i < mdark::hintParams().size(); ++i) {
+                    const auto& p = mdark::hintParams()[i];
+                    if (juce::String(p.group) != g[0] || juce::String(p.key).startsWith("tune")) continue;
+                    if (!any) { any = true; addHeader(juce::String(g[0]).toUpperCase()); rows.getLast()->name.setFont(juce::Font(13.0f, juce::Font::bold)); rows.getLast()->name.setColour(juce::Label::textColourId, kDim); }
                     addSlider(p.label, p.lo, p.hi, hints.v[i], p.decimals, p.unit, p.help, [this, i](double v) {hints.v[i] = v;}, p.def);
                 }
             }

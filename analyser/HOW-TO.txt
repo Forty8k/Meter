@@ -115,6 +115,8 @@ The gradeLAB tab
 The hintLAB tab  (this was called the Lab; its "Original scoring" part will move to a gradeLAB tab later)
   An experiment space. Nothing in it changes the Library's real grades.
   Click a track in the list: its dot in the top strips is drawn big, green if that gauge is inside the balanced zone, red if it would trigger a hint.
+  The settings list shows what meterDARK itself has controls for. The fixed constants inside meterDARK (frequency ends, gates, speeds) sit under ADVANCED (click to open);
+  "Set triggers from the library" never changes them, Export sends them.
   meterDARK hints: the plugin's thin/full, headroom/squashed and dark/bright hints (three gauges; dark/bright is one gauge with a width shade), simulated over your whole library as
     you move the settings. The strip at the top shows where every track's readings sit (dots) against the triggers (lines);
     the table shows each track's average readings and how much of the time each hint would show (yellow = most of it).
