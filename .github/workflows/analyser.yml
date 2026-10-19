@@ -146,6 +146,7 @@ jobs:
           grep -q "Rescan: 5 of 5" cli.txt
           # Level modes: grade the library with the stored windows plus a gain
           "$CLI" --library testlib --levels | tee -a cli.txt
+          trap 'echo "::error title=lean/pack check failed::$(tail -n 12 cli.txt | tr "\n" "|")"' ERR
           "$CLI" --library testlib --lean-check | tee -a cli.txt
           "$CLI" --library testlib --lean | tee -a cli.txt
           grep -q "Replay mismatches: 0" cli.txt
@@ -161,6 +162,7 @@ jobs:
             if gzip -dc pack-full.f8kpack | grep -a -q -e "testlib" -e "t_sine50"; then echo "A pack contains a file name or path"; exit 1; fi
           fi
           [ "$(wc -c < pack-display.f8kpack)" -lt "$(wc -c < pack-full.f8kpack)" ]
+          trap - ERR
           grep -q "Levels: normalised 5 of 5" cli.txt
           grep -q "Levels: mix 5 of 5" cli.txt
           ls testlib/levelgrades-*.csv
