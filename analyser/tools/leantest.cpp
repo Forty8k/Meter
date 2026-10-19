@@ -22,6 +22,7 @@ int main()
         auto bytes = serialiseLean(rec);
         LeanRecord back;
         if (!parseLean(bytes, back) || back.columns != rec.columns || back.toneRgb != rec.toneRgb || back.replay != rec.replay || back.get("title") != "synthetic") {printf("ROUNDTRIP FAILED %s\n", mv.version.c_str()); ++bad; continue;}
+        { LeanRecord d = rec; d.replay.clear(); LeanRecord d2; if (!parseLean(serialiseLean(d), d2) || d2.columns != d.columns) {printf("DISPLAY-ONLY ROUNDTRIP FAILED %s\n", mv.version.c_str()); ++bad;} }
         std::vector<std::string> n2; std::vector<float> c2;
         if (!unpackWindows(back.replay, n2, c2)) {printf("UNPACK FAILED\n"); ++bad; continue;}
         auto rep = mv.create(sr, 1);

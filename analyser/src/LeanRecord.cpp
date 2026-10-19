@@ -96,7 +96,7 @@ bool parseLean(const std::vector<uint8_t>& in, LeanRecord& r)
     uint64_t n;
     if (!rpGetVar(p, e, n)) return false;
     for (uint64_t i = 0; i < n; ++i) { std::string k, v; if (!getStr(p, e, k) || !getStr(p, e, v)) return false; r.meta.emplace_back(k, v); }
-    uint64_t cols; if (!rpGetVar(p, e, cols) || cols > 100000 || (uint64_t)(e - p) < cols*12) return false;
+    uint64_t cols; if (!rpGetVar(p, e, cols) || cols > 100000 || (uint64_t)(e - p) < cols*9 + 1) return false;
     r.columns = (int)cols; const size_t N = (size_t)cols;
     r.toneRgb.assign(p, p + N*3); p += N*3;
     for (auto* v : {&r.devWeight, &r.devPeaks, &r.devSlew}) { v->resize(N); for (size_t i = 0; i < N; ++i) (*v)[i] = (int8_t)*p++; }
