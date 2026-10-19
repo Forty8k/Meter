@@ -59,6 +59,8 @@ jobs:
         run: ./build/F8KLevelTest | tee leveltest.txt
       - name: Replay test (stored windows with gain = really scaled audio)
         run: ./build/F8KReplayTest | tee replaytest.txt
+      - name: Replay block precision test (packed windows must give the same grade, bonus and tone)
+        run: ./build/F8KPackTest | tee packtest.txt
       - name: End-to-end check (command line on generated tones)
         run: |
           python3 - <<'PY' || python - <<'PY2'
@@ -191,10 +193,12 @@ jobs:
           path: package
 
   release:
-    # Publishes each successful build of the analyser branch as a release, so the app can tell you a newer one exists
+    # SWITCHED OFF while the app is still being designed: builds are downloaded from the Actions tab (artifact meterDARK-Analyser-Windows), nothing is published.
+    # To publish releases again, change `if: false` back to `if: github.ref == 'refs/heads/analyser'`.
+    # (Originally: publishes each successful build as a release, so the app can tell you a newer one exists)
     # (for example after a new original Meter version was added automatically).
     needs: build
-    if: github.ref == 'refs/heads/analyser'
+    if: false
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
