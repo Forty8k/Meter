@@ -23,7 +23,7 @@ static int tuneRightX(int displayWidth, float vS, int k) {return displayWidth - 
 //THE LEVEL SETTINGS sit along the bottom row between "on Airwindows Meter ..." and "factory" (tune open): anchor rate, level mode, input at, score as if at.
 static void levelSlot(int displayWidth, float vS, int k, int& x, int& w)
 {
-    const int start = (int)tuneFont(vS)/2 + 270, end = displayWidth - 280;
+    const int start = (int)tuneFont(vS)/2 + 270, end = displayWidth - 410;
     const int avail = end - start > 120 ? end - start : 120;
     const float frac[5] = {0.0f, 0.19f, 0.51f, 0.76f, 1.0f};
     x = start + (int)((float)avail*frac[k]); w = (int)((float)avail*(frac[k+1] - frac[k]));
@@ -69,8 +69,6 @@ static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, int disp
                 const int third = (event.x-x0)*3/span;
                 return third == 0 ? 2 : (third == 1 ? 11 : 3);
             }
-            const int xh = tuneRightX(displayWidth, vS, 0);
-            if (event.x >= xh && event.x < xh+tuneLabelW(vS)) return 17; //hide hints (a tick)
             continue;
         }
         if (sec == 2) { //the dark <-> bright gauge is one control in three parts, like weight: dark distance, balance point, bright distance
@@ -99,6 +97,9 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
             repaint();
             return;
         }
+        if (event.x >= displayWidth-400 && event.x < displayWidth-276) { //hide hints (a tick, bottom row with factory / save default)
+            tune[17] = tune[17] > 0.5f ? 0.0f : 1.0f; tuneDragging = -1; repaint(); return;
+        }
         if (event.x >= displayWidth-270 && event.x < displayWidth-196) { //back to the built-in values
             for (int i = 0; i < kTuneCount; ++i) tune[i] = tuneDefault[i];
             repaint();
@@ -107,7 +108,7 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
     }
     if (tuneOpen) {
         const int t = onTuneLabel(event, displayWidth, displayHeight, vS);
-        if (t == 12 || t == 17) {tune[t] = tune[t] > 0.5f ? 0.0f : 1.0f; tuneDragging = -1; repaint(); return;} //the grade tick and the hide hints tick: a click toggles them
+        if (t == 12) {tune[t] = tune[t] > 0.5f ? 0.0f : 1.0f; tuneDragging = -1; repaint(); return;} //the grade tick and the hide hints tick: a click toggles them
         if (t == 13 || t == 14) { //anchor rate and level mode: a click steps to the next choice, a double-click goes back to the saved default
             if (event.getNumberOfClicks() > 1) tune[t] = tuneUser[t];
             else tune[t] = (float)(((tune[t] > 0.75f ? 2 : (tune[t] > 0.25f ? 1 : 0)) + 1) % 3) * 0.5f;
@@ -624,7 +625,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             g.setOpacity(opacity);
             g.drawText(text, x, y, w, h, just);
         };
-        stripText("weight "+authority, (int)scaleFont/2, (int)(21.0f*vS), displayWidth/2, (int)(29.0f*vS), juce::Justification::centredLeft, 1.0f);
+        stripText("tone "+authority, (int)scaleFont/2, (int)(21.0f*vS), displayWidth/2, (int)(29.0f*vS), juce::Justification::centredLeft, 1.0f);
         stripText("zero crosses", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(21.0f*vS), displayWidth/2, (int)(29.0f*vS), juce::Justification::centredRight, 1.0f);
         if (!hintsHidden()) stripText(hintText[0], 0, (int)(23.0f*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[0],1.0f));
          //authority is the amount of varying zero cross energy, between maximum and minimum.
@@ -671,7 +672,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             g.setFont(scaleFont*0.95f);
             auto fmt = [](float v) { juce::String t = juce::String(v, 2); return t.startsWith("0.") ? t.substring(1) : t; };
             const int rw = tuneLabelW(vS), gap = tuneGap(vS);
-            const juce::Colour railCol = dark ? juce::Colour(24, 27, 33) : juce::Colour(232, 234, 240);
+            const juce::Colour railCol = dark ? juce::Colour(40, 44, 53) : juce::Colour(222, 225, 232);
             const juce::Colour railText = dark ? labelCol : juce::Colours::black;
             for (int sec = 0; sec < 3; ++sec) { //the dark rail itself
                 g.setColour(railCol);
@@ -736,10 +737,6 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     railLabel(juce::String(name) + fmt(tune[idx]) + (hasLive ? juce::String(" [") + fmt(liveV) + "]" : juce::String()), x, sec, rw, juce::Justification::centredLeft, 0.9f);
                     railGauge(sec, x, (float)rw*0.9f, &tune[idx], 1, -1.0f, liveV, hasLive, false);
                 };
-                {   //hide hints: no hint words and no live hint gauges on screen (the grade, tone bars and everything else stay)
-                    const bool on = hintsHidden();
-                    railLabel(juce::String(on ? "[x] " : "[ ] ") + "hide hints", tuneRightX(displayWidth, vS, 0), 1, rw, juce::Justification::centredLeft, on ? 1.0f : 0.8f);
-                }
                 setting(0, 0, "hint speed ", 8, 0.0f, false);
                 setting(2, 0, "detail decay ", 6, 0.0f, false);          //brief bright bursts fade from the Detail readings faster
                 setting(2, 1, "fill gate ", 7, 0.0f, false);             //lone bright windows count for less
@@ -754,6 +751,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     g.drawText(justSaved ? "saved" : "save default", displayWidth-190, displayHeight-24, 114, 20, juce::Justification::bottomRight);
                     g.setOpacity(0.7f);
                     g.drawText("factory", displayWidth-270, displayHeight-24, 74, 20, juce::Justification::bottomRight);
+                    g.setOpacity(hintsHidden() ? 1.0f : 0.8f);
+                    g.drawText(juce::String(hintsHidden() ? "[x] " : "[ ] ") + "hide hints", displayWidth-400, displayHeight-24, 124, 20, juce::Justification::bottomRight);
                 }
             }
             {   //THE LEVEL SETTINGS (what Chris's scoring is given): shown while tune is open, or while something other than stock is on
@@ -812,7 +811,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             const float keyFont = scaleFont*0.95f;
             g.setFont(keyFont);
             const float chip = fmin(fmax(11.0f*vS*1.6f, 8.0f), 14.0f);
-            const juce::String keyWords[3] = {juce::String("weight"), juce::String("punch"), juce::String("detail")};
+            const juce::String keyWords[3] = {juce::String("tone"), juce::String("punch"), juce::String("detail")};
             float kx = (float)((int)scaleFont/2);
             const float ky = (19.5f*vS - chip) * 0.5f;
             for (int k = 0; k < 3; ++k) {
@@ -941,7 +940,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
     if (textStrips && dark) { //where the moving line crosses each text strip it takes that meter's color (green low end, blue dynamics, red detail)
         for (int sec = 0; sec < 3; ++sec) {
             const int stripFrom = (int)((sec == 0 ? 21.0f : 200.0f*(float)sec + 2.0f) * vS);
-            const int stripTo = (int)((200.0f*(float)sec + stripH[sec]) * vS);
+            int stripTo = (int)((200.0f*(float)sec + stripH[sec]) * vS);
+            if (displayWidth >= 700) stripTo = juce::jmin(stripTo, (int)railTopPx(sec, vS)); //the coloured playhead stays in the white bar, not over the hint gauge rail
             g.setColour(juce::Colour(30, 33, 40));
             g.fillRect((int)dataPosition-2, stripFrom, 5, stripTo - stripFrom);
             g.setColour(stripGlow[sec]);
