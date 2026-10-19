@@ -647,7 +647,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         //considering what a black art that sort of thing is, it's useful to view it in this light.
         
         g.setOpacity(1.0f);
-        stripText("dynamics "+power, (int)scaleFont/2, (int)(202*vS), displayWidth/3, (int)(28.0f*vS), juce::Justification::centredLeft, 1.0f);
+        stripText("punch "+power, (int)scaleFont/2, (int)(202*vS), displayWidth/3, (int)(28.0f*vS), juce::Justification::centredLeft, 1.0f);
         stripText("peaks", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(202*vS), displayWidth/2, (int)(28.0f*vS), juce::Justification::centredRight, 1.0f);
         if (!hintsHidden()) stripText(hintText[1], 0, (int)(203*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[1],1.0f));
         //power is the intensity of varying peak energy, between maximum and minimum.
@@ -812,7 +812,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             const float keyFont = scaleFont*0.95f;
             g.setFont(keyFont);
             const float chip = fmin(fmax(11.0f*vS*1.6f, 8.0f), 14.0f);
-            const juce::String keyWords[3] = {juce::String("weight"), juce::String("dynamics"), juce::String("detail")};
+            const juce::String keyWords[3] = {juce::String("weight"), juce::String("punch"), juce::String("detail")};
             float kx = (float)((int)scaleFont/2);
             const float ky = (19.5f*vS - chip) * 0.5f;
             for (int k = 0; k < 3; ++k) {

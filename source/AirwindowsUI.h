@@ -222,9 +222,9 @@ struct AirwindowsMeter : public juce::Component
     //DYNAMICS: the same idea. The reading is how flat the peaks are (0 = peaks swing a lot, 1 = every window peaks at the same level), measured as how far each window's
     //peak lands from the slow mean peak level, so it does not depend on how loud the material is. tune[11] = the balance point, tune[2] = how far BELOW it counts as headroom
     //(undercompressed), tune[3] = how far ABOVE it counts as squashed (a flat line, a test tone, an over-compressed or saturated sound).
-    float tune[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault, 0.00f, 0.50f};
-    static constexpr float tuneDefault[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault, 0.00f, 0.50f};
-    float tuneUser[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault, 0.00f, 0.50f}; //the saved default preset (double-click on a label goes back to this)
+    float tune[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault, 1.00f, 0.50f};
+    static constexpr float tuneDefault[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault, 1.00f, 0.50f};
+    float tuneUser[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault, 1.00f, 0.50f}; //the saved default preset (double-click on a label goes back to this)
     //LEVEL (not hints, they are about what Chris's scoring is given; see PluginProcessor::feedChris). tune[13] = anchor rate (0 off, .5 = 44.1 kHz, 1 = 96 kHz): the
     //audio is converted to that rate before Chris's loop. tune[14] = level mode (0 original, .5 normalised, 1 mix). tune[15] = "input at" and tune[16] = "score as if at"
     //(LUFS = -30 + 24 x value) for normalised. Everything on screen stays at the real level; only the scoring and the grade see the mode's gain (grade letter N or M).

@@ -55,7 +55,7 @@ void PluginProcessor::loadUserDefaults()
     if (fileVer < 7) {userTune[6] = 0.0f; userTune[7] = 0.0f; userTune[12] = 0.0f;} //version 7: Detail decay and fill gate start at 0 (stock)
     if (fileVer < 8) {userTune[13] = 0.0f; userTune[14] = 0.0f; userTune[15] = kTuneInputAtDefault; userTune[16] = kTuneAsIfAtDefault;} //version 8: anchor rate and level mode start off (stock)
     if (fileVer < 9) userTune[13] = 1.0f; //version 9: the 96 kHz anchor rate is on by default
-    if (fileVer < 10) userTune[17] = 0.0f; //version 10: hide hints (tune17) starts off, so the hints show
+    if (fileVer < 10) userTune[17] = 1.0f; //version 10: hide hints (tune17); hidden is the default now
     if (fileVer < 11) {userTune[0] = 0.30f; userTune[1] = 0.30f; userTune[9] = 0.50f; userTune[4] = 0.30f; userTune[5] = 0.30f; userTune[18] = 0.50f;} //version 11: weight is thin <-> full and dark <-> bright is one gauge, so those settings measure something else and restart from the new defaults
     const double pt = xml->getDoubleAttribute("peaktrim", 0.0);
     const double st = xml->getDoubleAttribute("slewtrim", 0.0);
