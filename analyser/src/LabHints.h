@@ -1,7 +1,7 @@
-// meterDARK Analyser: the LAB's simulation of meterDARK's three hints (light/heavy, headroom/squashed, dark/bright).
-// It is the plugin's own hint maths (Meter F8K, the build "balance line fixed in the centre"), run over the original
-// Meter 0.5.5 window data stored in the library, with every constant that shapes the readings turned into a setting.
-// With every setting at its default it reads exactly as that Meter F8K build does.
+// meterDARK Analyser: hintLAB's simulation of meterDARK's three hints (thin/full, headroom/squashed, dark/bright).
+// It is the plugin's own hint maths (AirwindowsUI.cpp scoreColumn + the state machine in paint), run over the window data stored
+// in the library, with every constant that shapes the readings turned into a setting.
+// With every setting at its default it reads exactly as the plugin does. KEEP THE TWO IN STEP: a change to one is a change to both.
 #pragma once
 #include <vector>
 #include <string>
@@ -29,12 +29,13 @@ struct HintSettings {
 };
 
 struct HintTrackResult {
-    double weight = 0, dynamics = 0, darkRead = 0, brightRead = 0;  // average readings over the audible windows (0-1)
-    double light = 0, heavy = 0, headroom = 0, squashed = 0, dark = 0, bright = 0; // share of the audible time each hint shows (0-1)
+    double weight = 0, dynamics = 0, tilt = 0, width = 0;  // average readings over the audible windows (0-1). tilt: 0 = dark, 0.5 = balanced, 1 = bright. width: share of the time the dots are not neutral
+    double thin = 0, full = 0, headroom = 0, squashed = 0, dark = 0, bright = 0; // share of the audible time each hint shows (0-1)
+    double oldWeight = 0;  // the retired weight reading (dot mass with the frequency push, factory constants), kept only so hintLAB can compare it with the new one
     int windows = 0, audible = 0;
 };
 
-// names/values: one track's stored Meter 0.5.5 core windows (PEAK_LEFT ... DEPT_RIGHT, as read by Library::readCore)
+// names/values: one track's stored core windows (PEAK_LEFT ... DEPT_RIGHT, as read by Library::readCore)
 HintTrackResult simulateHints(const std::vector<std::string>& names, const std::vector<float>& values, const HintSettings& s);
 
 // LEVEL TEST: how much do the readings move when the same music is played quieter? Each track's stored windows are scaled by the given
@@ -45,9 +46,9 @@ std::vector<float> scaleWindowsEach(const std::vector<std::string>& names, const
 std::vector<double> mixWindowGains(const std::vector<std::string>& names, const std::vector<float>& values, double sampleRate);               // the "mix" level mode
 struct LevelTestRow {
     double db = 0;
-    double reading[4] = {};      // mean shift of weight, dynamics, dark and bright readings from the 0 dB result (signed)
-    double readingAbs[4] = {};   // mean size of the shift
-    double on[6] = {};           // mean shift of the share of time each hint shows (light, heavy, headroom, squashed, dark, bright), signed
+    double reading[3] = {};      // mean shift of the weight, dynamics and dark <-> bright readings from the 0 dB result (signed)
+    double readingAbs[3] = {};   // mean size of the shift
+    double on[6] = {};           // mean shift of the share of time each hint shows (thin, full, headroom, squashed, dark, bright), signed
     double onAbs[6] = {};        // mean size of that shift
     double audible = 0;          // mean share of the windows counted as audible
     int tracks = 0;

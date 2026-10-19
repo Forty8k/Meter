@@ -50,21 +50,20 @@ int main()
     struct Step {const char* label; double fMax, gates, comp;} steps[] = {{"only fMax 16", 16, 0, 0}, {"fMax 16 + gates", 16, 1, 0}, {"fMax 16 + detail match", 16, 0, 1}};
     for (auto& st : steps) {HintSettings s; s.v[(size_t)hintParamIndex("fMax")] = st.fMax; s.v[(size_t)hintParamIndex("relativeGates")] = st.gates; s.v[(size_t)hintParamIndex("detailLevelComp")] = st.comp;
         printf("%s\n%s\n", st.label, levelTestReport(levelTest(tr, s, dbs)).c_str());}
-    for (double fm : {0.8, 0.6, 0.4}) {HintSettings s; s.v[(size_t)hintParamIndex("fMin")] = fm; printf("AFTER with level cut limit %.1f\n%s\n", fm, levelTestReport(levelTest(tr, s, dbs)).c_str());}
     // per track, at -18 dB
-    printf("Per track at -18 dB: readings (weight, dynamics, dark, bright) at 0 dB / -18 dB, before then after\n");
+    printf("Per track at -18 dB: readings (weight, dynamics, dark <-> bright) at 0 dB / -18 dB, before then after\n");
     for (size_t i = 0; i < names.size(); ++i) {
         for (int pass = 0; pass < 2; ++pass) {
             const HintSettings& s = pass == 0 ? before : after;
             const auto a = simulateHints(names[i], cores[i], s), b = simulateHints(names[i], scaleWindows(names[i], cores[i], -18), s);
-            printf("  %-38s %s  W %.2f/%.2f  D %.2f/%.2f  dark %.2f/%.2f  bright %.2f/%.2f   audible %d/%d\n", makers[i].name, pass == 0 ? "before" : "after ", a.weight, b.weight, a.dynamics, b.dynamics, a.darkRead, b.darkRead, a.brightRead, b.brightRead, a.audible, b.audible);
+            printf("  %-38s %s  W %.2f/%.2f  D %.2f/%.2f  tilt %.2f/%.2f   audible %d/%d\n", makers[i].name, pass == 0 ? "before" : "after ", a.weight, b.weight, a.dynamics, b.dynamics, a.tilt, b.tilt, a.audible, b.audible);
         }
     }
     // pass/fail for CI: with the level-independent maths the Detail readings must hardly move at any level, and weight/dynamics must not move much
     const auto rows = levelTest(tr, after, dbs);
     bool ok = true;
     for (auto& r : rows) {
-        if (r.readingAbs[2] > 0.05 || r.readingAbs[3] > 0.05 || r.readingAbs[0] > 0.1 || r.readingAbs[1] > 0.05) ok = false;
+        if (r.readingAbs[2] > 0.05 || r.readingAbs[0] > 0.1 || r.readingAbs[1] > 0.05) ok = false;
         for (int i = 0; i < 6; ++i) if (r.onAbs[i] > 0.15) ok = false;
     }
     printf("%s\n", ok ? "LEVEL TEST PASSED" : "LEVEL TEST FAILED");

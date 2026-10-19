@@ -86,7 +86,7 @@ Possible duplicates
 
 The hintLAB tab  (this was called the Lab; its "Original scoring" part will move to a gradeLAB tab later)
   An experiment space. Nothing in it changes the Library's real grades.
-  meterDARK hints: the plugin's light/heavy, headroom/squashed and dark/bright hints, simulated over your whole library as
+  meterDARK hints: the plugin's thin/full, headroom/squashed and dark/bright hints (three gauges; dark/bright is one gauge with a width shade), simulated over your whole library as
     you move the settings. The strip at the top shows where every track's readings sit (dots) against the triggers (lines);
     the table shows each track's average readings and how much of the time each hint would show (yellow = most of it).
     "Set triggers from the library" puts each balance point in the middle of your library and each trigger so that the
@@ -96,6 +96,11 @@ The hintLAB tab  (this was called the Lab; its "Original scoring" part will move
     When it finishes it lists every setting that differs from factory. If everything is still factory nothing will look
     different. Plugins already open and saved projects keep their own triggers until you press "factory" or
     double-click the setting in the plugin's tune panel.
+    Weight is now THIN <-> FULL: where the loud part of the sound sits in the bass (about 300 Hz = thin, about 60 Hz = full).
+    "Measure low end" reads each track's real low-end energy (the 31, 62 and 125 Hz bands, from the stored fine blocks; first run
+    takes a few minutes, then it is cached in lowend.csv). The two plots under the strips put real low end across and the weight
+    reading up, for the retired "old weight" and the new one, with a correlation number r (1 = follows it perfectly, 0 = unrelated).
+    The new one should be clearly higher. Please check this on your library: it could not be tested without your tracks.
   Detail decay and fill gate (in DETAIL, 0 = stock) are meterDARK's two settings for keeping brief bright transients out of
     the Detail readings; they are exported with the rest. In "Original scoring" the same two settings show what they do to
     the grades, as meterDARK does with its "grade" tick on.

@@ -116,6 +116,9 @@ public:
     bool readCore(const juce::String& id, const juce::String& vid, std::vector<std::string>& names, std::vector<float>& values);
     // The window data of the newest Meter version at a converted rate (44100 / 96000). For a track already at that rate this is its normal core.
     bool readCoreAt(const juce::String& id, const juce::String& vid, int rate, std::vector<std::string>& names, std::vector<float>& values);
+    // How much of each track's real energy sits in the low end (the three lowest octave bands, 31-125 Hz, as a share of all ten), from the fine blocks.
+    // Cached in lowend.csv; only tracks not in the cache are read. Used by hintLAB to test whether the weight reading follows the real low end.
+    std::map<juce::String, double> lowEndShares(std::function<bool()> shouldStop, std::function<void(int, int)> progress);
 private:
 };
 

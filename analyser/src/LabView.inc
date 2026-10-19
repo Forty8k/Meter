@@ -1,5 +1,5 @@
 // meterDARK Analyser: the LAB tab (included by MainGui.cpp, inside its anonymous namespace).
-//  Hints   - meterDARK's light/heavy, headroom/squashed and dark/bright hints, simulated across the whole library as you move
+//  Hints   - meterDARK's thin/full, headroom/squashed and dark/bright hints, simulated across the whole library as you move
 //            the settings. Shows where each track's readings sit and how often each hint would show. Export sends the
 //            settings to meterDARK.
 //  Scoring - an experimental copy of the newest original Meter's scoring with its constants as settings. Re-score the
@@ -23,7 +23,7 @@ public:
         addAndMakeVisible(settingsView);
         settingsView.setViewedComponent(&settingsPanel, false);
         settingsView.setScrollBarsShown(true, false);
-        for (auto* b : {&fromLibrary, &resetButton, &exportButton, &rescoreButton, &saveButton, &levelTestButton}) {addAndMakeVisible(b); styleButton(*b);}
+        for (auto* b : {&fromLibrary, &resetButton, &exportButton, &rescoreButton, &saveButton, &levelTestButton, &lowEndButton}) {addAndMakeVisible(b); styleButton(*b);}
         addAndMakeVisible(percentBox);
         percentBox.addItem("10% each side", 10); percentBox.addItem("15% each side", 15); percentBox.addItem("20% each side", 20); percentBox.addItem("25% each side", 25);
         percentBox.setSelectedId(15, juce::dontSendNotification);
@@ -32,6 +32,7 @@ public:
         resetButton.onClick = [this] { if (mode == 0) hints = f8k::HintSettings(); else score = f8k::ScoreParams(); paintEvery = 1; buildSettings(); recompute(); };
         exportButton.onClick = [this] { exportToMeter(); };
         levelTestButton.onClick = [this] { runLevelTest(); };
+        lowEndButton.onClick = [this] { measureLowEnd(); };
         rescoreButton.onClick = [this] { rescore(); };
         saveButton.onClick = [this] { saveScoreSettings(); };
         addAndMakeVisible(status);
@@ -43,8 +44,8 @@ public:
         table.getHeader().setColour(juce::TableHeaderComponent::backgroundColourId, kPanel);
         table.getHeader().setColour(juce::TableHeaderComponent::textColourId, kText);
         table.getHeader().setColour(juce::TableHeaderComponent::outlineColourId, kBg);
-        addAndMakeVisible(dist);
-        model.owner = this; dist.owner = this;
+        addAndMakeVisible(dist); addAndMakeVisible(scatter);
+        model.owner = this; dist.owner = this; scatter.owner = this;
         buildSettings();
         setMode(0);
         startTimer(200);
@@ -62,7 +63,7 @@ public:
         auto buttons = left.removeFromBottom(mode == 0 ? 100 : 66);
         auto b1 = buttons.removeFromTop(30), b2 = buttons.removeFromBottom(30);
         if (mode == 0) {
-            auto b3 = buttons.removeFromTop(34).withTrimmedTop(4); levelTestButton.setBounds(b3.removeFromLeft(220));
+            auto b3 = buttons.removeFromTop(34).withTrimmedTop(4); levelTestButton.setBounds(b3.removeFromLeft(150)); b3.removeFromLeft(6); lowEndButton.setBounds(b3);
             fromLibrary.setBounds(b1.removeFromLeft(220)); b1.removeFromLeft(6); percentBox.setBounds(b1);
             resetButton.setBounds(b2.removeFromLeft(196)); b2.removeFromLeft(8); exportButton.setBounds(b2);
         } else {
@@ -74,7 +75,7 @@ public:
         settingsPanel.setSize(left.getWidth() - 14, settingsPanel.getHeight());
         layoutSettings();
         r.removeFromLeft(12);
-        if (mode == 0) {dist.setVisible(true); dist.setBounds(r.removeFromTop(150)); r.removeFromTop(8);} else dist.setVisible(false);
+        if (mode == 0) {dist.setVisible(true); dist.setBounds(r.removeFromTop(110)); r.removeFromTop(6); scatter.setVisible(true); scatter.setBounds(r.removeFromTop(200)); r.removeFromTop(8);} else {dist.setVisible(false); scatter.setVisible(false);}
         table.setBounds(r);
     }
     void paint(juce::Graphics& g) override { g.fillAll(kBg); }
@@ -86,6 +87,7 @@ private:
     bool testing = false;
     bool loading = false, loaded = false; const void* loadedFor = nullptr; int loadedChange = -1;
     std::vector<f8k::HintTrackResult> hintResults;
+    std::map<juce::String, double> lowEnd; bool measuring = false; std::atomic<int> lowDone{0}, lowTotal{0}; //real low-end share per track id (-1 = no fine data)
     struct ScoreRow { juce::String grade, bonus; double letterValue = 0; bool done = false; };
     std::vector<ScoreRow> scoreResults;
     int origRank(size_t i) const { return i < origRanks.size() ? origRanks[i] : 0; }
@@ -121,6 +123,7 @@ private:
             refreshUse(); origRanks = ranks(false); labRanks.clear(); scoreResults.assign(tracks.size(), {});
             recompute(); model.refresh();
         }
+        if (measuring) status.setText("Measuring the real low end: " + juce::String(lowDone.load()) + " of " + juce::String(lowTotal.load()) + " tracks (first time only, it is cached after) ...", juce::dontSendNotification);
         if (loading && loadTotal.load() > 0)
             status.setText("Grading the library in " + juce::String(loadedLevel.mode == 1 ? "normalised" : "mix") + " mode: " + juce::String(loadDone.load()) + " of " + juce::String(loadTotal.load()) + " tracks ...", juce::dontSendNotification);
         if (scoring) {
@@ -197,6 +200,23 @@ private:
             });
         });
     }
+    //4a: does the weight reading follow the real low end? Reads each track's fine octave bands once (cached), then the scatter plots compare it with the old and new weight readings.
+    void measureLowEnd() {
+        auto lib = getLibrary ? getLibrary() : nullptr;
+        if (lib == nullptr || !loaded || loading || measuring) return;
+        measuring = true; lowDone = 0; lowTotal = 0;
+        juce::Component::SafePointer<LabView> sp(this);
+        pool.addJob([this, sp, lib] {
+            auto res = lib->lowEndShares([&] {return sp == nullptr;}, [&](int d, int n) {lowDone = d; lowTotal = n;});
+            juce::MessageManager::callAsync([this, sp, res = std::move(res)]() mutable {
+                if (sp == nullptr) return;
+                lowEnd = std::move(res); measuring = false;
+                status.setText("Low end measured. " + scatter.summary(), juce::dontSendNotification);
+                scatter.repaint(); model.refresh();
+            });
+        });
+        startTimer(200);
+    }
     //LEVEL TEST: the library's tracks replayed 0, 6, 12, 18 and 24 dB quieter through the hint maths with the current settings; shows how far each reading moves (target 0)
     void runLevelTest() {
         if (!loaded || loading || testing) return;
@@ -232,13 +252,13 @@ private:
     }
     void summarise() {
         if (mode != 0) return;
-        int n = 0, light = 0, heavy = 0, head = 0, squash = 0, dark = 0, bright = 0;
+        int n = 0, thin = 0, full = 0, head = 0, squash = 0, dark = 0, bright = 0;
         for (auto& r : hintResults) {
             if (r.audible == 0) continue;
             ++n;
-            light += r.light > 0.5; heavy += r.heavy > 0.5; head += r.headroom > 0.5; squash += r.squashed > 0.5; dark += r.dark > 0.5; bright += r.bright > 0.5;
+            thin += r.thin > 0.5; full += r.full > 0.5; head += r.headroom > 0.5; squash += r.squashed > 0.5; dark += r.dark > 0.5; bright += r.bright > 0.5;
         }
-        status.setText(juce::String(n) + " tracks" + (usedCount() < (int)tracks.size() ? " (filtered from " + juce::String((int)tracks.size()) + ")" : juce::String()) + ".  Hint showing most of the time:  light " + juce::String(light) + ", heavy " + juce::String(heavy)
+        status.setText(juce::String(n) + " tracks" + (usedCount() < (int)tracks.size() ? " (filtered from " + juce::String((int)tracks.size()) + ")" : juce::String()) + ".  Hint showing most of the time:  thin " + juce::String(thin) + ", full " + juce::String(full)
                        + "   |   headroom " + juce::String(head) + ", squashed " + juce::String(squash) + "   |   dark " + juce::String(dark) + ", bright " + juce::String(bright),
                        juce::dontSendNotification);
     }
@@ -250,20 +270,21 @@ private:
     }
     //set each balance point to the middle of the library and each trigger so that about this share of tracks lands beyond it
     void setFromLibrary(double share) {
-        std::vector<double> w, d, dk, br;
-        for (auto& r : hintResults) if (r.audible > 0) {w.push_back(r.weight); d.push_back(r.dynamics); dk.push_back(r.darkRead); br.push_back(r.brightRead);}
+        std::vector<double> w, d, dk;
+        for (auto& r : hintResults) if (r.audible > 0) {w.push_back(r.weight); d.push_back(r.dynamics); dk.push_back(r.tilt);}
         if (w.size() < 5) {status.setText("Add a few more tracks first (at least 5).", juce::dontSendNotification); return;}
         auto set = [this](const char* k, double v) {const int i = f8k::hintParamIndex(k); const auto& p = f8k::hintParams()[(size_t)i]; hints.v[(size_t)i] = juce::jlimit(p.lo, p.hi, v);};
         const double wm = percentile(w, 0.5), dm = percentile(d, 0.5);
         set("tune9", wm); set("tune0", wm - percentile(w, share)); set("tune1", percentile(w, 1 - share) - wm);
         set("tune11", dm); set("tune2", dm - percentile(d, share)); set("tune3", percentile(d, 1 - share) - dm);
-        set("tune4", percentile(dk, share)); set("tune5", percentile(br, 1 - share));
+        const double km = percentile(dk, 0.5);
+        set("tune18", km); set("tune4", km - percentile(dk, share)); set("tune5", percentile(dk, 1 - share) - km);
         buildSettings(); recompute();
     }
 
     void exportToMeter() {
         //1. the constants, for meterDARK to read (lab-tuning.xml). 2. the trigger settings, into meterDARK's saved default preset (defaults.xml)
-        const int pluginVersion = 10; //the preset / project version meterDARK writes (its PluginProcessor::saveUserDefaults); keep in step with the plugin
+        const int pluginVersion = 11; //the preset / project version meterDARK writes (its PluginProcessor::saveUserDefaults); keep in step with the plugin
         const juce::File dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("meterDARK");
         dir.createDirectory();
 
@@ -423,7 +444,7 @@ private:
             settingsPanel.addAndMakeVisible(r->name); settingsPanel.addAndMakeVisible(r->slider);
         };
         if (mode == 0) {
-            const char* groups[4][2] = {{"weight", "WEIGHT  (light / heavy)"}, {"dynamics", "DYNAMICS  (headroom / squashed)"}, {"detail", "DETAIL  (dark / bright)"}, {"all", "ALL THREE"}};
+            const char* groups[4][2] = {{"weight", "WEIGHT  (thin / full)"}, {"dynamics", "DYNAMICS  (headroom / squashed)"}, {"detail", "DETAIL  (dark / bright, one gauge)"}, {"all", "ALL THREE"}};
             for (auto& g : groups) {
                 addHeader(g[1]);
                 for (size_t i = 0; i < f8k::hintParams().size(); ++i) {
@@ -459,7 +480,7 @@ private:
     }
     void setMode(int m) {
         mode = m;
-        for (auto* b : {&fromLibrary, &exportButton, &levelTestButton}) b->setVisible(m == 0);
+        for (auto* b : {&fromLibrary, &exportButton, &levelTestButton, &lowEndButton}) b->setVisible(m == 0);
         percentBox.setVisible(m == 0);
         for (auto* b : {&rescoreButton, &saveButton}) b->setVisible(m == 1);
         resetButton.setButtonText(m == 0 ? "Back to meterDARK's values" : "Back to the original");
@@ -480,8 +501,8 @@ private:
             auto& h = owner->table.getHeader();
             h.removeAllColumns();
             if (m == 0) {
-                const char* c[] = {"Track", "Grade", "Weight", "Light %", "Heavy %", "Dynamics", "Headroom %", "Squashed %", "Dark rdg", "Dark %", "Bright rdg", "Bright %"};
-                for (int i = 0; i < 12; ++i) h.addColumn(c[i], i + 1, i == 0 ? 240 : (i == 1 ? 70 : 72), 30, 600, juce::TableHeaderComponent::defaultFlags);
+                const char* c[] = {"Track", "Grade", "Weight", "Thin %", "Full %", "Dynamics", "Headroom %", "Squashed %", "Dark-bright", "Dark %", "Bright %", "Old weight", "Low end %"};
+                for (int i = 0; i < 13; ++i) h.addColumn(c[i], i + 1, i == 0 ? 240 : (i == 1 ? 70 : 72), 30, 600, juce::TableHeaderComponent::defaultFlags);
             } else {
                 const char* c[] = {"Track", "Original grade", "Lab grade", "Original rank", "Lab rank", "Moved"};
                 for (int i = 0; i < 6; ++i) h.addColumn(c[i], i + 1, i == 0 ? 260 : 100, 30, 600, juce::TableHeaderComponent::defaultFlags);
@@ -494,8 +515,10 @@ private:
             if (mode == 0) {
                 if (i >= (int)o.hintResults.size()) return 0;
                 const auto& r = o.hintResults[(size_t)i];
-                switch (col) {case 3: return r.weight; case 4: return r.light; case 5: return r.heavy; case 6: return r.dynamics; case 7: return r.headroom;
-                              case 8: return r.squashed; case 9: return r.darkRead; case 10: return r.dark; case 11: return r.brightRead; case 12: return r.bright; default: return 0;}
+                switch (col) {case 3: return r.weight; case 4: return r.thin; case 5: return r.full; case 6: return r.dynamics; case 7: return r.headroom;
+                              case 8: return r.squashed; case 9: return r.tilt; case 10: return r.dark; case 11: return r.bright; case 12: return r.oldWeight;
+                              case 13: {const auto it = o.lowEnd.find(o.tracks[(size_t)i].id); return it == o.lowEnd.end() ? 0.0 : juce::jmax(0.0, it->second);}
+                              default: return 0;}
             }
             switch (col) {case 4: return o.origRank((size_t)i); case 5: return i < (int)o.labRanks.size() ? o.labRanks[(size_t)i] : 0;
                           case 6: return i < (int)o.labRanks.size() ? o.origRank((size_t)i) - o.labRanks[(size_t)i] : 0; default: return 0;}
@@ -508,7 +531,7 @@ private:
             if (col == 2) return t.grade;
             if (mode == 0) {
                 if (i >= (int)o.hintResults.size() || o.hintResults[(size_t)i].audible == 0) return {};
-                const bool pct = col == 4 || col == 5 || col == 7 || col == 8 || col == 10 || col == 12;
+                const bool pct = col == 4 || col == 5 || col == 7 || col == 8 || col == 10 || col == 11 || col == 13;
                 return pct ? juce::String(juce::roundToInt(num(i, col)*100.0)) : juce::String(num(i, col), 2);
             }
             if (col == 3) return i < (int)o.scoreResults.size() && o.scoreResults[(size_t)i].done ? o.scoreResults[(size_t)i].grade : juce::String();
@@ -541,7 +564,7 @@ private:
             if (row < 0 || row >= (int)order.size()) return;
             const int i = order[(size_t)row];
             juce::Colour c = kText;
-            if (mode == 0 && col >= 4 && col != 6 && col != 9 && col != 11 && num(i, col) > 0.5) c = kAccent; //that hint shows most of the time
+            if (mode == 0 && col >= 4 && col != 6 && col != 9 && col != 12 && col != 13 && num(i, col) > 0.5) c = kAccent; //that hint shows most of the time
             if (mode == 1 && col == 3 && i < (int)owner->scoreResults.size() && owner->scoreResults[(size_t)i].done && owner->scoreResults[(size_t)i].grade != owner->tracks[(size_t)i].grade) c = kYours;
             g.setColour(c); g.setFont(juce::Font(14.0f));
             g.drawText(text(i, col), 6, 0, w - 12, h, col <= 2 || (mode == 1 && col == 3) ? juce::Justification::centredLeft : juce::Justification::centredRight, true);
@@ -556,9 +579,9 @@ private:
         void paint(juce::Graphics& g) override {
             g.fillAll(kPanel.darker(0.2f));
             const auto& o = *owner;
-            const char* names[4] = {"weight  (light | heavy)", "dynamics  (headroom | squashed)", "dark reading  (dark below the line)", "bright reading  (bright above the line)"};
-            const int rowH = getHeight()/4;
-            for (int k = 0; k < 4; ++k) {
+            const char* names[3] = {"weight  (thin | full)", "dynamics  (headroom | squashed)", "dark | bright  (balance, dark left)"};
+            const int rowH = getHeight()/3;
+            for (int k = 0; k < 3; ++k) {
                 auto r = getLocalBounds().withY(k*rowH).withHeight(rowH).reduced(8, 3);
                 g.setColour(kDim); g.setFont(juce::Font(12.0f));
                 g.drawText(names[k], r.removeFromLeft(220), juce::Justification::centredLeft);
@@ -568,11 +591,10 @@ private:
                 const auto& h = o.hints;
                 if (k == 0) {line(h["tune9"], kDim); line(h["tune9"] - h["tune0"], kYours); line(h["tune9"] + h["tune1"], kAccent);}
                 if (k == 1) {line(h["tune11"], kDim); line(h["tune11"] - h["tune2"], kYours); line(h["tune11"] + h["tune3"], kAccent);}
-                if (k == 2) line(h["tune4"], kYours);
-                if (k == 3) line(h["tune5"], kAccent);
+                if (k == 2) {line(h["tune18"], kDim); line(h["tune18"] - h["tune4"], kYours); line(h["tune18"] + h["tune5"], kAccent);}
                 for (auto& t : o.hintResults) {
                     if (t.audible == 0) continue;
-                    const double v = k == 0 ? t.weight : (k == 1 ? t.dynamics : (k == 2 ? t.darkRead : t.brightRead));
+                    const double v = k == 0 ? t.weight : (k == 1 ? t.dynamics : t.tilt);
                     g.setColour(kText.withAlpha(0.55f));
                     g.fillEllipse(x0 + wd*(float)juce::jlimit(0.0, 1.0, v) - 2.5f, cy - 2.5f, 5.0f, 5.0f);
                 }
@@ -581,7 +603,55 @@ private:
     } dist;
     friend struct Dist;
 
+    //real low-end share (across) against the old and the new weight reading (up). A reading that follows the low end rises from the bottom left to the top right.
+    struct Scatter : public juce::Component {
+        LabView* owner = nullptr;
+        static double pearson(const std::vector<double>& a, const std::vector<double>& b) {
+            const size_t n = a.size(); if (n < 3) return 0;
+            double ma = 0, mb = 0; for (size_t i = 0; i < n; ++i) {ma += a[i]; mb += b[i];}
+            ma /= (double)n; mb /= (double)n;
+            double sab = 0, saa = 0, sbb = 0;
+            for (size_t i = 0; i < n; ++i) {sab += (a[i] - ma)*(b[i] - mb); saa += (a[i] - ma)*(a[i] - ma); sbb += (b[i] - mb)*(b[i] - mb);}
+            return saa > 0 && sbb > 0 ? sab/std::sqrt(saa*sbb) : 0;
+        }
+        void collect(std::vector<double>& x, std::vector<double>& oldW, std::vector<double>& newW) const {
+            const auto& o = *owner;
+            for (size_t i = 0; i < o.tracks.size() && i < o.hintResults.size(); ++i) {
+                const auto& r = o.hintResults[i]; if (r.audible == 0) continue;
+                const auto it = o.lowEnd.find(o.tracks[i].id); if (it == o.lowEnd.end() || it->second < 0) continue;
+                x.push_back(it->second); oldW.push_back(r.oldWeight); newW.push_back(r.weight);
+            }
+        }
+        juce::String summary() const {
+            std::vector<double> x, a, b; collect(x, a, b);
+            if (x.size() < 3) return "Not enough tracks with low-end data.";
+            return "Correlation with the real low end (1 = perfect, 0 = none): old weight " + juce::String(pearson(x, a), 2) + ", new weight " + juce::String(pearson(x, b), 2) + "  (" + juce::String((int)x.size()) + " tracks).";
+        }
+        void paint(juce::Graphics& g) override {
+            g.fillAll(kPanel.darker(0.2f));
+            std::vector<double> x, a, b; collect(x, a, b);
+            if (x.size() < 3) {g.setColour(kDim); g.setFont(juce::Font(13.0f)); g.drawText("Press \"Measure low end\" to compare the weight readings with the real low-end energy of each track.", getLocalBounds().reduced(10), juce::Justification::centred); return;}
+            double xmax = 0; for (double v : x) xmax = juce::jmax(xmax, v);
+            xmax = juce::jmax(0.05, xmax);
+            auto area = getLocalBounds().reduced(8, 6);
+            for (int k = 0; k < 2; ++k) {
+                auto r = area.removeFromLeft(area.getWidth()/(2 - k)).reduced(6, 0);
+                const auto& y = k == 0 ? a : b;
+                g.setColour(kDim); g.setFont(juce::Font(12.0f));
+                g.drawText(juce::String(k == 0 ? "OLD weight" : "NEW weight (thin-full)") + "  r = " + juce::String(pearson(x, y), 2) + "      across: real low end, up: reading", r.removeFromTop(16), juce::Justification::centredLeft);
+                g.setColour(kDim.withAlpha(0.5f)); g.drawRect(r.toFloat(), 1.0f);
+                double ymax = 0; for (double v : y) ymax = juce::jmax(ymax, v);
+                ymax = juce::jmax(0.05, k == 1 ? 1.0 : ymax);
+                g.setColour((k == 0 ? kDim : kAccent).withAlpha(0.6f));
+                for (size_t i = 0; i < x.size(); ++i)
+                    g.fillEllipse((float)r.getX() + (float)(x[i]/xmax)*(float)r.getWidth() - 2, (float)r.getBottom() - (float)(y[i]/ymax)*(float)r.getHeight() - 2, 4.0f, 4.0f);
+            }
+        }
+    } scatter;
+    friend struct Scatter;
+
     juce::TextButton hintsMode{"meterDARK hints"}, scoreMode{"Original scoring (experiment)"};
+    juce::TextButton lowEndButton{"Measure low end"};
     juce::TextButton fromLibrary{"Set triggers from the library"}, resetButton{"Back to meterDARK's values"}, exportButton{"Export to meterDARK"};
     juce::TextButton rescoreButton{"Re-score library"}, saveButton{"Save settings..."}, levelTestButton{"Level test"};
     juce::ComboBox percentBox;

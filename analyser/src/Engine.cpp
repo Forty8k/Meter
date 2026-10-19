@@ -814,6 +814,44 @@ static bool readFloats(const juce::File& f, std::vector<float>& out)
     return !out.empty();
 }
 
+std::map<juce::String, double> Library::lowEndShares(std::function<bool()> shouldStop, std::function<void(int, int)> progress)
+{
+    std::map<juce::String, double> out;
+    const juce::File cache = folder.getChildFile("lowend.csv");
+    {
+        juce::StringArray lines; lines.addLines(cache.loadFileAsString());
+        for (auto& l : lines) {const int c = l.indexOfChar(','); if (c > 0) out[l.substring(0, c)] = l.substring(c + 1).getDoubleValue();}
+    }
+    const Table t = index();
+    std::vector<juce::String> todo;
+    for (size_t r = 0; r < t.rows.size(); ++r) if (!out.count(t.get(r, "id"))) todo.push_back(t.get(r, "id"));
+    if (todo.empty()) return out;
+    std::atomic<int> next{0}, done{0};
+    juce::CriticalSection m;
+    const int total = (int)todo.size();
+    const juce::File tracks = folder.getChildFile("tracks");
+    auto worker = [&] {
+        for (;;) {
+            const int i = next++;
+            if (i >= total || (shouldStop && shouldStop())) return;
+            std::vector<float> fine; double low = 0, all = 0;
+            if (readFloats(tracks.getChildFile(todo[(size_t)i] + ".fine.f32.gz"), fine) && fine.size() % F_NUM_COLS == 0) {
+                for (size_t b = 0; b + F_NUM_COLS <= fine.size(); b += F_NUM_COLS)
+                    for (int k = 0; k < 10; ++k) {const double v = fine[b + (size_t)F_BAND0 + (size_t)k]; all += v; if (k < 3) low += v;}
+            }
+            {const juce::ScopedLock sl(m); out[todo[(size_t)i]] = all > 0 ? low/all : -1.0;} //-1 = no fine data for this track
+            const int d = ++done; if (progress) progress(d, total);
+        }
+    };
+    std::vector<std::thread> th;
+    for (unsigned k = 0; k < juce::jmax(1u, std::thread::hardware_concurrency()); ++k) th.emplace_back(worker);
+    for (auto& x : th) x.join();
+    juce::String csv;
+    for (auto& kv : out) csv << kv.first << "," << juce::String(kv.second, 6) << "\n";
+    cache.replaceWithText(csv);
+    return out;
+}
+
 int Library::upgradeOldRows(std::function<bool()> shouldStop, std::function<void(int, int, const juce::String&)> progress)
 {
     Table t = index();
