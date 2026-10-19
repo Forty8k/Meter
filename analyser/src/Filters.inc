@@ -1,6 +1,8 @@
 // Included by MainGui.cpp (inside its anonymous namespace). Filters for the Library list and for the Lab: a list of conditions, named saved sets,
 // and (for the Lab) the default exclusions and the one-copy-per-song rule. Kept in filters.json in the library folder.
 
+#include "GradeRank.h"
+
 struct FilterCondition { juce::String field, op, value; };
 
 struct FilterSet {
@@ -25,6 +27,26 @@ struct FilterSet {
     }
 };
 
+//Filters saved before the grade parts were ranked fields (filters.json without "ver": 2): authority / power / detail held a NUMBER, the overall letter was plain text,
+//and "case:" fields asked capital or lowercase. Turn them into the ranked-field form so saved sets keep meaning the same.
+inline void migrateFilterSetV1(FilterSet& s) {
+    for (auto& c : s.conditions) {
+        if (c.field.startsWith("case:")) {c.field = c.field.substring(5); continue;} //"is a capital" / "is lowercase" now live on the grade part itself
+        if (c.field == "letter") {
+            if (c.op == "contains") c.op = "is"; else if (c.op == "does not contain") c.op = "is not";
+            continue;
+        }
+        if (c.field == "authority" || c.field == "power" || c.field == "detail") {
+            const juce::String t = c.value.trim();
+            if (c.op == "is empty" || c.op == "is not empty" || t.isEmpty() || !t.containsOnly("0123456789")) continue;
+            int v = t.getIntValue();
+            if (c.op == "above") {c.op = "at least"; ++v;} else if (c.op == "below") {c.op = "at most"; --v;}
+            const std::string letter = f8k::legacySubGradeLetter(c.field.toStdString(), v);
+            if (!letter.empty()) c.value = juce::String(letter);
+        }
+    }
+}
+
 struct FilterStore {
     FilterSet current;
     bool labUses = false; //the Lab uses the filtered tracks
@@ -37,9 +59,11 @@ struct FilterStore {
         labUses = (bool)j.getProperty("labUses", false);
         if (auto* arr = j.getProperty("sets", juce::var()).getArray())
             for (auto& s : *arr) sets.push_back({s.getProperty("name", "").toString(), FilterSet::fromVar(s)});
+        if ((int)j.getProperty("ver", 1) < 2) {migrateFilterSetV1(current); for (auto& s : sets) migrateFilterSetV1(s.second);}
     }
     void save(const juce::File& folder) const {
         auto* o = new juce::DynamicObject();
+        o->setProperty("ver", 2); //2 = grade parts are ranked fields (see migrateFilterSetV1)
         o->setProperty("current", current.toVar()); o->setProperty("labUses", labUses);
         juce::Array<juce::var> arr;
         for (auto& s : sets) {juce::var v = s.second.toVar(); v.getDynamicObject()->setProperty("name", s.first); arr.add(v);}
@@ -48,23 +72,64 @@ struct FilterStore {
     }
 };
 
-struct FilterField { juce::String key, label; int type = 0; }; //type: 0 text, 1 number, 2 capital/lowercase
+//type: 0 text, 1 number, 3 authority / power / detail (a ranked letter, capitals above lowercase), 4 the overall letter (A best), 5 the bonus number (1 best, often none)
+struct FilterField { juce::String key, label; int type = 0; };
 
 inline juce::StringArray filterOps(int type) {
     if (type == 1) return {"is", "is not", "at least", "at most", "above", "below", "is empty", "is not empty"};
-    if (type == 2) return {"is a capital", "is lowercase"};
+    if (type == 3) return {"is", "is not", "at least", "at most", "between", "is a capital", "is lowercase", "is empty", "is not empty"}; //at least = this grade or better
+    if (type == 4) return {"is", "is not", "at least", "at most", "between", "is empty", "is not empty"};
+    if (type == 5) return {"is", "between", "up to", "from", "has a bonus", "has no bonus"};                                             //up to 40 = numbers 1 to 40
     return {"contains", "does not contain", "is", "is not", "is empty", "is not empty"};
+}
+inline bool filterOpNeedsValue(const juce::String& op) {
+    return !(op == "is empty" || op == "is not empty" || op == "is a capital" || op == "is lowercase" || op == "has a bonus" || op == "has no bonus");
 }
 
 //does one value pass one condition
 inline bool conditionPasses(const FilterCondition& c, int type, const juce::String& raw) {
     const juce::String v = raw.trim();
-    if (c.op == "is empty") return v.isEmpty();
-    if (c.op == "is not empty") return v.isNotEmpty();
-    if (type == 2) {
-        if (v.isEmpty()) return false;
-        const bool cap = juce::CharacterFunctions::isUpperCase(v[0]);
-        return c.op == "is a capital" ? cap : !cap;
+    if (c.op == "is empty" || c.op == "has no bonus") return v.isEmpty();
+    if (c.op == "is not empty" || c.op == "has a bonus") return v.isNotEmpty();
+    if (type == 3 || type == 4) { //a ranked letter: "at least b" means b or better. Capitals count (A is above a). No grade = fails every test but "is empty".
+        int x = 0;
+        if (!(type == 3 ? f8k::subGradeRank(v.toStdString(), x) : f8k::letterRank(v.toStdString(), x))) return false;
+        if (c.op == "is a capital" || c.op == "is lowercase") {
+            const bool cap = juce::CharacterFunctions::isUpperCase(v.trim()[0]);
+            return c.op == "is a capital" ? cap : !cap;
+        }
+        auto rankOf = [&](const juce::String& t, int& r) {return type == 3 ? f8k::subGradeRank(t.toStdString(), r) : f8k::letterRank(t.toStdString(), r);};
+        int y = 0, y2 = 0;
+        if (c.op == "between") {
+            std::string lo, hi;
+            if (!f8k::splitRange(c.value.toStdString(), lo, hi) || !rankOf(juce::String(lo), y) || !rankOf(juce::String(hi), y2)) return true; //not typed yet: do not hide anything
+            return x >= std::min(y, y2) && x <= std::max(y, y2);
+        }
+        if (!rankOf(c.value, y)) return true; //no valid letter chosen yet: do not hide anything
+        if (c.op == "is") return x == y;
+        if (c.op == "is not") return x != y;
+        if (c.op == "at least") return x >= y;
+        if (c.op == "at most") return x <= y;
+        return true;
+    }
+    if (type == 5) { //the bonus number: only 1-80 is shown, tracks outside it have none. "up to 40" = 1 to 40, "from 40" = 40 and up (numbers, not goodness).
+        if (v.isEmpty() || !v.containsAnyOf("0123456789")) return false;
+        const double x = v.removeCharacters(",").getDoubleValue();
+        const juce::String t = c.value.trim();
+        if (c.op == "between") {
+            std::string lo, hi;
+            if (!f8k::splitRange(t.toStdString(), lo, hi)) return true;
+            const double a = juce::String(lo).getDoubleValue(), b = juce::String(hi).getDoubleValue();
+            return x >= std::min(a, b) && x <= std::max(a, b);
+        }
+        if (t.isEmpty() || !t.containsAnyOf("0123456789")) return true;
+        const double y = t.getDoubleValue();
+        if (c.op == "is") return std::fabs(x - y) < 1e-9;
+        if (c.op == "up to" || c.op == "at most") return x <= y;
+        if (c.op == "from" || c.op == "at least") return x >= y;
+        if (c.op == "above") return x > y;
+        if (c.op == "below") return x < y;
+        return true;
     }
     if (type == 1) {
         if (v.isEmpty() || !v.containsAnyOf("0123456789")) return false;
@@ -142,7 +207,7 @@ public:
         oneCopy.setButtonText("use one copy of each song (the one at the chosen Rate if there is one, else the highest sample rate)");
         exclLabel.setText("When the Lab uses the filtered tracks it also:", juce::dontSendNotification);
         setsLabel.setText("Saved filters", juce::dontSendNotification);
-        setSize(760, 600);
+        setSize(760, 640);
     }
     void attach() {rebuild(); refreshSets({}); syncToggles(); updateCounts();}
     void updateCounts() {countLabel.setText(counts ? counts() : juce::String(), juce::dontSendNotification);}
@@ -150,15 +215,15 @@ public:
     void paint(juce::Graphics& g) override {
         g.fillAll(kBg);
         g.setColour(kDim); g.setFont(juce::Font(13.0f));
-        g.drawFittedText("Only tracks that pass every line stay in the Library list. Lines are 'all of these'. Text matches ignore capitals; for numbers, length can be typed as m:ss.",
-                         10, 46, getWidth() - 20, 34, juce::Justification::topLeft, 2);
+        g.drawFittedText("Only tracks that pass every line stay in the Library list. Lines are 'all of these'. Text matches ignore capitals; length can be typed as m:ss. Letter, Authority, Power and Detail are ranked: 'at least b' means b or better, and capitals count (A is above a). 'between' takes two ends, like  b to A  or  1 to 40. Bonus: 1 is best; 'up to 40' means 1 to 40.",
+                         10, 46, getWidth() - 20, 62, juce::Justification::topLeft, 4);
     }
     void resized() override {
         auto r = getLocalBounds().reduced(10);
         auto top = r.removeFromTop(30);
         setsLabel.setBounds(top.removeFromLeft(100)); setsBox.setBounds(top.removeFromLeft(240)); top.removeFromLeft(6);
         saveButton.setBounds(top.removeFromLeft(90)); top.removeFromLeft(6); deleteButton.setBounds(top.removeFromLeft(80));
-        r.removeFromTop(42);
+        r.removeFromTop(70);
         for (auto* row : rows) {row->setBounds(r.removeFromTop(30)); r.removeFromTop(4);}
         r.removeFromTop((8 - (int)rows.size())*34);
         auto b = r.removeFromTop(30);
@@ -188,18 +253,18 @@ private:
             for (size_t k = 0; k < owner.fields.size(); ++k) if (owner.fields[k].key == c.field) {field.setSelectedId((int)k + 1, juce::dontSendNotification); ft = owner.fields[k].type;}
             fillOps(ft, c.op);
             fillValues(c.field); value.setText(c.value, juce::dontSendNotification);
-            value.setVisible(ft != 2 && c.op != "is empty" && c.op != "is not empty");
+            value.setVisible(filterOpNeedsValue(c.op));
             field.onChange = [this] {
                 const auto& f = owner.fields[(size_t)field.getSelectedId() - 1];
                 auto& cc = owner.store->current.conditions[index];
                 cc.field = f.key; cc.op = filterOps(f.type)[0]; cc.value = {};
                 fillOps(f.type, cc.op); fillValues(f.key); value.setText({}, juce::dontSendNotification);
-                value.setVisible(f.type != 2); owner.apply();
+                value.setVisible(filterOpNeedsValue(cc.op)); owner.apply();
             };
             op.onChange = [this] {
                 auto& cc = owner.store->current.conditions[index];
                 cc.op = op.getText();
-                value.setVisible(!(cc.op == "is empty" || cc.op == "is not empty" || cc.op == "is a capital" || cc.op == "is lowercase"));
+                value.setVisible(filterOpNeedsValue(cc.op));
                 owner.apply();
             };
             value.onChange = [this] {owner.store->current.conditions[index].value = value.getText(); owner.apply();};
@@ -211,8 +276,16 @@ private:
             for (int k = 0; k < ops.size(); ++k) {op.addItem(ops[k], k + 1); if (ops[k] == cur) op.setSelectedId(k + 1, juce::dontSendNotification);}
             if (op.getSelectedId() == 0) op.setSelectedId(1, juce::dontSendNotification);
         }
+        int typeOf(const juce::String& key) const {for (auto& f : owner.fields) if (f.key == key) return f.type; return 0;}
         void fillValues(const juce::String& key) {
             value.clear(juce::dontSendNotification);
+            const int t = typeOf(key);
+            if (t == 3 || t == 4) { //the whole scale, best first (capitals count: A is above a)
+                const auto scale = t == 3 ? f8k::subGradeScaleBestFirst() : f8k::letterScaleBestFirst();
+                for (size_t k = 0; k < scale.size(); ++k) value.addItem(juce::String(scale[k]), (int)k + 1);
+                return;
+            }
+            if (t == 5) {for (int k = 1; k <= 80; ++k) value.addItem(juce::String(k), k); return;}
             if (!owner.valuesFor) return;
             const auto vals = owner.valuesFor(key);
             for (int k = 0; k < vals.size() && k < 400; ++k) value.addItem(vals[k], k + 1);

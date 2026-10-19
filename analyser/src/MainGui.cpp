@@ -711,22 +711,20 @@ private:
         for (auto& c : cols) {
             if (c.key == "dir" || c.key == "added") continue;
             int type = 0;
-            if (c.kind == Kind::Number || c.kind == Kind::Duration || c.kind == Kind::Bpm || c.kind == Kind::SubGrade || c.kind == Kind::Bonus) type = 1;
+            if (c.kind == Kind::Number || c.kind == Kind::Duration || c.kind == Kind::Bpm) type = 1;
+            else if (c.kind == Kind::SubGrade) type = 3; //ranked letters (see GradeRank.h)
+            else if (c.kind == Kind::Letter) type = 4;
+            else if (c.kind == Kind::Bonus) type = 5;
             juce::String label = c.header;
             if (c.kind == Kind::Duration) label = "Length (seconds, or m:ss)";
-            if (c.kind == Kind::SubGrade || c.kind == Kind::Bonus) label = c.header + " (number)";
             f.push_back({c.key, label, type});
         }
-        f.push_back({"case:letter", "Letter: capital or lowercase", 2});
-        f.push_back({"case:authority", "Authority: capital or lowercase", 2});
-        f.push_back({"case:power", "Power: capital or lowercase", 2});
-        f.push_back({"case:detail", "Detail: capital or lowercase", 2});
         return f;
     }
     juce::String filterValue(const RowRef& r, const juce::String& key) const {
         if (key == "folder") return juce::File(idx.get(r.row, "source_path")).getParentDirectory().getFullPathName();
         if (key == "rate") return idx.get(r.row, "sample_rate");
-        if (key.startsWith("case:")) return field(r, "g:" + key.substring(5));
+        if (key == "letter" || key == "authority" || key == "power" || key == "detail") return field(r, "g:" + key); //the grade part as shown (a letter), ranked by the filter
         for (auto& c : cols) if (c.key == key) {
             bool y, u;
             if (c.editable) {const juce::String uv = userValue(r.id, c.key); if (uv.isNotEmpty()) return uv;}

@@ -45,6 +45,13 @@ HOW TO READ A GRADE  (also behind the "How to read a grade" button)
   What pulls the letter down is one of the three lagging behind the other two. Best possible: 1-AJJK. Worst: Zssv.
   Sorting by Grade follows Chris's order: numbered tracks first (1 to 80), then the rest by letter, A first.
 
+Filters  (Library tab, "Filters...")
+  A list of conditions; a track stays in the list only if it passes every line. The grade is filtered part by part, each as its own ranked field:
+  - Letter: A is best, Z is worst.      - Authority, Power, Detail: one scale each, ... c, b, a (plenty), then A, B, C ... (exceptionally strong).
+    "at least b" means b or better. Capitals count: A is above a. "between" takes two ends, typed like  b to A.
+  - Bonus: the number 1-80, 1 is best; tracks outside it have none. "up to 40" means 1 to 40, "between" is typed like  1 to 40.
+  Filters saved earlier are converted automatically.
+
 Sample rate
   The sample rate of a file changes what the original Meter reads, even for identical audio (it measures steps between
   samples, so a 96 kHz file looks "smoother" to it than the same audio at 48 kHz). So every track is also read after its

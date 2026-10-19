@@ -3,6 +3,7 @@
 #include "../src/Resampler.h"
 #include "../src/Capture.h"
 #include "../src/OriginalScorer.h"
+#include "../src/GradeRank.h"
 #include <cstdio>
 #include <random>
 #include <functional>
@@ -163,6 +164,41 @@ static bool rateInvariance()
     return ok && worstAnchor < 0.05 && worstAnchor <= worstNative;
 }
 
+// The ranked grade parts used by the Library filters (GradeRank.h): one rank per letter that does not depend on the Meter version.
+static bool gradeRankTest()
+{
+    bool ok = true;
+    auto check = [&](bool c, const char* what) {if (!c) {printf("GRADE RANK FAILED: %s\n", what); ok = false;}};
+    int a = 0, b = 0;
+    // sub-grades: ... c < b < a < A < B ... (capitals above lowercase), higher is better
+    check(subGradeRank("a", a) && subGradeRank("A", b) && b > a, "A above a");
+    check(subGradeRank("b", a) && subGradeRank("a", b) && b > a, "a above b");
+    check(subGradeRank("s", a) && subGradeRank("b", b) && b > a, "b above s");
+    check(subGradeRank("M", a) && subGradeRank("K", b) && a > b, "M above K");
+    check(subGradeRank(" B ", a) && a == 2, "B is rank 2 (spaces ignored)");
+    check(!subGradeRank("", a) && !subGradeRank("bb", a) && !subGradeRank("7", a), "not a sub-grade letter");
+    // every consecutive pair on the offered scale is strictly descending
+    const auto scale = subGradeScaleBestFirst();
+    for (size_t i = 1; i < scale.size(); ++i) {int x, y; subGradeRank(scale[i - 1], x); subGradeRank(scale[i], y); check(x == y + 1, "scale steps by one");}
+    // overall letter: A best, Z worst
+    check(letterRank("A", a) && letterRank("B", b) && a > b, "A above B");
+    check(letterRank("Z", a) && a == 0, "Z is the lowest");
+    check(!letterRank(" ", a) && !letterRank("", a), "no letter");
+    // range text
+    std::string lo, hi;
+    check(splitRange("b to A", lo, hi) && lo == "b" && hi == "A", "b to A");
+    check(splitRange("b-A", lo, hi) && lo == "b" && hi == "A", "b-A");
+    check(splitRange("1 to 40", lo, hi) && lo == "1" && hi == "40", "1 to 40");
+    check(splitRange("1-40", lo, hi) && lo == "1" && hi == "40", "1-40");
+    check(!splitRange("40", lo, hi), "one end only");
+    // old saved filters held a number for the position in the newest scale
+    check(legacySubGradeLetter("authority", 0) == "p" && legacySubGradeLetter("authority", 15) == "a" && legacySubGradeLetter("authority", 16) == "A", "legacy authority");
+    check(legacySubGradeLetter("power", 0) == "q" && legacySubGradeLetter("detail", 0) == "t" && legacySubGradeLetter("detail", 32) == "M", "legacy power / detail");
+    check(legacySubGradeLetter("detail", 33).empty() && legacySubGradeLetter("power", -1).empty(), "legacy out of range");
+    printf("grade rank test: %s\n", ok ? "ok" : "FAILED");
+    return ok;
+}
+
 int main()
 {
     const double sr = 44100.0; const double tau = 2.0*M_PI;
@@ -199,6 +235,7 @@ int main()
         printf("song %5.1f BPM %-8s -> %5.1f BPM (conf %.2f), %s (conf %.3f)  %s\n", t.bpm, t.key, b.bpm, b.confidence, k.name.c_str(), k.confidence, ok ? "ok" : "WRONG");
     }
     const bool rateOk = rateInvariance();
+    if (!gradeRankTest()) return 1;
     printf("worst merge error %g\n", gWorst);
     if (!rateOk) {printf("RATE INVARIANCE FAILED\n"); return 1;}
     if (estFails) return 1;
