@@ -790,7 +790,7 @@ private:
         return out;
     }
     juce::String filterCounts() const {
-        return juce::String((int)shown.size()) + " of " + juce::String((int)all.size()) + " tracks in the list.   The Lab would use " + juce::String((int)labSet().size()) + " tracks"
+        return juce::String((int)shown.size()) + " of " + juce::String((int)all.size()) + " tracks in the list.   hintLAB would use " + juce::String((int)labSet().size()) + " tracks"
                + (filters.labUses ? "." : " (switched off: it uses every track).");
     }
     void filtersChanged() {
@@ -1033,7 +1033,7 @@ public:
         labView.getFilterGen = [this] { return libraryView.filterGeneration(); };
         tabs.addTab("Add tracks", kBg, &addPanel, false);
         tabs.addTab("Library", kBg, &libraryView, false);
-        tabs.addTab("Lab", kBg, &labView, false);
+        tabs.addTab("hintLAB", kBg, &labView, false);
         tabs.setColour(juce::TabbedComponent::outlineColourId, kBg);
         tabs.setColour(juce::TabbedButtonBar::tabTextColourId, kDim);
         tabs.setColour(juce::TabbedButtonBar::frontTextColourId, kText);

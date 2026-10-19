@@ -200,11 +200,11 @@ public:
         excQuiet.onClick = [this] {store->current.excQuiet = excQuiet.getToggleState(); apply();};
         excNoGrade.onClick = [this] {store->current.excNoGrade = excNoGrade.getToggleState(); apply();};
         oneCopy.onClick = [this] {store->current.oneCopy = oneCopy.getToggleState(); apply();};
-        labUses.setButtonText("The Lab uses the filtered tracks (Set triggers from the library, Re-score library)");
+        labUses.setButtonText("hintLAB uses the filtered tracks (Set triggers from the library, Re-score library)");
         excShort.setButtonText("leave out tracks shorter than 60 seconds"); excLong.setButtonText("leave out tracks longer than 10 minutes");
         excQuiet.setButtonText("leave out tracks quieter than -25 LUFS"); excNoGrade.setButtonText("leave out tracks with no grade");
         oneCopy.setButtonText("use one copy of each song (the one at the chosen Rate if there is one, else the highest sample rate)");
-        exclLabel.setText("When the Lab uses the filtered tracks it also:", juce::dontSendNotification);
+        exclLabel.setText("When hintLAB uses the filtered tracks it also:", juce::dontSendNotification);
         setsLabel.setText("Saved filters", juce::dontSendNotification);
         setSize(760, 640);
     }

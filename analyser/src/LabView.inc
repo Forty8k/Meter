@@ -262,9 +262,19 @@ private:
     }
 
     void exportToMeter() {
-        //1. the constants, for meterDARK to read (lab-tuning.xml). 2. the trigger settings, into meterDARK's saved default preset
+        //1. the constants, for meterDARK to read (lab-tuning.xml). 2. the trigger settings, into meterDARK's saved default preset (defaults.xml)
+        const int pluginVersion = 10; //the preset / project version meterDARK writes (its PluginProcessor::saveUserDefaults); keep in step with the plugin
         const juce::File dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("meterDARK");
         dir.createDirectory();
+
+        juce::StringArray changed; //what differs from the factory values, shown to the user afterwards
+        for (size_t i = 0; i < f8k::hintParams().size(); ++i) {
+            const auto& p = f8k::hintParams()[i];
+            if (std::fabs(hints.v[i] - p.def) < 1.0e-9) continue;
+            changed.add(juce::String(p.group) + ": " + p.label + " = " + juce::String(hints.v[i], p.decimals) + p.unit + "   (factory " + juce::String(p.def, p.decimals) + p.unit + ")  "
+                        + (juce::String(p.key).startsWith("tune") ? "[new instances]" : "[live]"));
+        }
+
         juce::XmlElement lab("meterlabtuning");
         lab.setAttribute("ver", 1);
         for (size_t i = 0; i < f8k::hintParams().size(); ++i) {
@@ -274,21 +284,47 @@ private:
         }
         lab.setAttribute("exported", juce::Time::getCurrentTime().toISO8601(true));
         const bool ok1 = lab.writeTo(dir.getChildFile("lab-tuning.xml"));
+
+        //The default preset. meterDARK steps an older file forward when it loads it (version 8 added the level settings, 9 turned the 96 kHz rate on), so a file we
+        //change must already be in the current form: take those steps here, and write the plugin's current version (a fresh file used to be written as version 7, which
+        //made the plugin reset the level settings when it loaded it).
         const juce::File defaults = dir.getChildFile("defaults.xml");
         std::unique_ptr<juce::XmlElement> d(juce::XmlDocument::parse(defaults));
-        if (d == nullptr || !d->hasTagName("meterdefaults")) {d = std::make_unique<juce::XmlElement>("meterdefaults"); d->setAttribute("ver", 7);}
-        else defaults.copyFileTo(dir.getChildFile("defaults-before-lab.xml"));
-        if (d->getIntAttribute("ver", 1) == 6) d->setAttribute("ver", 7); //version 7 has the Detail decay and fill gate (tune6, tune7), which the Lab now sets
+        bool replacedOld = false;
+        if (d != nullptr && d->hasTagName("meterdefaults")) {
+            defaults.copyFileTo(dir.getChildFile("defaults-before-lab.xml"));
+            const int oldVer = d->getIntAttribute("ver", 1);
+            if (oldVer < 7) {d = std::make_unique<juce::XmlElement>("meterdefaults"); replacedOld = true;} //too old to carry forward: start from the factory preset (the old file is kept)
+            else {
+                if (oldVer < 8) {d->setAttribute("tune14", 0.0); d->setAttribute("tune15", 16.0/24.0); d->setAttribute("tune16", 19.0/24.0);} //level mode off, its LUFS defaults
+                if (oldVer < 9) d->setAttribute("tune13", 1.0);                                                                                //96 kHz rate on
+            }
+        } else d = std::make_unique<juce::XmlElement>("meterdefaults");
+        d->setAttribute("ver", pluginVersion);
         for (size_t i = 0; i < f8k::hintParams().size(); ++i) {
             const auto& p = f8k::hintParams()[i];
             if (juce::String(p.key).startsWith("tune")) d->setAttribute(p.key, hints.v[i]);
         }
         const bool ok2 = d->writeTo(defaults);
-        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon, "Export to meterDARK",
-            (ok1 && ok2) ? "Done. meterDARK picks up the reading settings straight away, even while it is open,\n"
-                           "and starts new instances with these hint triggers. Projects you saved keep their own triggers until you press\n"
-                           "\"factory\" or double-click a setting in the plugin.\n\nYour previous default preset was kept as defaults-before-lab.xml in\n" + dir.getFullPathName()
-                         : "Could not write to " + dir.getFullPathName(), "OK", this);
+
+        juce::String msg;
+        if (!(ok1 && ok2)) msg = "Could not write to " + dir.getFullPathName();
+        else {
+            if (changed.isEmpty()) msg << "Every value is a factory value, so meterDARK will read exactly as it did before. Change something in hintLAB first to see a difference.\n\n";
+            else {
+                msg << juce::String(changed.size()) << (changed.size() == 1 ? " setting differs" : " settings differ") << " from factory:\n";
+                for (int i = 0; i < changed.size() && i < 14; ++i) msg << "   " << changed[i] << "\n";
+                if (changed.size() > 14) msg << "   ... and " << juce::String(changed.size() - 14) << " more\n";
+                msg << "\n";
+            }
+            msg << "[live] settings are read by meterDARK within a second, even while it is open. They only change the hints, never the grade.\n"
+                   "[new instances] settings go into your default preset: a meterDARK you open from now on starts with them. One that is already open, and saved projects,\n"
+                   "keep their own until you press \"factory\" or double-click the setting in the plugin's tune panel.\n"
+                   "Detail decay and fill gate also change the GRADE (and the * shows) but only when \"grade\" is ticked in the plugin's tune panel.\n";
+            if (replacedOld) msg << "\nYour old default preset was from a much older meterDARK, so it was replaced by the factory one with these settings.\n";
+            msg << "\nYour previous default preset was kept as defaults-before-lab.xml in\n" + dir.getFullPathName();
+        }
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon, "Export to meterDARK", msg, "OK", this);
     }
 
     //---------------------------------------------------------------- scoring
