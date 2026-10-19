@@ -647,7 +647,7 @@ Table Library::index()
 
 const juce::StringArray& Library::editableBuiltIns()
 {
-    static const juce::StringArray k{"artist", "title", "album", "year", "genre", "bpm", "key"};
+    static const juce::StringArray k{"artist", "title", "album", "year", "genre", "bpm", "key", "source"};
     return k;
 }
 
@@ -831,6 +831,90 @@ bool Library::readLean(const juce::String& id, LeanRecord& out)
     return parseLean(std::vector<uint8_t>((const uint8_t*)mb.getData(), (const uint8_t*)mb.getData() + mb.getSize()), out);
 }
 
+static const char* kPrivateKeys[] = {"source_path", "file", "path", "folder", "filename"};
+
+int Library::exportPack(const juce::File& out, bool full, const std::vector<juce::String>& ids)
+{
+    std::vector<uint8_t> all;
+    all.push_back('P'); all.push_back('C'); all.push_back('K'); all.push_back(1); all.push_back(full ? 1 : 0);
+    std::vector<std::vector<uint8_t>> recs;
+    for (auto& id : ids) {
+        LeanRecord rec;
+        if (!readLean(id, rec) && !readShared(id, rec)) continue;
+        for (auto* k : kPrivateKeys) rec.meta.erase(std::remove_if(rec.meta.begin(), rec.meta.end(), [&](auto& kv) { return kv.first == k; }), rec.meta.end());
+        if (!full) rec.replay.clear();
+        recs.push_back(serialiseLean(rec));
+    }
+    rpPutVar(all, recs.size());
+    for (auto& r : recs) { rpPutVar(all, r.size()); all.insert(all.end(), r.begin(), r.end()); }
+    const auto packed = gzipBytes(all);
+    if (!out.replaceWithData(packed.data(), packed.size())) return -1;
+    return (int)recs.size();
+}
+
+juce::String Library::importPack(const juce::File& in, int* addedOut)
+{
+    juce::FileInputStream fis(in);
+    if (!fis.openedOk()) return "Could not open that file.";
+    juce::GZIPDecompressorInputStream gz(&fis, false, juce::GZIPDecompressorInputStream::gzipFormat);
+    juce::MemoryBlock mb; gz.readIntoMemoryBlock(mb);
+    const uint8_t* p = (const uint8_t*)mb.getData(); const uint8_t* e = p + mb.getSize();
+    if (mb.getSize() < 6 || p[0] != 'P' || p[1] != 'C' || p[2] != 'K' || p[3] != 1) return "That is not a meterDARK pack.";
+    const bool full = p[4] == 1; p += 5;
+    uint64_t n; if (!rpGetVar(p, e, n)) return "The pack is damaged.";
+    folder.getChildFile("lean-shared").createDirectory();
+    int added = 0, own = 0, bad = 0;
+    for (uint64_t i = 0; i < n; ++i) {
+        uint64_t len; if (!rpGetVar(p, e, len) || (uint64_t)(e - p) < len) {++bad; break;}
+        LeanRecord rec;
+        if (!parseLean(std::vector<uint8_t>(p, p + len), rec)) {++bad; p += len; continue;}
+        p += len;
+        const juce::String id(rec.get("id"));
+        if (id.isEmpty() || id.containsAnyOf("/\\:.")) {++bad; continue;}
+        for (auto* k : kPrivateKeys) rec.meta.erase(std::remove_if(rec.meta.begin(), rec.meta.end(), [&](auto& kv) { return kv.first == k; }), rec.meta.end());
+        if (leanFile(id).existsAsFile()) {++own; continue;} //you already measured this one yourself
+        const auto bytes = gzipBytes(serialiseLean(rec));
+        folder.getChildFile("lean-shared").getChildFile(id + ".lnr.gz").replaceWithData(bytes.data(), bytes.size());
+        ++added;
+    }
+    if (added > 0) ++changes;
+    if (addedOut) *addedOut = added;
+    return juce::String(added) + " records added from the " + (full ? "full" : "display") + " pack" + (own ? ", " + juce::String(own) + " skipped because you measured them yourself" : juce::String()) + (bad ? ", " + juce::String(bad) + " could not be read" : juce::String()) + ".";
+}
+
+std::vector<juce::String> Library::sharedIds()
+{
+    std::vector<juce::String> out;
+    for (auto& f : folder.getChildFile("lean-shared").findChildFiles(juce::File::findFiles, false, "*.lnr.gz")) out.push_back(f.getFileName().upToLastOccurrenceOf(".lnr.gz", false, false));
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+bool Library::readShared(const juce::String& id, LeanRecord& out)
+{
+    juce::FileInputStream fis(folder.getChildFile("lean-shared").getChildFile(id + ".lnr.gz"));
+    if (!fis.openedOk()) return false;
+    juce::GZIPDecompressorInputStream gz(&fis, false, juce::GZIPDecompressorInputStream::gzipFormat);
+    juce::MemoryBlock mb; gz.readIntoMemoryBlock(mb);
+    return parseLean(std::vector<uint8_t>((const uint8_t*)mb.getData(), (const uint8_t*)mb.getData() + mb.getSize()), out);
+}
+
+bool Library::writeLean(const juce::String& id, const LeanRecord& rec)
+{
+    folder.getChildFile("lean").createDirectory();
+    const auto packed = gzipBytes(serialiseLean(rec));
+    return leanFile(id).replaceWithData(packed.data(), packed.size());
+}
+
+bool Library::setLeanMeta(const juce::String& id, const std::vector<std::pair<std::string, std::string>>& changes)
+{
+    LeanRecord rec;
+    if (!readLean(id, rec)) return false;
+    bool differs = false;
+    for (auto& kv : changes) { if (rec.get(kv.first) != kv.second) differs = true; rec.set(kv.first, kv.second); }
+    return differs ? writeLean(id, rec) : true;
+}
+
 Library::LeanReport Library::buildLeanRecords(bool force, bool verify, std::function<bool()> shouldStop, std::function<void(int, int)> progress)
 {
     LeanReport rep;
@@ -849,7 +933,19 @@ Library::LeanReport Library::buildLeanRecords(bool force, bool verify, std::func
             if (r >= total || (shouldStop && shouldStop())) return;
             const juce::String id = t.get((size_t)r, "id");
             bool keep = false, nodata = false, mismatch = false; double bytes = 0, bytesReplay = 0;
-            if (!force && leanFile(id).existsAsFile()) keep = true;
+            if (!force && leanFile(id).existsAsFile()) {
+                keep = true; //already there: only your corrected tags and the audio source can have changed
+                std::vector<std::pair<std::string, std::string>> ch;
+                auto uv = users.find(id);
+                for (const char* k : {"artist", "title", "album", "year"}) {
+                    juce::String v = t.get((size_t)r, k);
+                    if (uv != users.end()) { auto it = uv->second.find(k); if (it != uv->second.end() && it->second.isNotEmpty()) v = it->second; }
+                    ch.emplace_back(k, v.toStdString());
+                }
+                juce::String src; if (uv != users.end()) { auto it = uv->second.find("source"); if (it != uv->second.end()) src = it->second; }
+                ch.emplace_back("source", src.toStdString());
+                setLeanMeta(id, ch);
+            }
             else {
                 std::vector<std::string> names; std::vector<float> values; double sr = 96000.0;
                 if (!(readCoreAt(id, vid, 96000, names, values) && !names.empty())) { sr = t.get((size_t)r, "sample_rate").getDoubleValue(); if (sr <= 0) sr = 44100.0; if (!readCore(id, vid, names, values) || names.empty()) nodata = true; }

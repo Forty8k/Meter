@@ -7,25 +7,29 @@ int main(int argc, char* argv[])
     juce::File library = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("Meter F8K Library");
     if (!library.isDirectory()) library = library.getSiblingFile("meterDARK Library"); //an existing library keeps its folder
     juce::Array<juce::File> inputs;
-    bool rescan = false; int levels = 0; int lean = 0;
+    bool rescan = false; int levels = 0; int lean = 0; juce::String exportPack, importPack; bool fullPack = false;
     for (int i = 1; i < argc; ++i) {
         const juce::String a(argv[i]);
         if ((a == "--library" || a == "-l") && i + 1 < argc) {library = juce::File::getCurrentWorkingDirectory().getChildFile(argv[++i]); continue;}
         if (a == "--rescan") {rescan = true; continue;}
         if (a == "--levels") {levels = 1; continue;}
         if (a == "--lean") {lean = 1; continue;}
+        if (a == "--export-pack" && i + 1 < argc) {exportPack = argv[++i]; continue;}
+        if (a == "--full") {fullPack = true; continue;}
+        if (a == "--import-pack" && i + 1 < argc) {importPack = argv[++i]; continue;}
         if (a == "--lean-check") {lean = 2; continue;}
         if (a == "--help" || a == "-h") {
             std::cout << "Usage: MeterF8KAnalyserCLI [--library <folder>] [--rescan] <audio files or folders...>\n"
                          "--rescan scans every track captured by an older analyser again from its stored file path.\n"
                          "--lean builds the small shareable record of every track (lean folder) from the stored window data; --lean-check also rebuilds them all and proves each replay block regrades to the same grade.\n"
+                         "--export-pack <file> [--full] writes a share pack of every lean record (display only, or with the replay blocks); --import-pack <file> adds a pack to lean-shared.\n"
                          "--levels grades every track in the normalised and the mix level mode (replayed from the stored windows) and prints how many grades came out.\n"
                          "Adds each track to the library (default: Documents/meterDARK Library (or the older Meter F8K Library if you have one)). WAV, AIFF, FLAC, Ogg and MP3.\n";
             return 0;
         }
         f8k::Library::collectAudioFiles(juce::File::getCurrentWorkingDirectory().getChildFile(a), inputs);
     }
-    if (inputs.isEmpty() && argc < 3 && !rescan && !levels && !lean) {std::cout << "No audio files given. Try --help\n"; return 1;}
+    if (inputs.isEmpty() && argc < 3 && !rescan && !levels && !lean && exportPack.isEmpty() && importPack.isEmpty()) {std::cout << "No audio files given. Try --help\n"; return 1;}
     f8k::Library lib(library);
     std::cout << "Library: " << library.getFullPathName() << "\n";
     if (const int up = lib.upgradeOldRows()) std::cout << "Filled in newer values for " << up << " tracks already in the library\n";
@@ -42,6 +46,14 @@ int main(int argc, char* argv[])
         std::cout << "\n";
         if (lean == 2 && rep.mismatches > 0) return 3;
     }
+    if (exportPack.isNotEmpty()) {
+        std::vector<juce::String> ids; const auto t = lib.index();
+        for (size_t r = 0; r < t.rows.size(); ++r) ids.push_back(t.get(r, "id"));
+        const juce::File out = juce::File::getCurrentWorkingDirectory().getChildFile(exportPack);
+        const int n = lib.exportPack(out, fullPack, ids);
+        std::cout << "Pack: " << n << " records written to " << out.getFullPathName() << " (" << (fullPack ? "full" : "display") << ", " << juce::String((double)out.getSize()/1024.0, 1) << " KB)\n";
+    }
+    if (importPack.isNotEmpty()) std::cout << "Pack import: " << lib.importPack(juce::File::getCurrentWorkingDirectory().getChildFile(importPack)) << "\n";
     if (levels) {
         const auto vid = f8k::Library::versionIds().back();
         for (int m = 1; m <= 2; ++m) {

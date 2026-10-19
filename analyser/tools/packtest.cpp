@@ -15,7 +15,7 @@ struct Maker { const char* name; std::function<void(double, float&, float&, std:
 int main()
 {
     const double sr = 48000.0, tau = 6.283185307179586;
-    const long n = (long)(40*sr);
+    const long n = (long)(20*sr);
     std::normal_distribution<float> nd(0, 1);
     std::vector<Maker> makers = {
         {"loud master", [&](double t, float& l, float& r, std::mt19937& g) { const double b = std::fmod(t, 0.46), kick = std::exp(-b*14)*std::sin(tau*(48 + 90*std::exp(-b*25))*b);

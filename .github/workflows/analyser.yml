@@ -151,6 +151,16 @@ jobs:
           grep -q "Replay mismatches: 0" cli.txt
           grep -q "Lean records: 0 built, 5 already there" cli.txt
           ls testlib/lean/*.lnr.gz
+          # Share packs: a display pack and a full pack, imported into a different library; no paths in them
+          "$CLI" --library testlib --export-pack pack-display.f8kpack | tee -a cli.txt
+          "$CLI" --library testlib --export-pack pack-full.f8kpack --full | tee -a cli.txt
+          "$CLI" --library testlib2 --import-pack pack-full.f8kpack | tee -a cli.txt
+          grep -q "Pack import: 5 records added" cli.txt
+          ls testlib2/lean-shared/*.lnr.gz
+          if command -v gzip >/dev/null; then
+            if gzip -dc pack-full.f8kpack | grep -a -q -e "testlib" -e "t_sine50"; then echo "A pack contains a file name or path"; exit 1; fi
+          fi
+          [ "$(wc -c < pack-display.f8kpack)" -lt "$(wc -c < pack-full.f8kpack)" ]
           grep -q "Levels: normalised 5 of 5" cli.txt
           grep -q "Levels: mix 5 of 5" cli.txt
           ls testlib/levelgrades-*.csv

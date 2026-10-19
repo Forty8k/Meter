@@ -84,6 +84,25 @@ Possible duplicates
   the same length, or with near-identical length, loudness and peaks whatever the name, are shaded red. The red button
   shows only those. Right-click a track (or open its details) and choose "Not a duplicate" to stop it being flagged.
 
+The Library tab (overview)
+  Top: the selected track: name, grade, a large tone bar (the meter's top colour bar over the track) with overlay lines (white = peak,
+    green = bass position, red = slew; "Overlay lines" turns them off), and three separate bars under it: weight (green), peaks (blue),
+    slew (red); each lights up where that meter led the other two. Under them: length, sample rate, bit depth, peak, true peak, LUFS, Meter version, source.
+    Play / Stop plays the file from where it was when you added it; click or drag on the big bar to seek.
+  Bottom: three columns: track name, a small tone strip, grade (click the header to sort; best first). Stacked strips show trends.
+  "Build / update records" makes the small lean record of every track from the window data already stored (no audio is read) and keeps tags and
+    source up to date. Records are in the library's lean folder. "Full table" opens the old table.
+  "Source" (Tidal, Spotify, Apple Music, Vinyl, CD, HDtracks, Qobuz, Other, or type your own in the full table's Source column) says where a copy came from.
+  Copies of the same song (same artist + title, about the same length) are grouped: the list says "(3 versions)", the best one is marked "best"
+    (best grade, then higher sample rate), and "Compare versions" stacks their tone bars.
+  "Share packs..." exports a display pack (small) or a full pack (adds the replay blocks so others can regrade), or imports a pack. Packs never
+    contain file names or paths. Imported tracks show as "(shared)" and are kept apart from your own measurements (lean-shared folder).
+  Command line: --lean (build records), --lean-check (rebuild all and prove each replay block regrades to the same grade), --export-pack, --import-pack.
+
+The gradeLAB tab
+  The original-scoring experiment (it used to be inside the Lab). "Use replay blocks" regrades from each track's lean record (and from shared
+  records that carry a replay block) instead of the stored window data. Nothing here changes the Library's real grades.
+
 The hintLAB tab  (this was called the Lab; its "Original scoring" part will move to a gradeLAB tab later)
   An experiment space. Nothing in it changes the Library's real grades.
   meterDARK hints: the plugin's thin/full, headroom/squashed and dark/bright hints (three gauges; dark/bright is one gauge with a width shade), simulated over your whole library as

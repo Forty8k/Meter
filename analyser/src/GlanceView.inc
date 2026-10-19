@@ -6,6 +6,7 @@
 
 class GlanceView : public juce::Component, public juce::TableListBoxModel, private juce::Timer {
 public:
+    struct Item { juce::String id, name, grade, path, song, source; double key = 0, dur = 0, sr = 0; int group = -1, groupSize = 1; bool best = false, shared = false; f8k::LeanRecord rec; };
     std::function<std::shared_ptr<f8k::Library>()> getLibrary;
     std::function<std::shared_ptr<const std::set<juce::String>>()> getAllowed;
     std::function<int()> getFilterGen;
@@ -23,7 +24,15 @@ public:
         table.getHeader().addColumn("Tone", 2, 320, 80, 1200, juce::TableHeaderComponent::notSortable);
         table.getHeader().addColumn("Grade", 3, 110, 60, 300, juce::TableHeaderComponent::defaultFlags);
         table.getHeader().setSortColumnId(3, true);
-        for (auto* b : {&playButton, &linesButton, &buildButton}) {addAndMakeVisible(b); styleButton(*b);}
+        for (auto* b : {&playButton, &linesButton, &buildButton, &compareButton, &shareButton}) {addAndMakeVisible(b); styleButton(*b);}
+        shareButton.onClick = [this] { shareMenu(); };
+        compareButton.setClickingTogglesState(true); compareButton.setColour(juce::TextButton::buttonOnColourId, kSelect);
+        compareButton.onClick = [this] { compareMode = compareButton.getToggleState(); repaint(); };
+        addAndMakeVisible(sourceBox);
+        sourceBox.setTextWhenNothingSelected("audio source");
+        for (int i = 0; i < 8; ++i) sourceBox.addItem(kSources[i], i + 1);
+        sourceBox.setColour(juce::ComboBox::backgroundColourId, kPanel); sourceBox.setColour(juce::ComboBox::textColourId, kText); sourceBox.setColour(juce::ComboBox::outlineColourId, kPanel);
+        sourceBox.onChange = [this] { setSourceOfSelected(sourceBox.getText()); };
         linesButton.setClickingTogglesState(true); linesButton.setToggleState(true, juce::dontSendNotification);
         linesButton.setColour(juce::TextButton::buttonOnColourId, kSelect);
         linesButton.onClick = [this] { repaint(); };
@@ -54,7 +63,10 @@ public:
         auto bar = r.removeFromTop(30).reduced(8, 3);
         playButton.setBounds(bar.removeFromLeft(80)); bar.removeFromLeft(6);
         linesButton.setBounds(bar.removeFromLeft(110)); bar.removeFromLeft(6);
-        buildButton.setBounds(bar.removeFromLeft(190)); bar.removeFromLeft(10);
+        buildButton.setBounds(bar.removeFromLeft(170)); bar.removeFromLeft(6);
+        compareButton.setBounds(bar.removeFromLeft(130)); bar.removeFromLeft(6);
+        sourceBox.setBounds(bar.removeFromLeft(130)); bar.removeFromLeft(6);
+        shareButton.setBounds(bar.removeFromLeft(120)); bar.removeFromLeft(10);
         status.setBounds(bar.withTrimmedRight(146));
         const int topH = juce::jmax(180, (int)(r.getHeight()*0.40f));
         topArea = r.removeFromTop(topH);
@@ -72,6 +84,7 @@ public:
                                      : "Select a track in the list below.", a, juce::Justification::centred);
             return;
         }
+        if (compareMode && it->group >= 0) { paintCompare(g, a, *it); return; }
         const auto& rec = it->rec;
         g.setColour(kText); g.setFont(juce::Font(20.0f, juce::Font::bold));
         auto head = a.removeFromTop(28);
@@ -112,6 +125,27 @@ public:
         g.drawFittedText(d.joinIntoString("      "), a.removeFromTop(34), juce::Justification::topLeft, 2);
     }
 
+    //COMPARE VERSIONS: every copy of the song, one under the other, each with its source, grade and levels, so a vinyl original and a remaster can be read against each other
+    void paintCompare(juce::Graphics& g, juce::Rectangle<int> a, const Item& sel) {
+        std::vector<const Item*> v;
+        for (auto& i : items) if (i.group == sel.group) v.push_back(&i);
+        std::sort(v.begin(), v.end(), [](const Item* x, const Item* y) { return x->key < y->key; });
+        if (v.size() > 6) v.resize(6);
+        g.setColour(kText); g.setFont(juce::Font(16.0f, juce::Font::bold));
+        g.drawText(sel.name + "  -  " + juce::String((int)v.size()) + " versions, best grade first", a.removeFromTop(22), juce::Justification::centredLeft, true);
+        const int rowH = juce::jmax(18, a.getHeight()/(int)juce::jmax<size_t>(1, v.size()));
+        for (auto* p : v) {
+            auto row = a.removeFromTop(rowH);
+            auto label = row.removeFromLeft(300).reduced(0, 1);
+            const bool isSel = p->id == sel.id;
+            g.setColour(isSel ? kAccent : kText); g.setFont(juce::Font(13.0f, isSel ? juce::Font::bold : juce::Font::plain));
+            g.drawText((p->source.isEmpty() ? juce::String("source not set") : p->source) + "   " + p->grade + (p->best ? "  best" : ""), label.removeFromTop(rowH/2 + 1), juce::Justification::centredLeft, true);
+            g.setColour(kDim); g.setFont(juce::Font(12.0f));
+            g.drawText(juce::String::formatted("%.0f Hz   peak %.1f   LUFS %.1f", p->sr, juce::String(p->rec.get("peak_db")).getDoubleValue(), juce::String(p->rec.get("lufs")).getDoubleValue()), label, juce::Justification::centredLeft, true);
+            drawBar(g, row.reduced(4, 2), p->rec, 0);
+        }
+    }
+
     void mouseDown(const juce::MouseEvent& e) override {
         if (bigBar.expanded(0, 6).contains(e.getPosition()) && transportReady) {
             const double len = transport.getLengthInSeconds();
@@ -129,23 +163,66 @@ public:
         const Item& it = items[order[(size_t)row]];
         if (col == 2) { drawBar(g, juce::Rectangle<int>(4, 3, w - 8, h - 6), it.rec, 0); return; }
         g.setColour(kText); g.setFont(juce::Font(14.0f));
-        g.drawText(col == 1 ? it.name : it.grade, 6, 0, w - 12, h, juce::Justification::centredLeft, true);
+        juce::String t = col == 1 ? it.name : it.grade;
+        if (col == 1 && it.groupSize > 1) t << "   (" << it.groupSize << " versions" << (it.source.isNotEmpty() ? ", " + it.source : juce::String()) << ")";
+        if (col == 3 && it.best) t << "  best";
+        g.setColour(col == 3 && it.best ? kAccent : kText);
+        g.drawText(t, 6, 0, w - 12, h, juce::Justification::centredLeft, true);
     }
     void sortOrderChanged(int col, bool fwd) override { sortCol = col; sortFwd = fwd; resort(); }
     void selectedRowsChanged(int row) override {
         if (row < 0 || row >= (int)order.size()) return;
         selectedId = items[order[(size_t)row]].id;
-        stopPlayback(); repaint();
+        stopPlayback();
+        if (const Item* it = current()) { sourceBox.setText(it->source, juce::dontSendNotification); compareButton.setEnabled(it->groupSize > 1); if (it->groupSize < 2) {compareMode = false; compareButton.setToggleState(false, juce::dontSendNotification);} }
+        repaint();
     }
 
 private:
-    struct Item { juce::String id, name, grade, path; double key = 0; f8k::LeanRecord rec; };
     std::vector<Item> items; std::vector<size_t> order;
     bool loaded = false, loading = false, building = false; const void* loadedFor = nullptr; int loadedChange = -1, seenGen = -1;
     juce::String selectedId; int sortCol = 3; bool sortFwd = true;
     juce::Rectangle<int> topArea, bigBar;
     juce::TableListBox table;
-    juce::TextButton playButton{"Play"}, linesButton{"Overlay lines"}, buildButton{"Build / update records"};
+    juce::TextButton shareButton{"Share packs..."};
+    std::unique_ptr<juce::FileChooser> chooser;
+    juce::TextButton playButton{"Play"}, linesButton{"Overlay lines"}, buildButton{"Build / update records"}, compareButton{"Compare versions"};
+    juce::ComboBox sourceBox; bool compareMode = false;
+    static constexpr const char* kSources[8] = {"Tidal", "Spotify", "Apple Music", "Vinyl", "CD", "HDtracks", "Qobuz", "Other"};
+    void shareMenu() {
+        auto lib = getLibrary ? getLibrary() : nullptr;
+        if (lib == nullptr) return;
+        juce::PopupMenu m;
+        m.addItem(1, "Export a display pack (small: bars, grades, tags)...");
+        m.addItem(2, "Export a full pack (adds the replay blocks so others can regrade)...");
+        m.addItem(3, "Import a pack...");
+        m.showMenuAsync(juce::PopupMenu::Options(), [this, lib](int r) {
+            if (r == 0) return;
+            if (r == 3) {
+                chooser = std::make_unique<juce::FileChooser>("Choose a meterDARK pack", juce::File(), "*.f8kpack");
+                chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this, lib](const juce::FileChooser& fc) {
+                    if (fc.getResult() == juce::File()) return;
+                    status.setText(lib->importPack(fc.getResult()), juce::dontSendNotification); loaded = false;
+                });
+                return;
+            }
+            chooser = std::make_unique<juce::FileChooser>("Save the pack", juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile(r == 1 ? "meterDARK-display.f8kpack" : "meterDARK-full.f8kpack"), "*.f8kpack");
+            chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting, [this, lib, r](const juce::FileChooser& fc) {
+                if (fc.getResult() == juce::File()) return;
+                std::vector<juce::String> ids; for (auto& i : items) ids.push_back(i.id);
+                const int n = lib->exportPack(fc.getResult().withFileExtension("f8kpack"), r == 2, ids);
+                status.setText(n < 0 ? juce::String("Could not write the pack.") : juce::String(n) + " records saved (" + juce::String((double)fc.getResult().withFileExtension("f8kpack").getSize()/1024.0, 0) + " KB). No file names or paths are in it.", juce::dontSendNotification);
+            });
+        });
+    }
+    void setSourceOfSelected(const juce::String& v) {
+        auto lib = getLibrary ? getLibrary() : nullptr;
+        if (lib == nullptr || selectedId.isEmpty()) return;
+        lib->setUserValue(selectedId, "source", v);              // yours: it stays in user.csv
+        lib->setLeanMeta(selectedId, {{"source", v.toStdString()}});
+        for (auto& i : items) if (i.id == selectedId) { i.source = v; i.rec.set("source", v.toStdString()); }
+        table.repaint(); repaint();
+    }
     juce::Label status;
     juce::ThreadPool pool{1};
     std::atomic<int> buildDone{0}, buildTotal{0};
@@ -202,6 +279,34 @@ private:
         for (size_t i = 0; i < order.size(); ++i) if (items[order[i]].id == selectedId) {table.selectRow((int)i, true, false); return;}
         if (!order.empty() && current() == nullptr) table.selectRow(0);
     }
+    //the same song: artist + title (ignoring case, punctuation and bracketed bits like "(2012 Remaster)"), or the file name when there are no tags; and about the same length
+    static juce::String songKey(const juce::String& artist, const juce::String& title, const juce::String& file) {
+        auto norm = [](juce::String f) {
+            f = f.toLowerCase(); juce::String o; int depth = 0;
+            for (auto ch : f) {if (ch == '(' || ch == '[') ++depth; else if ((ch == ')' || ch == ']') && depth > 0) --depth; else if (depth == 0 && juce::CharacterFunctions::isLetterOrDigit(ch)) o << juce::String::charToString(ch);}
+            return o;
+        };
+        if (title.isNotEmpty()) return norm(artist) + "|" + norm(title);
+        return "|" + norm(juce::File::createFileWithoutCheckingPath("/" + file).getFileNameWithoutExtension());
+    }
+    //groups the versions of a song and marks the best one (the best grade; on a tie the higher sample rate, then the louder-headroom peak)
+    static void groupVersions(std::vector<Item>& items) {
+        std::map<juce::String, std::vector<size_t>> bySong;
+        for (size_t i = 0; i < items.size(); ++i) if (items[i].song != "|") bySong[items[i].song].push_back(i);
+        int g = 0;
+        for (auto& kv : bySong) {
+            auto v = kv.second; std::sort(v.begin(), v.end(), [&](size_t a, size_t b) { return items[a].dur < items[b].dur; });
+            std::vector<std::vector<size_t>> clusters;
+            for (size_t i : v) { if (!clusters.empty() && items[i].dur <= items[clusters.back().front()].dur*1.2 + 2.0) clusters.back().push_back(i); else clusters.push_back({i}); }
+            for (auto& cl : clusters) {
+                if (cl.size() < 2) continue;
+                size_t best = cl.front();
+                for (size_t i : cl) { items[i].group = g; items[i].groupSize = (int)cl.size();
+                    if (items[i].key < items[best].key || (items[i].key == items[best].key && items[i].sr > items[best].sr)) best = i; }
+                items[best].best = true; ++g;
+            }
+        }
+    }
     static std::vector<Item> gather(const std::shared_ptr<f8k::Library>& lib, const std::shared_ptr<const std::set<juce::String>>& allowed) {
         std::vector<Item> out;
             const auto idx = lib->index();
@@ -217,8 +322,29 @@ private:
             const double lv = juce::String(it.rec.get("letter_value")).getDoubleValue();
             it.key = (bonus >= 1 && bonus <= 80) ? (double)bonus : 1000.0 - lv;
             it.path = idx.get(r, "source_path");
+            it.source = juce::String(it.rec.get("source"));
+            it.dur = juce::String(it.rec.get("length_s")).getDoubleValue(); it.sr = juce::String(it.rec.get("sample_rate")).getDoubleValue();
+            it.song = songKey(artist, title, idx.get(r, "file"));
             out.push_back(std::move(it));
         }
+        if (!allowed) { //records other people shared with you (lean-shared): shown too, marked as shared. Not when the Library's filters are in use, since they can only judge your own tracks.
+            std::set<juce::String> have; for (auto& i : out) have.insert(i.id);
+            for (auto& id : lib->sharedIds()) {
+                if (have.count(id)) continue;
+                Item it; it.id = id; it.shared = true;
+                if (!lib->readShared(id, it.rec)) continue;
+                const juce::String artist = juce::String(it.rec.get("artist")), title = juce::String(it.rec.get("title"));
+                it.name = (title.isNotEmpty() ? (artist.isNotEmpty() ? artist + " - " + title : title) : id) + "  (shared)";
+                it.grade = juce::String(it.rec.get("grade"));
+                const int bonus = juce::String(it.rec.get("bonus_value")).getIntValue();
+                it.key = (bonus >= 1 && bonus <= 80) ? (double)bonus : 1000.0 - juce::String(it.rec.get("letter_value")).getDoubleValue();
+                it.source = juce::String(it.rec.get("source"));
+                it.dur = juce::String(it.rec.get("length_s")).getDoubleValue(); it.sr = juce::String(it.rec.get("sample_rate")).getDoubleValue();
+                it.song = songKey(artist, title, {});
+                out.push_back(std::move(it));
+            }
+        }
+        groupVersions(out);
         return out;
     }
     void load() {

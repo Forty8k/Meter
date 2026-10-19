@@ -124,6 +124,15 @@ public:
     struct LeanReport { int built = 0, kept = 0, noData = 0, mismatches = 0; double bytesAll = 0, bytesReplay = 0; int totalTracks = 0; };
     LeanReport buildLeanRecords(bool force, bool verify, std::function<bool()> shouldStop = {}, std::function<void(int, int)> progress = {});
     bool readLean(const juce::String& id, LeanRecord& out);
+    // SHARE PACKS: one file (.f8kpack) of lean records. A display pack has no replay blocks (small: just the bars, grades and tags); a full pack keeps them so the
+    // receiver can regrade. Never any file path, file name or private column; the only identity is the record's id. Imported records go to lean-shared/ and are
+    // never mixed into your own measurements.
+    int exportPack(const juce::File& out, bool full, const std::vector<juce::String>& ids);
+    juce::String importPack(const juce::File& in, int* added = nullptr);
+    std::vector<juce::String> sharedIds();
+    bool readShared(const juce::String& id, LeanRecord& out);
+    bool writeLean(const juce::String& id, const LeanRecord& rec); // gzip and store
+    bool setLeanMeta(const juce::String& id, const std::vector<std::pair<std::string, std::string>>& changes); // patch tags / source in an existing record (no window data needed)
     juce::File leanFile(const juce::String& id) const { return folder.getChildFile("lean").getChildFile(id + ".lnr.gz"); }
     std::map<juce::String, double> lowEndShares(std::function<bool()> shouldStop, std::function<void(int, int)> progress);
 private:

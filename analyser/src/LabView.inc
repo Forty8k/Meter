@@ -177,6 +177,17 @@ private:
                 if (tr.core.empty()) lib->readCore(tr.id, vids.front(), tr.names, tr.core);
                 if (!tr.core.empty() || !tr.core2.empty()) t.push_back(std::move(tr));
             }
+            if (fromBlocks) { //records shared with you (lean-shared) that carry a replay block are regraded too
+                for (auto& sid : lib->sharedIds()) {
+                    f8k::LeanRecord lr; Track tr;
+                    if (!lib->readShared(sid, lr) || lr.replay.empty() || !f8k::unpackWindows(lr.replay, tr.names2, tr.core2)) continue;
+                    tr.id = sid; tr.file = juce::String(lr.get("title")).isNotEmpty() ? juce::String(lr.get("artist")) + " - " + juce::String(lr.get("title")) + " (shared)" : sid + " (shared)";
+                    tr.grade = juce::String(lr.get("grade")); tr.letterValue = juce::String(lr.get("letter_value")).getDoubleValue();
+                    const int b = juce::String(lr.get("bonus_value")).getIntValue(); tr.gradeBonus = (b >= 1 && b <= 80) ? juce::String(b) : juce::String();
+                    tr.sr = juce::String(lr.get("window_rate")).getDoubleValue(); if (tr.sr <= 0) tr.sr = 96000.0;
+                    tr.names = tr.names2; tr.core = tr.core2; t.push_back(std::move(tr));
+                }
+            }
             juce::MessageManager::callAsync([this, sp, t = std::move(t)]() mutable {
                 if (sp == nullptr) return;
                 {const juce::ScopedLock sl(dataLock); tracks = std::move(t);}

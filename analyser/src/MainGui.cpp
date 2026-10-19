@@ -467,6 +467,7 @@ private:
         add("album", "album", "Album", Kind::Text, true, 120);
         add("year", "year", "Year", Kind::Number, true, 50);
         add("genre", "genre", "Genre", Kind::Text, true, 90);
+        add("source", "source", "Source", Kind::Text, true, 90); //where this copy came from: Tidal, Spotify, Apple Music, vinyl, CD, HDtracks, Qobuz, other
         add("fmt", "format", "Format", Kind::Text, false, 110);
         add("dir", "g:directions_main", "Directions", Kind::Text, false, 150);
         add("added", "analysed", "Added", Kind::Text, false, 130);

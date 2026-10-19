@@ -1,4 +1,39 @@
-# meterDARK + meterDARK Analyser: handoff (19 Oct 2026, plan agreed, nothing built yet)
+# meterDARK + meterDARK Analyser: handoff (19 Oct 2026, stages 1-10 BUILT, waiting for his hand check)
+
+## STATE AFTER THE BUILD (read this first)
+All ten stages are built on the `analyser` branch (app) and `f8k-lab` (plugin, preset/project version 11). Nothing merged into main.
+CI is the only compile/test run so far; nothing has been run on his Windows machine or his real library. Releases are SWITCHED OFF
+(`release` job is `if: false` in .github/workflows/analyser.yml): download builds from the Actions tab (artifact meterDARK-Analyser-Windows).
+
+What exists now:
+- Plugin: grade `*` only when the grade is changed (Detail tune in the scoring, or a level mode); hide-hints tick (tune17); "hintLAB" marker;
+  weight = thin <-> full (level-weighted bass position, 300 Hz thin / 60 Hz full); dark <-> bright is ONE gauge (balance tune18, distances tune4/tune5)
+  with a width shade; frequency push retired (tune10 unused).
+- Analyser: ranked grade filters (Stage 2); hintLAB (hints only; same maths as the plugin in LabHints.cpp) with "Measure low end" + scatter plots
+  of old/new weight against the real low end (4a, needs his library); gradeLAB tab (the original-scoring experiment; "Use replay blocks" regrades
+  from lean records and from shared records); new Library tab = overview (selected track, big tone bar, overlay lines, weight/peaks/slew bars,
+  details, play/seek, three-column list, Compare versions, audio source box, Share packs...) with the old table behind "Full table".
+- Lean records: `lean/<id>.lnr.gz` in the library (src/LeanRecord.*, src/ReplayPack.h). Build with the button, or CLI `--lean` / `--lean-check`.
+  Replay block precision: 16 bits (zero differences; 14 also clean on synthetic music, 12 and below not). About 30 KB per minute compressed
+  for the replay block (about 120 KB for 4 min), about 9 KB for the display part. Window data per track is not removed from disk.
+- Share packs: `.f8kpack` (CLI `--export-pack file [--full]`, `--import-pack file`; app: Share packs...). Imports go to `lean-shared/`.
+  Records are keyed by the audio's content hash; they contain no path or file name. CI checks that.
+- Audio source: editable "Source" column in the full table, box in the overview; stored in user.csv ("source") and in the lean record.
+- Generator change: `OriginalResult` now also carries storeR/G/B and outputVol (the top bar colour of the latest window); regenerated `src/gen`.
+
+WHAT HE MUST CHECK BY HAND (not testable in the cloud):
+1. Plugin in a DAW: no `*` at factory settings at any session rate; `*` appears with Detail tune "grade" ticked or a level mode on; hide-hints tick;
+   "hintLAB" marker position; thin/full and the one dark/bright gauge + width shade look right; presets/projects from version <=10 load without surprises.
+2. hintLAB on the real library: "Measure low end" (first run takes minutes), read the two correlation numbers r (new weight should beat old);
+   "Level test"; then "Export to meterDARK" and watch the plugin follow within a second.
+3. Library overview on the real library: press "Build / update records" (then `--lean-check` from the CLI proves every replay block regrades
+   to the same grade; it exits with 3 if not), look at the big tone bar vs the plugin's top bar for a track you know, the weight/peaks/slew bars,
+   play/seek, sorting by grade, Compare versions on a song you have twice, setting Source.
+4. Sizes: the real per-track and whole-library size of lean/ (the CLI prints the average KB and total MB). Decide about dropping fine blocks / pitch.
+5. Share packs: export a display and a full pack, import into a second library, check shared rows show "(shared)" and gradeLAB "Use replay blocks" includes them.
+6. Saved filters (filters.json) migrate and still match; ranked grade filters give the expected tracks.
+Known limits: per-meter tone bars in the records are the analyser's port of scoreColumn (check by eye against the plugin); shared records
+have no audio to play; "best version" = best grade, then higher sample rate; packs only carry the newest Meter version's block.
 
 Owner: Forty8k (Windows, works at 48 kHz, listens via Tidal at -14 LUFS). Library ~2,900 tracks, mostly 96 kHz 32-bit WAV
 (E:\Media\Reference Mixes / D:\AUDIO\REF Mixes).
