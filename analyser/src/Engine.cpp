@@ -818,7 +818,7 @@ static bool readFloats(const juce::File& f, std::vector<float>& out)
 static std::vector<uint8_t> gzipBytes(const std::vector<uint8_t>& in)
 {
     juce::MemoryBlock mb;
-    { juce::MemoryOutputStream mo(mb, false); juce::GZIPCompressorOutputStream gz(mo, 9); gz.write(in.data(), in.size()); gz.flush(); }
+    { juce::MemoryOutputStream mo(mb, false); juce::GZIPCompressorOutputStream gz(mo, 9, juce::GZIPCompressorOutputStream::windowBitsGZIP); gz.write(in.data(), in.size()); gz.flush(); }
     return std::vector<uint8_t>((const uint8_t*)mb.getData(), (const uint8_t*)mb.getData() + mb.getSize());
 }
 
