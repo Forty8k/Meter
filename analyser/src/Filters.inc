@@ -1,8 +1,7 @@
 // Included by MainGui.cpp (inside its anonymous namespace). Filters for the Library list and for the Lab: a list of conditions, named saved sets,
 // and (for the Lab) the default exclusions and the one-copy-per-song rule. Kept in filters.json in the library folder.
 
-#include "GradeRank.h"
-
+//(GradeRank.h, included at the top of MainGui.cpp: the grade parts as ranked letters)
 struct FilterCondition { juce::String field, op, value; };
 
 struct FilterSet {

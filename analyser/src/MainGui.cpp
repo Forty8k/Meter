@@ -6,6 +6,7 @@
 #include "Engine.h"
 #include "LabHints.h"
 #include "LabScore.h"
+#include "GradeRank.h"
 #include <thread>
 #include <set>
 #include <map>
