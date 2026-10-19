@@ -9,13 +9,14 @@ set(F8K_BUILD_NUMBER 0 CACHE STRING "build number (set by GitHub; the app compar
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../JUCE ${CMAKE_BINARY_DIR}/JUCE)
 
-set(F8K_ENGINE_SOURCES src/Capture.cpp src/Estimates.cpp src/OriginalScorer.cpp src/Engine.cpp src/LabHints.cpp)
+set(F8K_ENGINE_SOURCES src/Capture.cpp src/Estimates.cpp src/OriginalScorer.cpp src/Engine.cpp src/LabHints.cpp src/LeanRecord.cpp)
 set(F8K_DEFS JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_USE_MP3AUDIOFORMAT=1 JUCE_USE_FLAC=1 JUCE_USE_OGGVORBIS=1
     JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_MODAL_LOOPS_PERMITTED=1 F8K_BUILD_NUMBER=${F8K_BUILD_NUMBER})
 
 add_executable(F8KSelfTest tools/selftest.cpp src/Capture.cpp src/Estimates.cpp src/OriginalScorer.cpp) # no JUCE needed
 add_executable(F8KLevelTest tools/leveltest.cpp src/LabHints.cpp src/Capture.cpp src/Estimates.cpp src/OriginalScorer.cpp) # no JUCE needed
 add_executable(F8KPackTest tools/packtest.cpp src/LabHints.cpp src/Capture.cpp src/Estimates.cpp src/OriginalScorer.cpp) # no JUCE needed
+add_executable(F8KLeanTest tools/leantest.cpp src/LeanRecord.cpp src/LabHints.cpp src/Capture.cpp src/Estimates.cpp src/OriginalScorer.cpp) # no JUCE needed
 add_executable(F8KReplayTest tools/replaytest.cpp src/LabHints.cpp src/Capture.cpp src/Estimates.cpp src/OriginalScorer.cpp) # no JUCE needed
 
 juce_add_console_app(MeterF8KAnalyserCLI PRODUCT_NAME "MeterF8KAnalyserCLI" COMPANY_NAME "Forty8k")

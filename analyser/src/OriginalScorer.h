@@ -18,6 +18,7 @@ struct OriginalResult {
     std::string directionsMain; // what it said most of the time during the loud parts, e.g. "allow detail (62%)"
     double peakPrevGrade = 0, slewPrevGrade = 0, bassPrevGrade = 0; // the running values behind power, detail, authority
     double outputR = 0, outputG = 0, outputB = 0;                    // slews, zero crosses, peaks scores (the tone colour)
+    double storeR = 0, storeG = 0, storeB = 0, outputVol = 0;       // the tone colour of the latest window as the meter's top bar draws it (0-1, G and B already cyan-corrected), and its loudness
     double cumulative = 0, duration = 0, cumulativePlus = 0, durationPlus = 0;
     double letterValue = 0;  // the number behind the letter (0-27.6, the letter is its whole part: 27 = A, higher is better)
     int bonusValue = 0;      // the bonus number before it is hidden (the original only shows 1-80; lower is better)

@@ -13,6 +13,7 @@
 #include "Capture.h"
 #include "OriginalScorer.h"
 #include "Resampler.h"
+#include "LeanRecord.h"
 
 namespace f8k {
 
@@ -118,6 +119,12 @@ public:
     bool readCoreAt(const juce::String& id, const juce::String& vid, int rate, std::vector<std::string>& names, std::vector<float>& values);
     // How much of each track's real energy sits in the low end (the three lowest octave bands, 31-125 Hz, as a share of all ten), from the fine blocks.
     // Cached in lowend.csv; only tracks not in the cache are read. Used by hintLAB to test whether the weight reading follows the real low end.
+    // THE LEAN RECORDS: one small shareable file per track in lean/<id>.lnr.gz (display bars, grade values, tags and the packed replay block; see LeanRecord.h),
+    // built from the window data already stored (no audio is read). Fine blocks, pitch, file paths and your own columns are not in it. Several cores.
+    struct LeanReport { int built = 0, kept = 0, noData = 0, mismatches = 0; double bytesAll = 0, bytesReplay = 0; int totalTracks = 0; };
+    LeanReport buildLeanRecords(bool force, bool verify, std::function<bool()> shouldStop = {}, std::function<void(int, int)> progress = {});
+    bool readLean(const juce::String& id, LeanRecord& out);
+    juce::File leanFile(const juce::String& id) const { return folder.getChildFile("lean").getChildFile(id + ".lnr.gz"); }
     std::map<juce::String, double> lowEndShares(std::function<bool()> shouldStop, std::function<void(int, int)> progress);
 private:
 };

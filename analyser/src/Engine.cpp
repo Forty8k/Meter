@@ -736,6 +736,7 @@ bool Library::removeTrack(const juce::String& id)
     t.rows.erase(t.rows.begin() + r);
     t.save(indexFile());
     for (auto* ext : {".core.csv", ".fine.f32.gz", ".pitch.f32.gz", ".meta.json"}) folder.getChildFile("tracks").getChildFile(id + ext).deleteFile();
+    leanFile(id).deleteFile();
     for (auto& v : versionIds()) {
         coreFile(id, v).deleteFile();
         for (int rate : {0, 44100, 96000}) {
@@ -812,6 +813,93 @@ static bool readFloats(const juce::File& f, std::vector<float>& out)
     juce::MemoryInputStream m(mb, false);
     for (auto& v : out) v = m.readFloat();
     return !out.empty();
+}
+
+static std::vector<uint8_t> gzipBytes(const std::vector<uint8_t>& in)
+{
+    juce::MemoryBlock mb;
+    { juce::MemoryOutputStream mo(mb, false); juce::GZIPCompressorOutputStream gz(mo, 9); gz.write(in.data(), in.size()); gz.flush(); }
+    return std::vector<uint8_t>((const uint8_t*)mb.getData(), (const uint8_t*)mb.getData() + mb.getSize());
+}
+
+bool Library::readLean(const juce::String& id, LeanRecord& out)
+{
+    juce::FileInputStream fis(leanFile(id));
+    if (!fis.openedOk()) return false;
+    juce::GZIPDecompressorInputStream gz(&fis, false, juce::GZIPDecompressorInputStream::gzipFormat);
+    juce::MemoryBlock mb; gz.readIntoMemoryBlock(mb);
+    return parseLean(std::vector<uint8_t>((const uint8_t*)mb.getData(), (const uint8_t*)mb.getData() + mb.getSize()), out);
+}
+
+Library::LeanReport Library::buildLeanRecords(bool force, bool verify, std::function<bool()> shouldStop, std::function<void(int, int)> progress)
+{
+    LeanReport rep;
+    const Table t = index();
+    const auto users = userValues();
+    const juce::String vid = versionIds().back();
+    const MeterVersion* mv = findMeterVersion(vid.toStdString());
+    folder.getChildFile("lean").createDirectory();
+    const int total = (int)t.rows.size(); rep.totalTracks = total;
+    if (mv == nullptr) return rep;
+    std::atomic<int> next{0}, done{0};
+    juce::CriticalSection m;
+    auto worker = [&] {
+        for (;;) {
+            const int r = next++;
+            if (r >= total || (shouldStop && shouldStop())) return;
+            const juce::String id = t.get((size_t)r, "id");
+            bool keep = false, nodata = false, mismatch = false; double bytes = 0, bytesReplay = 0;
+            if (!force && leanFile(id).existsAsFile()) keep = true;
+            else {
+                std::vector<std::string> names; std::vector<float> values; double sr = 96000.0;
+                if (!(readCoreAt(id, vid, 96000, names, values) && !names.empty())) { sr = t.get((size_t)r, "sample_rate").getDoubleValue(); if (sr <= 0) sr = 44100.0; if (!readCore(id, vid, names, values) || names.empty()) nodata = true; }
+                if (!nodata) {
+                    std::vector<std::pair<std::string, std::string>> meta;
+                    auto add = [&](const char* k, const juce::String& v) { meta.emplace_back(k, v.toStdString()); };
+                    add("id", id);
+                    auto uv = users.find(id);
+                    for (const char* k : {"artist", "title", "album", "year"}) { //your corrected tags win over the file's
+                        juce::String v = t.get((size_t)r, k);
+                        if (uv != users.end()) { auto it = uv->second.find(k); if (it != uv->second.end() && it->second.isNotEmpty()) v = it->second; }
+                        add(k, v);
+                    }
+                    add("format", t.get((size_t)r, "format")); add("sample_rate", t.get((size_t)r, "sample_rate")); add("bits", t.get((size_t)r, "bits"));
+                    add("length_s", t.get((size_t)r, "duration_s")); add("peak_db", t.get((size_t)r, "peak_dbfs")); add("true_peak_db", t.get((size_t)r, "true_peak_dbtp")); add("lufs", t.get((size_t)r, "lufs_integrated"));
+                    add("lossy", t.get((size_t)r, "lossy"));
+                    if (uv != users.end()) { auto it = uv->second.find("source"); if (it != uv->second.end() && it->second.isNotEmpty()) add("source", it->second); }
+                    add("window_rate", juce::String(sr, 0));
+                    LeanRecord rec = buildLeanRecord(*mv, sr, names, values, meta);
+                    if (rec.columns == 0) nodata = true;
+                    else {
+                        const auto raw = serialiseLean(rec);
+                        const auto packed = gzipBytes(raw);
+                        bytes = (double)packed.size(); bytesReplay = (double)gzipBytes(rec.replay).size();
+                        if (verify) { //the replay block must regrade to the stored grade
+                            std::vector<std::string> n2; std::vector<float> c2;
+                            auto run = mv->create(sr, 1);
+                            if (unpackWindows(rec.replay, n2, c2) && !n2.empty()) { for (size_t w = 0; w < c2.size()/n2.size(); ++w) run->feedWindow(n2, &c2[w*n2.size()]); mismatch = run->result().grade != rec.get("grade"); }
+                            else mismatch = true;
+                            if (!mismatch) { // and against the exact data
+                                auto exact = mv->create(sr, 1);
+                                for (size_t w = 0; w < values.size()/names.size(); ++w) exact->feedWindow(names, &values[w*names.size()]);
+                                mismatch = exact->result().grade != rec.get("grade") || exact->result().bonusValue != rec.get("bonus_value").getIntValue();
+                            }
+                        }
+                        leanFile(id).replaceWithData(packed.data(), packed.size());
+                    }
+                }
+            }
+            { const juce::ScopedLock sl(m);
+              if (keep) ++rep.kept; else if (nodata) ++rep.noData; else {++rep.built; rep.bytesAll += bytes; rep.bytesReplay += bytesReplay;}
+              if (mismatch) ++rep.mismatches; }
+            const int d = ++done; if (progress) progress(d, total);
+        }
+    };
+    std::vector<std::thread> th;
+    for (unsigned k = 0; k < juce::jmax(1u, std::thread::hardware_concurrency()); ++k) th.emplace_back(worker);
+    for (auto& x : th) x.join();
+    ++changes;
+    return rep;
 }
 
 std::map<juce::String, double> Library::lowEndShares(std::function<bool()> shouldStop, std::function<void(int, int)> progress)

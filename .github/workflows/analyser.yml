@@ -61,6 +61,8 @@ jobs:
         run: ./build/F8KReplayTest | tee replaytest.txt
       - name: Replay block precision test (packed windows must give the same grade, bonus and tone)
         run: ./build/F8KPackTest | tee packtest.txt
+      - name: Lean record test (build, save, read, regrade from the replay block)
+        run: ./build/F8KLeanTest
       - name: End-to-end check (command line on generated tones)
         run: |
           python3 - <<'PY' || python - <<'PY2'
@@ -144,6 +146,11 @@ jobs:
           grep -q "Rescan: 5 of 5" cli.txt
           # Level modes: grade the library with the stored windows plus a gain
           "$CLI" --library testlib --levels | tee -a cli.txt
+          "$CLI" --library testlib --lean-check | tee -a cli.txt
+          "$CLI" --library testlib --lean | tee -a cli.txt
+          grep -q "Replay mismatches: 0" cli.txt
+          grep -q "Lean records: 0 built, 5 already there" cli.txt
+          ls testlib/lean/*.lnr.gz
           grep -q "Levels: normalised 5 of 5" cli.txt
           grep -q "Levels: mix 5 of 5" cli.txt
           ls testlib/levelgrades-*.csv

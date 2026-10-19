@@ -1139,6 +1139,7 @@ public:
         r.grade = r.bonus + r.letter + r.authority + r.power + r.detail; //the order the original draws it
         r.peakPrevGrade = m.peakPrevGrade; r.slewPrevGrade = m.slewPrevGrade; r.bassPrevGrade = m.bassPrevGrade;
         r.outputR = m.outputR; r.outputG = m.outputG; r.outputB = m.outputB;
+        r.storeR = m.storeR; r.storeG = m.storeG; r.storeB = m.storeB; r.outputVol = m.outputVol; //the tone colour as the top bar draws it (after the window's INCREMENT)
         r.cumulative = m.cumulative; r.duration = m.duration; r.cumulativePlus = m.cumulativePlus; r.durationPlus = m.durationPlus;
         r.letterValue = (1.0-pow(1.0-(m.cumulative/m.duration),1.618033988749894))*27.618033988749894; //the original's allMatch
         r.bonusValue = 100-(int)fmin((m.cumulativePlus/m.durationPlus)*100.0,99.0);                    //the original's bonus number
