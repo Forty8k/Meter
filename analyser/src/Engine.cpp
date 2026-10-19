@@ -882,7 +882,7 @@ Library::LeanReport Library::buildLeanRecords(bool force, bool verify, std::func
                             if (!mismatch) { // and against the exact data
                                 auto exact = mv->create(sr, 1);
                                 for (size_t w = 0; w < values.size()/names.size(); ++w) exact->feedWindow(names, &values[w*names.size()]);
-                                mismatch = exact->result().grade != rec.get("grade") || exact->result().bonusValue != rec.get("bonus_value").getIntValue();
+                                mismatch = exact->result().grade != rec.get("grade") || exact->result().bonusValue != juce::String(rec.get("bonus_value")).getIntValue();
                             }
                         }
                         leanFile(id).replaceWithData(packed.data(), packed.size());

@@ -3,7 +3,6 @@
 // peaks / slew tone bars, the technical details, and play / stop with a playhead you can click to seek. The bottom ~60% is a three-column list: name, a small
 // tone strip, and a sortable grade. Stacked together the strips show trends across the library. It reads only the lean records (see LeanRecord.h); the audio is
 // opened from its stored file path just for playing. The full table stays one click away.
-#include <juce_audio_devices/juce_audio_devices.h>
 
 class GlanceView : public juce::Component, public juce::TableListBoxModel, private juce::Timer {
 public:
@@ -41,7 +40,14 @@ public:
         pool.removeAllJobs(true, 10000);
     }
 
-    void reloadNow() { loaded = false; load(); }
+    void reloadNow() { //synchronous (for the automated picture)
+        auto lib = getLibrary ? getLibrary() : nullptr;
+        if (lib == nullptr) return;
+        loadedFor = lib.get(); loadedChange = lib->changeCount();
+        items = gather(lib, getAllowed ? getAllowed() : nullptr); loaded = true;
+        status.setText(juce::String((int)items.size()) + " tracks", juce::dontSendNotification);
+        resort(); repaint();
+    }
 
     void resized() override {
         auto r = getLocalBounds();
@@ -196,6 +202,25 @@ private:
         for (size_t i = 0; i < order.size(); ++i) if (items[order[i]].id == selectedId) {table.selectRow((int)i, true, false); return;}
         if (!order.empty() && current() == nullptr) table.selectRow(0);
     }
+    static std::vector<Item> gather(const std::shared_ptr<f8k::Library>& lib, const std::shared_ptr<const std::set<juce::String>>& allowed) {
+        std::vector<Item> out;
+            const auto idx = lib->index();
+        for (size_t r = 0; r < idx.rows.size(); ++r) {
+            const juce::String id = idx.get(r, "id");
+            if (allowed && !allowed->count(id)) continue;
+            Item it; it.id = id;
+            if (!lib->readLean(id, it.rec)) continue;
+            const juce::String artist = juce::String(it.rec.get("artist")), title = juce::String(it.rec.get("title"));
+            it.name = title.isNotEmpty() ? (artist.isNotEmpty() ? artist + " - " + title : title) : juce::File(idx.get(r, "file")).getFileNameWithoutExtension();
+            it.grade = juce::String(it.rec.get("grade"));
+            const int bonus = juce::String(it.rec.get("bonus_value")).getIntValue();
+            const double lv = juce::String(it.rec.get("letter_value")).getDoubleValue();
+            it.key = (bonus >= 1 && bonus <= 80) ? (double)bonus : 1000.0 - lv;
+            it.path = idx.get(r, "source_path");
+            out.push_back(std::move(it));
+        }
+        return out;
+    }
     void load() {
         auto lib = getLibrary ? getLibrary() : nullptr;
         if (lib == nullptr || loading) return;
@@ -203,22 +228,7 @@ private:
         const auto allowed = getAllowed ? getAllowed() : nullptr;
         juce::Component::SafePointer<GlanceView> sp(this);
         pool.addJob([this, sp, lib, allowed] {
-            std::vector<Item> out;
-            const auto idx = lib->index();
-            for (size_t r = 0; r < idx.rows.size(); ++r) {
-                const juce::String id = idx.get(r, "id");
-                if (allowed && !allowed->count(id)) continue;
-                Item it; it.id = id;
-                if (!lib->readLean(id, it.rec)) continue;
-                const juce::String artist = juce::String(it.rec.get("artist")), title = juce::String(it.rec.get("title"));
-                it.name = title.isNotEmpty() ? (artist.isNotEmpty() ? artist + " - " + title : title) : juce::File(idx.get(r, "file")).getFileNameWithoutExtension();
-                it.grade = juce::String(it.rec.get("grade"));
-                const int bonus = juce::String(it.rec.get("bonus_value")).getIntValue();
-                const double lv = juce::String(it.rec.get("letter_value")).getDoubleValue();
-                it.key = (bonus >= 1 && bonus <= 80) ? (double)bonus : 1000.0 - lv;
-                it.path = idx.get(r, "source_path");
-                out.push_back(std::move(it));
-            }
+            std::vector<Item> out = gather(lib, allowed);
             juce::MessageManager::callAsync([this, sp, out = std::move(out)]() mutable {
                 if (sp == nullptr) return;
                 items = std::move(out); loading = false; loaded = true;

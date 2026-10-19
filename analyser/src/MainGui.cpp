@@ -3,6 +3,7 @@
 //  "Library"    - browse everything in the library: sort by any column, search, fix tags, correct BPM/key,
 //                 add your own columns (streams, sales, notes ...), import values from a CSV, remove tracks.
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <juce_audio_devices/juce_audio_devices.h>
 #include "Engine.h"
 #include "LabHints.h"
 #include "LabScore.h"
@@ -1038,6 +1039,10 @@ public:
         libraryTab.glance.getFilterGen = [this] { return libraryView.filterGeneration(); };
         tabs.addTab("Library", kBg, &libraryTab, false);
         tabs.addTab("hintLAB", kBg, &labView, false);
+        gradeLabView.getLibrary = [this] { return library; };
+        gradeLabView.getAllowed = [this] { return libraryView.labIds(); };
+        gradeLabView.getFilterGen = [this] { return libraryView.filterGeneration(); };
+        tabs.addTab("gradeLAB", kBg, &gradeLabView, false);
         tabs.setColour(juce::TabbedComponent::outlineColourId, kBg);
         tabs.setColour(juce::TabbedButtonBar::tabTextColourId, kDim);
         tabs.setColour(juce::TabbedButtonBar::frontTextColourId, kText);
@@ -1082,7 +1087,7 @@ public:
             tabs.setCurrentTabIndex(t == 3 ? 1 : t);
             if (t == 1 || t == 3) libraryView.reload();
             libraryTab.showFull(t == 3);
-            if (t == 1) { libraryTab.glance.reloadNow(); juce::MessageManager::getInstance()->runDispatchLoopUntil(1500); }
+            if (t == 1) { libraryTab.glance.reloadNow(); }
             const auto img = createComponentSnapshot(getLocalBounds(), true, 1.0f);
             juce::FileOutputStream os(outDir.getChildFile(names[t]));
             if (os.openedOk()) {os.setPosition(0); os.truncate(); juce::PNGImageFormat().writeImageToStream(img, os);}
@@ -1112,7 +1117,8 @@ private:
     AddPanel addPanel;
     LibraryView libraryView;
     LibraryTab libraryTab{libraryView};
-    LabView labView;
+    LabView labView{0};
+    LabView gradeLabView{1};
     Worker worker{*this};
     juce::TabbedComponent tabs{juce::TabbedButtonBar::TabsAtTop};
     std::unique_ptr<juce::FileChooser> chooser;

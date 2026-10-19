@@ -12,7 +12,8 @@ public:
     std::function<std::shared_ptr<const std::set<juce::String>>()> getAllowed;      //the tracks to use (null = all of them)
     std::function<int()> getFilterGen;                                             //goes up when the filters or the level mode change
 
-    LabView() {
+    //kind: 0 = hintLAB (the hints only), 1 = gradeLAB (the original scoring experiment only), -1 = both (old layout)
+    explicit LabView(int labKind = -1) : kind(labKind) {
         for (auto* b : {&hintsMode, &scoreMode}) {
             addAndMakeVisible(b); styleButton(*b); b->setClickingTogglesState(true); b->setRadioGroupId(77);
             b->setColour(juce::TextButton::buttonOnColourId, kSelect); b->setColour(juce::TextButton::textColourOnId, kAccent);
@@ -46,8 +47,14 @@ public:
         table.getHeader().setColour(juce::TableHeaderComponent::outlineColourId, kBg);
         addAndMakeVisible(dist); addAndMakeVisible(scatter);
         model.owner = this; dist.owner = this; scatter.owner = this;
+        addAndMakeVisible(blocksToggle); styleButton(blocksToggle);
+        blocksToggle.setClickingTogglesState(true); blocksToggle.setColour(juce::TextButton::buttonOnColourId, kSelect);
+        blocksToggle.setTooltip("Regrade from each track's lean record (its packed replay block) instead of the stored window data. This is what a shared pack gives you.");
+        blocksToggle.onClick = [this] { useBlocks = blocksToggle.getToggleState(); loaded = false; };
+        if (kind == 0) {scoreMode.setVisible(false); blocksToggle.setVisible(false); hintsMode.setButtonText("hintLAB");}
+        if (kind == 1) {hintsMode.setVisible(false); scoreMode.setButtonText("gradeLAB: original scoring (experiment)");}
         buildSettings();
-        setMode(0);
+        setMode(kind == 1 ? 1 : 0);
         startTimer(200);
     }
     ~LabView() override { stopTimer(); pool.removeAllJobs(true, 10000); }
@@ -55,8 +62,8 @@ public:
     void resized() override {
         auto r = getLocalBounds().reduced(12);
         auto top = r.removeFromTop(28);
-        hintsMode.setBounds(top.removeFromLeft(150)); top.removeFromLeft(6);
-        scoreMode.setBounds(top.removeFromLeft(210)); top.removeFromLeft(16);
+        if (kind == 1) {scoreMode.setBounds(top.removeFromLeft(290)); top.removeFromLeft(6); blocksToggle.setBounds(top.removeFromLeft(200)); top.removeFromLeft(16);}
+        else {hintsMode.setBounds(top.removeFromLeft(150)); top.removeFromLeft(6); if (kind != 0) scoreMode.setBounds(top.removeFromLeft(210)); top.removeFromLeft(16);}
         status.setBounds(top);
         r.removeFromTop(8);
         auto left = r.removeFromLeft(400);
@@ -84,6 +91,7 @@ private:
     //---------------------------------------------------------------- data
     struct Track { juce::String id, file, grade, gradeBonus; double letterValue = 0; std::vector<std::string> names; std::vector<float> core; std::vector<std::string> names2; std::vector<float> core2; double sr = 44100; };
     std::vector<Track> tracks;          //loaded once per library (both the 0.5.5 data for the hints and the newest version's data for scoring)
+    const int kind; bool useBlocks = false; juce::TextButton blocksToggle{"Use replay blocks"};
     bool testing = false;
     bool loading = false, loaded = false; const void* loadedFor = nullptr; int loadedChange = -1;
     std::vector<f8k::HintTrackResult> hintResults;
@@ -139,7 +147,8 @@ private:
         loadedLevel = lm; loadDone = 0; loadTotal = 0;
         status.setText("Loading the library's window data ...", juce::dontSendNotification);
         juce::Component::SafePointer<LabView> sp(this);
-        pool.addJob([this, sp, lib, lm] {
+        const bool fromBlocks = useBlocks;
+        pool.addJob([this, sp, lib, lm, fromBlocks] {
             std::vector<Track> t;
             const auto idx = lib->index();
             const auto vids = f8k::Library::versionIds();
@@ -156,7 +165,13 @@ private:
                 Track tr; tr.id = idx.get(r, "id"); tr.file = idx.get(r, "file"); tr.sr = idx.get(r, "sample_rate").getDoubleValue();
                 const int gr = g.findRow("id", tr.id);
                 if (gr >= 0) {tr.grade = g.get((size_t)gr, "grade"); tr.gradeBonus = g.get((size_t)gr, "bonus"); tr.letterValue = g.get((size_t)gr, "letter_value").getDoubleValue();}
-                if (!lib->readCoreAt(tr.id, newest, 96000, tr.names2, tr.core2)) lib->readCore(tr.id, newest, tr.names2, tr.core2); //the newest version's windows at 96 kHz
+                bool gotBlock = false;
+                if (fromBlocks) { //the lean record's replay block (what a shared pack contains): no stored window data needed
+                    f8k::LeanRecord lr;
+                    if (lib->readLean(tr.id, lr) && f8k::unpackWindows(lr.replay, tr.names2, tr.core2)) {gotBlock = true; tr.sr = juce::String(lr.get("window_rate")).getDoubleValue(); if (tr.sr <= 0) tr.sr = 96000.0;}
+                }
+                if (gotBlock) {}
+                else if (!lib->readCoreAt(tr.id, newest, 96000, tr.names2, tr.core2)) lib->readCore(tr.id, newest, tr.names2, tr.core2); //the newest version's windows at 96 kHz
                 else tr.sr = 96000.0;
                 tr.names = tr.names2; tr.core = tr.core2; //the hints read the same windows (they only need peak, slew and zero)
                 if (tr.core.empty()) lib->readCore(tr.id, vids.front(), tr.names, tr.core);
