@@ -5,8 +5,8 @@
 #ifndef M_PI_2
 #  define M_PI_2 (1.57079632679489661923)
 #endif
-namespace f8korig_v0_5_5_18d9cf5 {
-namespace juce = ::f8kstub::juce;
+namespace mdarkorig_v0_5_5_18d9cf5 {
+namespace juce = ::mdarkstub::juce;
 
 //==== the original PluginProcessor's audio thread, with stand-ins for the host
 struct PluginProcessor {
@@ -1099,7 +1099,7 @@ inline void dispatch(AirwindowsMeter& meter, const PluginProcessor::AudioToUIMes
 //==== the runner (added by the analyser): drives the above the way the plugin does in real time
 static const char* kWhatNames[] = {"NEW_VALUE", "PEAK_LEFT", "PEAK_RIGHT", "SLEW_LEFT", "SLEW_RIGHT", "ZERO_LEFT", "ZERO_RIGHT", "BEAM_LEFT", "BEAM_RIGHT", "DEPT_LEFT", "DEPT_RIGHT", "INCREMENT"};
 static constexpr int kNumWhats = 12;
-class Run : public ::f8k::MeterRun {
+class Run : public ::mdark::MeterRun {
 public:
     Run(double sampleRate, int pe) : paintEvery(pe < 1 ? 1 : pe) {
         proc.sr = sampleRate;
@@ -1131,9 +1131,9 @@ public:
         handle(inc, false);
         return true;
     }
-    ::f8k::OriginalResult result() const override {
+    ::mdark::OriginalResult result() const override {
         const auto& m = meter;
-        ::f8k::OriginalResult r;
+        ::mdark::OriginalResult r;
         r.bonus = m.bonusScore.s; r.letter = m.totalPackage.s; r.authority = m.authority.s; r.power = m.power.s; r.detail = m.detail.s;
         r.directions = m.directions.s;
         r.grade = r.bonus + r.letter + r.authority + r.power + r.detail; //the order the original draws it
@@ -1143,7 +1143,7 @@ public:
         r.cumulative = m.cumulative; r.duration = m.duration; r.cumulativePlus = m.cumulativePlus; r.durationPlus = m.durationPlus;
         r.letterValue = (1.0-pow(1.0-(m.cumulative/m.duration),1.618033988749894))*27.618033988749894; //the original's allMatch
         r.bonusValue = 100-(int)fmin((m.cumulativePlus/m.durationPlus)*100.0,99.0);                    //the original's bonus number
-        r.directionsMain = ::f8k::mainDirection(dirs, vols);
+        r.directionsMain = ::mdark::mainDirection(dirs, vols);
         r.windows = windows; r.paints = paints;
         return r;
     }
@@ -1177,4 +1177,4 @@ private:
     std::vector<std::string> dirs; std::vector<double> vols;
     int paintEvery; long windows = 0, paints = 0;
 };
-} // namespace f8korig_v0_5_5_18d9cf5
+} // namespace mdarkorig_v0_5_5_18d9cf5

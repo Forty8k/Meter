@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Reads a Meter F8K library (made by Meter F8K Analyser) for analysis.
+"""Reads a meterDARK library (made by meterDARK Analyser) for analysis.
 
-    import f8k_library as f8k
-    lib = f8k.Library("path/to/Meter F8K Library")
+    import mdark_library as mdark
+    lib = mdark.Library("path/to/meterDARK Library")
     lib.index                     # list of dicts, one per track (index.csv)
     t = lib.track(lib.index[0]["id"])
     t.meta                        # everything from <id>.meta.json

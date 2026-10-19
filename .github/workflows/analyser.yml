@@ -45,7 +45,7 @@ jobs:
       - name: Get JUCE
         run: git submodule update --init --depth 1 JUCE
       - name: Configure
-        run: cmake -S analyser -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DF8K_BUILD_NUMBER=${{ github.run_number }}
+        run: cmake -S analyser -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMDARK_BUILD_NUMBER=${{ github.run_number }}
       - name: Build
         run: |
           set -o pipefail
@@ -54,15 +54,15 @@ jobs:
         if: failure()
         run: grep -iE "error|fatal" build.log | head -40 | while IFS= read -r l; do echo "::error::${l:0:900}"; done
       - name: Self-test (capture and original scoring)
-        run: ./build/F8KSelfTest
+        run: ./build/MDarkSelfTest
       - name: Level test (hint readings must not move with level)
-        run: ./build/F8KLevelTest | tee leveltest.txt
+        run: ./build/MDarkLevelTest | tee leveltest.txt
       - name: Replay test (stored windows with gain = really scaled audio)
-        run: ./build/F8KReplayTest | tee replaytest.txt
+        run: ./build/MDarkReplayTest | tee replaytest.txt
       - name: Replay block precision test (packed windows must give the same grade, bonus and tone)
-        run: ./build/F8KPackTest | tee packtest.txt
+        run: ./build/MDarkPackTest | tee packtest.txt
       - name: Lean record test (build, save, read, regrade from the replay block)
-        run: ./build/F8KLeanTest
+        run: ./build/MDarkLeanTest
       - name: End-to-end check (command line on generated tones)
         run: |
           python3 - <<'PY' || python - <<'PY2'
@@ -108,7 +108,7 @@ jobs:
                   s = int(max(-1, min(1, v))*32767); fr += struct.pack("<hh", s, s)
               o.writeframes(bytes(fr))
           PY2
-          CLI=build/MeterF8KAnalyserCLI_artefacts/Release/MeterF8KAnalyserCLI
+          CLI=build/meterDARKAnalyserCLI_artefacts/Release/meterDARKAnalyserCLI
           "$CLI" --library testlib t_sine50.wav t_sine2k.wav t_noise.wav t_beat128_Amin.wav | tee cli.txt
           "$CLI" --library testlib t_sine50.wav | tee -a cli.txt
           # a 48 kHz file, so the converted-rate files exist for both anchors
@@ -153,15 +153,15 @@ jobs:
           grep -q "Lean records: 0 built, 5 already there" cli.txt
           ls testlib/lean/*.lnr.gz
           # Share packs: a display pack and a full pack, imported into a different library; no paths in them
-          "$CLI" --library testlib --export-pack pack-display.f8kpack | tee -a cli.txt
-          "$CLI" --library testlib --export-pack pack-full.f8kpack --full | tee -a cli.txt
-          "$CLI" --library testlib2 --import-pack pack-full.f8kpack | tee -a cli.txt
+          "$CLI" --library testlib --export-pack pack-display.mdarkpack | tee -a cli.txt
+          "$CLI" --library testlib --export-pack pack-full.mdarkpack --full | tee -a cli.txt
+          "$CLI" --library testlib2 --import-pack pack-full.mdarkpack | tee -a cli.txt
           grep -q "Pack import: 5 records added" cli.txt
           ls testlib2/lean-shared/*.lnr.gz
           if command -v gzip >/dev/null; then
-            if gzip -dc pack-full.f8kpack | grep -a -q -e "testlib" -e "t_sine50"; then echo "A pack contains a file name or path"; exit 1; fi
+            if gzip -dc pack-full.mdarkpack | grep -a -q -e "testlib" -e "t_sine50"; then echo "A pack contains a file name or path"; exit 1; fi
           fi
-          [ "$(wc -c < pack-display.f8kpack)" -lt "$(wc -c < pack-full.f8kpack)" ]
+          [ "$(wc -c < pack-display.mdarkpack)" -lt "$(wc -c < pack-full.mdarkpack)" ]
           trap - ERR
           grep -q "Levels: normalised 5 of 5" cli.txt
           grep -q "Levels: mix 5 of 5" cli.txt
@@ -175,21 +175,21 @@ jobs:
         run: |
           sudo apt-get install -y xvfb
           set +e
-          xvfb-run -a timeout 8 "build/MeterF8KAnalyser_artefacts/Release/meterDARK Analyser"; code=$?
+          xvfb-run -a timeout 8 "build/meterDARKAnalyser_artefacts/Release/meterDARK Analyser"; code=$?
           echo "exit code $code (124 = still running when stopped, which is what we want)"
           echo "::notice title=GUI Linux::exit code $code"
           [ $code -eq 124 ]
       - name: Pictures of the window (Linux, virtual display)
         if: runner.os == 'Linux'
         run: |
-          xvfb-run -a -s "-screen 0 1280x800x24" "build/MeterF8KAnalyser_artefacts/Release/meterDARK Analyser" --snapshot "$PWD/testlib" "$PWD/shots" || true
+          xvfb-run -a -s "-screen 0 1280x800x24" "build/meterDARKAnalyser_artefacts/Release/meterDARK Analyser" --snapshot "$PWD/testlib" "$PWD/shots" || true
           ls -la shots
           cd shots && git init -q && git checkout -q -b ci-shots && git add . && git -c user.name=ci -c user.email=ci@localhost commit -qm "window pictures ${{ github.sha }}" && git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" ci-shots
       - name: Window app starts (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath "build/MeterF8KAnalyser_artefacts/Release/meterDARK Analyser.exe" -PassThru
+          $p = Start-Process -FilePath "build/meterDARKAnalyser_artefacts/Release/meterDARK Analyser.exe" -PassThru
           Start-Sleep -Seconds 8
           $alive = -not $p.HasExited
           Write-Output "::notice title=GUI Windows::still running after 8 s: $alive"
@@ -198,14 +198,14 @@ jobs:
         run: |
           mkdir -p package
           if [ "${{ runner.os }}" == "Windows" ]; then
-            cp "build/MeterF8KAnalyser_artefacts/Release/meterDARK Analyser.exe" package/
-            cp "build/MeterF8KAnalyserCLI_artefacts/Release/MeterF8KAnalyserCLI.exe" package/
+            cp "build/meterDARKAnalyser_artefacts/Release/meterDARK Analyser.exe" package/
+            cp "build/meterDARKAnalyserCLI_artefacts/Release/meterDARKAnalyserCLI.exe" package/
           else
-            cp "build/MeterF8KAnalyser_artefacts/Release/meterDARK Analyser" package/
-            cp "build/MeterF8KAnalyserCLI_artefacts/Release/MeterF8KAnalyserCLI" package/
+            cp "build/meterDARKAnalyser_artefacts/Release/meterDARK Analyser" package/
+            cp "build/meterDARKAnalyserCLI_artefacts/Release/meterDARKAnalyserCLI" package/
           fi
           cp analyser/HOW-TO.txt package/
-          cp analyser/tools/f8k_library.py package/
+          cp analyser/tools/mdark_library.py package/
       - uses: actions/upload-artifact@v4
         with:
           name: meterDARK-Analyser-${{ matrix.name }}

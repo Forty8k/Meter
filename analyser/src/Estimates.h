@@ -9,7 +9,7 @@
 #include <string>
 #include <complex>
 
-namespace f8k {
+namespace mdark {
 
 constexpr int kPitchCols = 13; // 12 note strengths (C first) + frame RMS
 
@@ -39,4 +39,4 @@ BpmEstimate estimateBpm(const std::vector<float>& fine, double blockSeconds);
 
 void fft(std::vector<std::complex<double>>& a); // in place, size must be a power of two
 
-} // namespace f8k
+} // namespace mdark

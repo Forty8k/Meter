@@ -7,7 +7,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-namespace f8k {
+namespace mdark {
 
 void fft(std::vector<std::complex<double>>& a)
 {
@@ -191,4 +191,4 @@ BpmEstimate estimateBpm(const std::vector<float>& fine, double blockSec)
     return out;
 }
 
-} // namespace f8k
+} // namespace mdark

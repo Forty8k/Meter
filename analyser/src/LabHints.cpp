@@ -2,7 +2,7 @@
 #include <cmath>
 #include <algorithm>
 
-namespace f8k {
+namespace mdark {
 
 // Defaults are the values in meterDARK (plus its factory tune settings), so with every setting at its default hintLAB reads exactly as the plugin does.
 const std::vector<HintParam>& hintParams()
@@ -282,4 +282,4 @@ std::string levelTestReport(const std::vector<LevelTestRow>& rows)
     return out;
 }
 
-} // namespace f8k
+} // namespace mdark

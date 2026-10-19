@@ -15,7 +15,7 @@
 #include "Resampler.h"
 #include "LeanRecord.h"
 
-namespace f8k {
+namespace mdark {
 
 // A small CSV table addressed by column name.
 struct Table {
@@ -124,7 +124,7 @@ public:
     struct LeanReport { int built = 0, kept = 0, noData = 0, mismatches = 0; double bytesAll = 0, bytesReplay = 0; int totalTracks = 0; };
     LeanReport buildLeanRecords(bool force, bool verify, std::function<bool()> shouldStop = {}, std::function<void(int, int)> progress = {});
     bool readLean(const juce::String& id, LeanRecord& out);
-    // SHARE PACKS: one file (.f8kpack) of lean records. A display pack has no replay blocks (small: just the bars, grades and tags); a full pack keeps them so the
+    // SHARE PACKS: one file (.mdarkpack) of lean records. A display pack has no replay blocks (small: just the bars, grades and tags); a full pack keeps them so the
     // receiver can regrade. Never any file path, file name or private column; the only identity is the record's id. Imported records go to lean-shared/ and are
     // never mixed into your own measurements.
     int exportPack(const juce::File& out, bool full, const std::vector<juce::String>& ids);
@@ -140,4 +140,4 @@ private:
 
 juce::StringPairArray readFlacTags(const juce::File& f); // Vorbis comments (TITLE, ARTIST, DATE, GENRE ...), JUCE does not read these from FLAC
 
-} // namespace f8k
+} // namespace mdark

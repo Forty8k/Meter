@@ -9,7 +9,7 @@
 #include <memory>
 #include <functional>
 
-namespace f8k {
+namespace mdark {
 
 struct OriginalResult {
     std::string grade;      // the full string shown at the top of the meter: bonus number, letter, then authority, power, detail
@@ -70,4 +70,4 @@ const std::vector<std::string>& tunableSettingsUsed();        // the settings th
 std::unique_ptr<MeterRun> createTunableRun(double sampleRate, int paintEvery);
 const MeterVersion* findMeterVersion(const std::string& id);
 
-} // namespace f8k
+} // namespace mdark

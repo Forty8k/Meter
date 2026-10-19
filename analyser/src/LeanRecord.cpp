@@ -3,7 +3,7 @@
 #include <cmath>
 #include <algorithm>
 
-namespace f8k {
+namespace mdark {
 
 static int nameIndex(const std::vector<std::string>& names, const char* n) { for (size_t i = 0; i < names.size(); ++i) if (names[i] == n) return (int)i; return -1; }
 
@@ -106,4 +106,4 @@ bool parseLean(const std::vector<uint8_t>& in, LeanRecord& r)
     return true;
 }
 
-} // namespace f8k
+} // namespace mdark

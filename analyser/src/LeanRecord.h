@@ -13,7 +13,7 @@
 #include <utility>
 #include <cstdint>
 
-namespace f8k {
+namespace mdark {
 
 struct LeanRecord {
     std::vector<std::pair<std::string, std::string>> meta; // key/value text: id, artist, title, album, year, source, meter_version, sample_rate, bits, length_s, peak_db, true_peak_db, lufs, grade, bonus, letter_value, authority_value, power_value, detail_value ...
@@ -33,4 +33,4 @@ LeanRecord buildLeanRecord(const MeterVersion& version, double sampleRate, const
 std::vector<uint8_t> serialiseLean(const LeanRecord& r);          // plain bytes (compress with gzip for storage)
 bool parseLean(const std::vector<uint8_t>& bytes, LeanRecord& r);
 
-} // namespace f8k
+} // namespace mdark

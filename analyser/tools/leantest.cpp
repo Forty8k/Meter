@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <cmath>
 #include <random>
-using namespace f8k;
+using namespace mdark;
 int main()
 {
     const double sr = 96000.0, tau = 6.283185307179586; const long n = (long)(120*sr);

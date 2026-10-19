@@ -40,7 +40,7 @@ inline void migrateFilterSetV1(FilterSet& s) {
             if (c.op == "is empty" || c.op == "is not empty" || t.isEmpty() || !t.containsOnly("0123456789")) continue;
             int v = t.getIntValue();
             if (c.op == "above") {c.op = "at least"; ++v;} else if (c.op == "below") {c.op = "at most"; --v;}
-            const std::string letter = f8k::legacySubGradeLetter(c.field.toStdString(), v);
+            const std::string letter = mdark::legacySubGradeLetter(c.field.toStdString(), v);
             if (!letter.empty()) c.value = juce::String(letter);
         }
     }
@@ -92,16 +92,16 @@ inline bool conditionPasses(const FilterCondition& c, int type, const juce::Stri
     if (c.op == "is not empty" || c.op == "has a bonus") return v.isNotEmpty();
     if (type == 3 || type == 4) { //a ranked letter: "at least b" means b or better. Capitals count (A is above a). No grade = fails every test but "is empty".
         int x = 0;
-        if (!(type == 3 ? f8k::subGradeRank(v.toStdString(), x) : f8k::letterRank(v.toStdString(), x))) return false;
+        if (!(type == 3 ? mdark::subGradeRank(v.toStdString(), x) : mdark::letterRank(v.toStdString(), x))) return false;
         if (c.op == "is a capital" || c.op == "is lowercase") {
             const bool cap = juce::CharacterFunctions::isUpperCase(v.trim()[0]);
             return c.op == "is a capital" ? cap : !cap;
         }
-        auto rankOf = [&](const juce::String& t, int& r) {return type == 3 ? f8k::subGradeRank(t.toStdString(), r) : f8k::letterRank(t.toStdString(), r);};
+        auto rankOf = [&](const juce::String& t, int& r) {return type == 3 ? mdark::subGradeRank(t.toStdString(), r) : mdark::letterRank(t.toStdString(), r);};
         int y = 0, y2 = 0;
         if (c.op == "between") {
             std::string lo, hi;
-            if (!f8k::splitRange(c.value.toStdString(), lo, hi) || !rankOf(juce::String(lo), y) || !rankOf(juce::String(hi), y2)) return true; //not typed yet: do not hide anything
+            if (!mdark::splitRange(c.value.toStdString(), lo, hi) || !rankOf(juce::String(lo), y) || !rankOf(juce::String(hi), y2)) return true; //not typed yet: do not hide anything
             return x >= std::min(y, y2) && x <= std::max(y, y2);
         }
         if (!rankOf(c.value, y)) return true; //no valid letter chosen yet: do not hide anything
@@ -117,7 +117,7 @@ inline bool conditionPasses(const FilterCondition& c, int type, const juce::Stri
         const juce::String t = c.value.trim();
         if (c.op == "between") {
             std::string lo, hi;
-            if (!f8k::splitRange(t.toStdString(), lo, hi)) return true;
+            if (!mdark::splitRange(t.toStdString(), lo, hi)) return true;
             const double a = juce::String(lo).getDoubleValue(), b = juce::String(hi).getDoubleValue();
             return x >= std::min(a, b) && x <= std::max(a, b);
         }
@@ -280,7 +280,7 @@ private:
             value.clear(juce::dontSendNotification);
             const int t = typeOf(key);
             if (t == 3 || t == 4) { //the whole scale, best first (capitals count: A is above a)
-                const auto scale = t == 3 ? f8k::subGradeScaleBestFirst() : f8k::letterScaleBestFirst();
+                const auto scale = t == 3 ? mdark::subGradeScaleBestFirst() : mdark::letterScaleBestFirst();
                 for (size_t k = 0; k < scale.size(); ++k) value.addItem(juce::String(scale[k]), (int)k + 1);
                 return;
             }

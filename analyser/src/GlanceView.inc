@@ -6,8 +6,8 @@
 
 class GlanceView : public juce::Component, public juce::TableListBoxModel, private juce::Timer {
 public:
-    struct Item { juce::String id, name, grade, path, song, source; double key = 0, dur = 0, sr = 0; int group = -1, groupSize = 1; bool best = false, shared = false; f8k::LeanRecord rec; };
-    std::function<std::shared_ptr<f8k::Library>()> getLibrary;
+    struct Item { juce::String id, name, grade, path, song, source; double key = 0, dur = 0, sr = 0; int group = -1, groupSize = 1; bool best = false, shared = false; mdark::LeanRecord rec; };
+    std::function<std::shared_ptr<mdark::Library>()> getLibrary;
     std::function<std::shared_ptr<const std::set<juce::String>>()> getAllowed;
     std::function<int()> getFilterGen;
 
@@ -199,19 +199,19 @@ private:
         m.showMenuAsync(juce::PopupMenu::Options(), [this, lib](int r) {
             if (r == 0) return;
             if (r == 3) {
-                chooser = std::make_unique<juce::FileChooser>("Choose a meterDARK pack", juce::File(), "*.f8kpack");
+                chooser = std::make_unique<juce::FileChooser>("Choose a meterDARK pack", juce::File(), "*.mdarkpack");
                 chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this, lib](const juce::FileChooser& fc) {
                     if (fc.getResult() == juce::File()) return;
                     status.setText(lib->importPack(fc.getResult()), juce::dontSendNotification); loaded = false;
                 });
                 return;
             }
-            chooser = std::make_unique<juce::FileChooser>("Save the pack", juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile(r == 1 ? "meterDARK-display.f8kpack" : "meterDARK-full.f8kpack"), "*.f8kpack");
+            chooser = std::make_unique<juce::FileChooser>("Save the pack", juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile(r == 1 ? "meterDARK-display.mdarkpack" : "meterDARK-full.mdarkpack"), "*.mdarkpack");
             chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting, [this, lib, r](const juce::FileChooser& fc) {
                 if (fc.getResult() == juce::File()) return;
                 std::vector<juce::String> ids; for (auto& i : items) ids.push_back(i.id);
-                const int n = lib->exportPack(fc.getResult().withFileExtension("f8kpack"), r == 2, ids);
-                status.setText(n < 0 ? juce::String("Could not write the pack.") : juce::String(n) + " records saved (" + juce::String((double)fc.getResult().withFileExtension("f8kpack").getSize()/1024.0, 0) + " KB). No file names or paths are in it.", juce::dontSendNotification);
+                const int n = lib->exportPack(fc.getResult().withFileExtension("mdarkpack"), r == 2, ids);
+                status.setText(n < 0 ? juce::String("Could not write the pack.") : juce::String(n) + " records saved (" + juce::String((double)fc.getResult().withFileExtension("mdarkpack").getSize()/1024.0, 0) + " KB). No file names or paths are in it.", juce::dontSendNotification);
             });
         });
     }
@@ -243,7 +243,7 @@ private:
         return base.interpolatedWith(glow[meter], amount*0.78f);
     }
     // which = 0: overall tone; 1 weight, 2 peaks, 3 slew
-    static void drawBar(juce::Graphics& g, juce::Rectangle<int> r, const f8k::LeanRecord& rec, int which) {
+    static void drawBar(juce::Graphics& g, juce::Rectangle<int> r, const mdark::LeanRecord& rec, int which) {
         if (rec.columns <= 0 || r.getWidth() <= 0) return;
         for (int x = 0; x < r.getWidth(); ++x) {
             const int c = juce::jmin(rec.columns - 1, (int)((int64_t)x*rec.columns/r.getWidth()));
@@ -253,7 +253,7 @@ private:
             g.setColour(col); g.fillRect(r.getX() + x, r.getY(), 1, r.getHeight());
         }
     }
-    static void drawLines(juce::Graphics& g, juce::Rectangle<int> r, const f8k::LeanRecord& rec) {
+    static void drawLines(juce::Graphics& g, juce::Rectangle<int> r, const mdark::LeanRecord& rec) {
         if (rec.columns < 2) return;
         auto line = [&](const std::vector<uint8_t>& v, juce::Colour c) {
             juce::Path p;
@@ -307,7 +307,7 @@ private:
             }
         }
     }
-    static std::vector<Item> gather(const std::shared_ptr<f8k::Library>& lib, const std::shared_ptr<const std::set<juce::String>>& allowed) {
+    static std::vector<Item> gather(const std::shared_ptr<mdark::Library>& lib, const std::shared_ptr<const std::set<juce::String>>& allowed) {
         std::vector<Item> out;
             const auto idx = lib->index();
         for (size_t r = 0; r < idx.rows.size(); ++r) {

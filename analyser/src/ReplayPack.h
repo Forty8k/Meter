@@ -10,7 +10,7 @@
 #include <cstring>
 #include <algorithm>
 
-namespace f8k {
+namespace mdark {
 
 inline void rpPutVar(std::vector<uint8_t>& o, uint64_t v) { while (v >= 0x80) {o.push_back((uint8_t)(v | 0x80)); v >>= 7;} o.push_back((uint8_t)v); }
 inline bool rpGetVar(const uint8_t*& p, const uint8_t* e, uint64_t& v) {
@@ -85,4 +85,4 @@ inline size_t estimateCompressedBytes(const std::vector<uint8_t>& b)
     return (size_t)(bitsTotal/8.0) + 32;
 }
 
-} // namespace f8k
+} // namespace mdark

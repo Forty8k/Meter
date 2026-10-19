@@ -5,9 +5,9 @@
 #ifndef M_PI_2
 #  define M_PI_2 (1.57079632679489661923)
 #endif
-namespace f8korig_v0_5_6_40bb6cc_tunable {
-namespace juce = ::f8kstub::juce;
-inline ::f8k::ScoreParams& P() { return ::f8k::scoreParams(); }
+namespace mdarkorig_v0_5_6_40bb6cc_tunable {
+namespace juce = ::mdarkstub::juce;
+inline ::mdark::ScoreParams& P() { return ::mdark::scoreParams(); }
 
 //==== the original PluginProcessor's audio thread, with stand-ins for the host
 struct PluginProcessor {
@@ -455,11 +455,11 @@ struct AirwindowsMeter : public juce::Component
         repaint(); //and update the UI to immediately see the result
     }
     // (tunable copy) meterDARK's fill gate: a hot slew bin fills fully only if it was also hit in the window before
-    bool f8kHitPrev[totalBins+2] = {}, f8kHitNow[totalBins+2] = {};
-    void f8kSlewFill(unsigned long b, float size) {
-        if (b > 0 && b <= totalBins) { const float up = (float)b/(float)totalBins; slewTrack[b] += size*(f8kHitPrev[b] ? 1.0f : 1.0f - 0.6f*(float)P().fillGate*up); f8kHitNow[b] = true; }
+    bool mdarkHitPrev[totalBins+2] = {}, mdarkHitNow[totalBins+2] = {};
+    void mdarkSlewFill(unsigned long b, float size) {
+        if (b > 0 && b <= totalBins) { const float up = (float)b/(float)totalBins; slewTrack[b] += size*(mdarkHitPrev[b] ? 1.0f : 1.0f - 0.6f*(float)P().fillGate*up); mdarkHitNow[b] = true; }
     }
-    void f8kRollHits() { for (int b = 0; b < totalBins+2; ++b) {f8kHitPrev[b] = f8kHitNow[b]; f8kHitNow[b] = false;} }
+    void mdarkRollHits() { for (int b = 0; b < totalBins+2; ++b) {mdarkHitPrev[b] = mdarkHitNow[b]; mdarkHitNow[b] = false;} }
 };
 
 void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
@@ -604,10 +604,10 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         //peak textscore bins
         bintracker = (unsigned long)(slewL * (0.005f*(float)totalBins));//converts 0-200 to 0-bin number for textscore bins
         bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins))); //mirror around max value so it reflects
-        if (bintracker > 0 && bintracker <= totalBins) f8kSlewFill(bintracker, slewDotSizeL);
+        if (bintracker > 0 && bintracker <= totalBins) mdarkSlewFill(bintracker, slewDotSizeL);
         bintracker = (unsigned long)(slewR * (0.005f*(float)totalBins));
         bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins)));
-        if (bintracker > 0 && bintracker <= totalBins) f8kSlewFill(bintracker, slewDotSizeR);
+        if (bintracker > 0 && bintracker <= totalBins) mdarkSlewFill(bintracker, slewDotSizeR);
         //slew textscore bins
         bintracker = (unsigned long)(bassL * (0.005f*(float)totalBins));//converts 0-200 to 0-bin number for textscore bins
         bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins))); //mirror around max value so it reflects
@@ -618,7 +618,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         //bass textscore bins
         
         //bins are for reinforcing score of a dispersed cloud of dot positions rather than maxing out a position
-        f8kRollHits(); float peakScore = 0.0;
+        mdarkRollHits(); float peakScore = 0.0;
         float slewScore = 0.0;
         float bassScore = 0.0;
         float sinScale = 0.0;
@@ -1197,12 +1197,12 @@ inline void dispatch(AirwindowsMeter& meter, const PluginProcessor::AudioToUIMes
 //==== the runner (added by the analyser): drives the above the way the plugin does in real time
 static const char* kWhatNames[] = {"NEW_VALUE", "PEAK_LEFT", "PEAK_RIGHT", "SLEW_LEFT", "SLEW_RIGHT", "ZERO_LEFT", "ZERO_RIGHT", "BSLW_LEFT", "BSLW_RIGHT", "BZER_LEFT", "BZER_RIGHT", "BRMS_LEFT", "BRMS_RIGHT", "DSLW_LEFT", "DSLW_RIGHT", "DZER_LEFT", "DZER_RIGHT", "DRMS_LEFT", "DRMS_RIGHT", "INCREMENT"};
 static constexpr int kNumWhats = 20;
-class Run : public ::f8k::MeterRun {
+class Run : public ::mdark::MeterRun {
 public:
     Run(double sampleRate, int pe) : paintEvery(pe < 1 ? 1 : pe) {
         proc.sr = sampleRate;
-        meter.w = (int)::f8k::scoreParams().width; meter.h = 698;
-        meter.displayWidth = (int)::f8k::scoreParams().width; meter.displayHeight = 698; //as PluginEditor::resized() sets them at the default size
+        meter.w = (int)::mdark::scoreParams().width; meter.h = 698;
+        meter.displayWidth = (int)::mdark::scoreParams().width; meter.displayHeight = 698; //as PluginEditor::resized() sets them at the default size
         meter.pluginColour = juce::Colours::lightgrey;
         meter.resetArrays(); //as the PluginEditor constructor does
         meter.outputR = 10.0; meter.outputG = 10.0; meter.outputB = 10.0;
@@ -1229,9 +1229,9 @@ public:
         handle(inc, false);
         return true;
     }
-    ::f8k::OriginalResult result() const override {
+    ::mdark::OriginalResult result() const override {
         const auto& m = meter;
-        ::f8k::OriginalResult r;
+        ::mdark::OriginalResult r;
         r.bonus = m.bonusScore.s; r.letter = m.totalPackage.s; r.authority = m.authority.s; r.power = m.power.s; r.detail = m.detail.s;
         r.directions = m.directions.s;
         r.grade = r.bonus + r.letter + r.authority + r.power + r.detail; //the order the original draws it
@@ -1241,7 +1241,7 @@ public:
         r.cumulative = m.cumulative; r.duration = m.duration; r.cumulativePlus = m.cumulativePlus; r.durationPlus = m.durationPlus;
         r.letterValue = (1.0-pow(1.0-(m.cumulative/m.duration),1.618033988749894))*27.618033988749894; //the original's allMatch
         r.bonusValue = 100-(int)fmin((m.cumulativePlus/m.durationPlus)*100.0,99.0);                    //the original's bonus number
-        r.directionsMain = ::f8k::mainDirection(dirs, vols);
+        r.directionsMain = ::mdark::mainDirection(dirs, vols);
         r.windows = windows; r.paints = paints;
         return r;
     }
@@ -1275,4 +1275,4 @@ private:
     std::vector<std::string> dirs; std::vector<double> vols;
     int paintEvery; long windows = 0, paints = 0;
 };
-} // namespace f8korig_v0_5_6_40bb6cc_tunable
+} // namespace mdarkorig_v0_5_6_40bb6cc_tunable

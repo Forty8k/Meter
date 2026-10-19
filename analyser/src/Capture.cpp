@@ -4,7 +4,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-namespace f8k {
+namespace mdark {
 
 std::vector<std::string> fineColumnNames()
 {
@@ -236,4 +236,4 @@ double Capture::integratedLufs() const
     return cnt ? lufs(sum/cnt) : -INFINITY;
 }
 
-} // namespace f8k
+} // namespace mdark

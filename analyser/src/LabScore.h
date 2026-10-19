@@ -3,7 +3,7 @@
 #include "OriginalScorer.h"
 #include <vector>
 
-namespace f8k {
+namespace mdark {
 
 struct ScoreParamInfo { const char* key; const char* label; double lo, hi; int decimals; const char* help; double ScoreParams::* member; };
 
@@ -33,4 +33,4 @@ inline const std::vector<ScoreParamInfo>& scoreParamInfo()
     return v;
 }
 
-} // namespace f8k
+} // namespace mdark

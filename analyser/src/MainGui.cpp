@@ -11,8 +11,8 @@
 #include <thread>
 #include <set>
 #include <map>
-#ifndef F8K_BUILD_NUMBER
-#define F8K_BUILD_NUMBER 0
+#ifndef MDARK_BUILD_NUMBER
+#define MDARK_BUILD_NUMBER 0
 #endif
 
 namespace {
@@ -22,8 +22,7 @@ const juce::Colour kBg(24, 27, 33), kPanel(34, 38, 46), kRowAlt(29, 33, 40), kTe
 
 juce::File defaultLibrary() {
     const auto docs = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    const auto old = docs.getChildFile("Meter F8K Library"); //an existing library keeps its folder
-    return old.isDirectory() ? old : docs.getChildFile("meterDARK Library");
+    return docs.getChildFile("meterDARK Library");
 }
 
 void styleButton(juce::Button& b)
@@ -39,7 +38,7 @@ public:
     std::function<void(int, int, double, const juce::String&)> status; //done, total, current progress, current file
     explicit Worker(juce::Component& ownerComp) : juce::Thread("analyser"), owner(&ownerComp) {}
     ~Worker() override { stopThread(6000); }
-    void setLibrary(std::shared_ptr<f8k::Library> l) { const juce::ScopedLock sl(lock); library = std::move(l); needUpgrade = true; notify(); }
+    void setLibrary(std::shared_ptr<mdark::Library> l) { const juce::ScopedLock sl(lock); library = std::move(l); needUpgrade = true; notify(); }
     void startRescan() { { const juce::ScopedLock sl(lock); needRescan = true; } notify(); }
     void add(const juce::Array<juce::File>& files) {
         { const juce::ScopedLock sl(lock); for (auto& f : files) queue.add(f); total += files.size(); }
@@ -47,7 +46,7 @@ public:
     }
     void run() override {
         while (!threadShouldExit()) {
-            juce::File next; std::shared_ptr<f8k::Library> lib; bool upgrade = false, rescan = false;
+            juce::File next; std::shared_ptr<mdark::Library> lib; bool upgrade = false, rescan = false;
             {
                 const juce::ScopedLock sl(lock);
                 lib = library; upgrade = needUpgrade; needUpgrade = false; rescan = needRescan && !upgrade; if (rescan) needRescan = false;
@@ -83,8 +82,8 @@ public:
             post(done, total, 0.0, name);
             const auto r = lib->analyse(next, [this, name](double p) { post(done, total, p, name); }, [this] { return threadShouldExit(); });
             ++done;
-            postLog((r.status == f8k::AnalyseOutcome::Added ? "added      " : r.status == f8k::AnalyseOutcome::Updated ? "updated    "
-                     : r.status == f8k::AnalyseOutcome::AlreadyThere ? "skipped    " : "NOT ADDED  ") + name + "   (" + r.message + ")");
+            postLog((r.status == mdark::AnalyseOutcome::Added ? "added      " : r.status == mdark::AnalyseOutcome::Updated ? "updated    "
+                     : r.status == mdark::AnalyseOutcome::AlreadyThere ? "skipped    " : "NOT ADDED  ") + name + "   (" + r.message + ")");
         }
     }
 private:
@@ -96,7 +95,7 @@ private:
     }
     juce::CriticalSection lock;
     juce::Array<juce::File> queue;
-    std::shared_ptr<f8k::Library> library;
+    std::shared_ptr<mdark::Library> library;
     bool needUpgrade = false, needRescan = false;
     std::atomic<int> done{0}, total{0};
     juce::Component::SafePointer<juce::Component> owner; //the worker lives inside its owner, so a live owner means a live worker
@@ -180,7 +179,7 @@ public:
     void filesDropped(const juce::StringArray& files, int, int) override {
         dragOver = false; repaint();
         juce::Array<juce::File> list;
-        for (auto& f : files) f8k::Library::collectAudioFiles(juce::File(f), list);
+        for (auto& f : files) mdark::Library::collectAudioFiles(juce::File(f), list);
         queue(list, files.size());
     }
 private:
@@ -195,7 +194,7 @@ private:
         chooser = std::make_unique<juce::FileChooser>("Add audio files", juce::File(), "*.wav;*.wave;*.flac;*.aif;*.aiff;*.ogg;*.mp3");
         chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::canSelectMultipleItems,
             [this](const juce::FileChooser& fc) {
-                juce::Array<juce::File> list; for (auto& f : fc.getResults()) f8k::Library::collectAudioFiles(f, list);
+                juce::Array<juce::File> list; for (auto& f : fc.getResults()) mdark::Library::collectAudioFiles(f, list);
                 if (fc.getResults().size()) queue(list, fc.getResults().size());
             });
     }
@@ -226,7 +225,7 @@ struct Column {
 
 class LibraryView : public juce::Component, public juce::TableListBoxModel, private juce::Timer {
 public:
-    std::function<std::shared_ptr<f8k::Library>()> getLibrary;
+    std::function<std::shared_ptr<mdark::Library>()> getLibrary;
 
     //For the Lab: the level mode chosen here, and the ids of the tracks the Lab should use (null = all of them).
     std::shared_ptr<const std::set<juce::String>> labIds() const {
@@ -265,8 +264,8 @@ public:
             addAndMakeVisible(b);
             b->setColour(juce::ComboBox::backgroundColourId, kPanel); b->setColour(juce::ComboBox::textColourId, kText); b->setColour(juce::ComboBox::outlineColourId, kPanel);
         }
-        gradeBox.onChange = [this] { const int i = gradeBox.getSelectedId() - 1; const auto v = f8k::Library::versionIds(); if (i >= 0 && i < (int)v.size() && v[(size_t)i] != gradeVersion) {gradeVersion = v[(size_t)i]; saveVersions(); rebuildColumns(); applyFilter();} };
-        compareBox.onChange = [this] { const int i = compareBox.getSelectedId() - 2; const auto v = f8k::Library::versionIds(); const juce::String nv = (i >= 0 && i < (int)v.size()) ? v[(size_t)i] : juce::String(); if (nv != compareVersion) {compareVersion = nv; saveVersions(); rebuildColumns(); applyFilter();} };
+        gradeBox.onChange = [this] { const int i = gradeBox.getSelectedId() - 1; const auto v = mdark::Library::versionIds(); if (i >= 0 && i < (int)v.size() && v[(size_t)i] != gradeVersion) {gradeVersion = v[(size_t)i]; saveVersions(); rebuildColumns(); applyFilter();} };
+        compareBox.onChange = [this] { const int i = compareBox.getSelectedId() - 2; const auto v = mdark::Library::versionIds(); const juce::String nv = (i >= 0 && i < (int)v.size()) ? v[(size_t)i] : juce::String(); if (nv != compareVersion) {compareVersion = nv; saveVersions(); rebuildColumns(); applyFilter();} };
         addAndMakeVisible(filterButton); styleButton(filterButton);
         filterButton.onClick = [this] {openFilters();};
         for (auto* b : {&dupButton, &howButton}) {addAndMakeVisible(b); styleButton(*b);}
@@ -294,7 +293,7 @@ public:
         }
         refreshVersionBoxes();
         grades.clear(); gradeRow.clear();
-        for (auto& v : f8k::Library::versionIds()) {
+        for (auto& v : mdark::Library::versionIds()) {
             grades[v] = readingsAt96k(*lib, v);
             auto& m = gradeRow[v];
             for (size_t r = 0; r < grades[v].rows.size(); ++r) m[grades[v].get(r, "id")] = r;
@@ -495,10 +494,10 @@ private:
     }
 
     //a Meter version's grades with the audio converted to 96 kHz; a track not rescanned yet (no 96 kHz reading) shows its own readings
-    static f8k::Table readingsAt96k(f8k::Library& lib, const juce::String& vid) {
-        f8k::Table t = lib.grades(vid, gradeRate);
+    static mdark::Table readingsAt96k(mdark::Library& lib, const juce::String& vid) {
+        mdark::Table t = lib.grades(vid, gradeRate);
         if (t.header.isEmpty()) return lib.grades(vid);
-        const f8k::Table nat = lib.grades(vid);
+        const mdark::Table nat = lib.grades(vid);
         std::set<juce::String> have;
         for (size_t i = 0; i < t.rows.size(); ++i) have.insert(t.get(i, "id"));
         for (size_t i = 0; i < nat.rows.size(); ++i) {
@@ -640,11 +639,11 @@ private:
     }
 
     juce::String shortName(const juce::String& vid) const {
-        if (auto* v = f8k::findMeterVersion(vid.toStdString())) return juce::String(v->version);
+        if (auto* v = mdark::findMeterVersion(vid.toStdString())) return juce::String(v->version);
         return vid;
     }
     void refreshVersionBoxes() {
-        const auto v = f8k::Library::versionIds();
+        const auto v = mdark::Library::versionIds();
         if (gradeVersion.isEmpty() || std::find(v.begin(), v.end(), gradeVersion) == v.end()) { //the newest version, unless you chose another for this library
             gradeVersion = v.empty() ? juce::String() : v.back(); compareVersion = {};
             if (auto lib = getLibrary ? getLibrary() : nullptr) {
@@ -657,7 +656,7 @@ private:
         gradeBox.clear(juce::dontSendNotification); compareBox.clear(juce::dontSendNotification);
         compareBox.addItem("nothing", 1);
         for (size_t i = 0; i < v.size(); ++i) {
-            const auto* mv = f8k::findMeterVersion(v[i].toStdString());
+            const auto* mv = mdark::findMeterVersion(v[i].toStdString());
             const juce::String label = "Meter " + juce::String(mv->version) + "  (" + juce::String(mv->date) + ")";
             gradeBox.addItem(label, (int)i + 1); compareBox.addItem(label, (int)i + 2);
             if (v[i] == gradeVersion) gradeBox.setSelectedId((int)i + 1, juce::dontSendNotification);
@@ -872,7 +871,7 @@ private:
         juce::String t;
         bool y, u;
         for (auto& c : cols) {const auto v = display(r, c, y, u); if (v.isNotEmpty()) t << c.header << ":  " << v << (y ? "   (yours)" : "") << "\n";}
-        for (auto& v : f8k::Library::versionIds()) {
+        for (auto& v : mdark::Library::versionIds()) {
             auto gt = grades.find(v); auto rt = gradeRow.find(v);
             if (gt == grades.end() || rt == gradeRow.end()) continue;
             auto it = rt->second.find(r.id);
@@ -931,7 +930,7 @@ private:
             if (id >= 2000 && id < 2000 + (int)custom.size()) removeColumnDialog(custom[(size_t)id - 2000]);
         });
     }
-    void renameDialog(const f8k::CustomColumn c) {
+    void renameDialog(const mdark::CustomColumn c) {
         auto* w = new juce::AlertWindow("Rename column", {}, juce::MessageBoxIconType::NoIcon, this);
         w->addTextEditor("name", c.name, "New name");
         w->addButton("Rename", 1, juce::KeyPress(juce::KeyPress::returnKey)); w->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
@@ -940,7 +939,7 @@ private:
             if (result == 1 && name.isNotEmpty()) if (auto lib = getLibrary()) {lib->renameCustomColumn(c.key, name); reload();}
         }), true);
     }
-    void removeColumnDialog(const f8k::CustomColumn c) {
+    void removeColumnDialog(const mdark::CustomColumn c) {
         juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::WarningIcon, "Remove column", "Remove \"" + c.name + "\" and all the values in it?", "Remove", "Cancel", this,
             juce::ModalCallbackFunction::create([this, c](int result) { if (result == 1) if (auto lib = getLibrary()) {lib->removeCustomColumn(c.key); reload();} }));
     }
@@ -971,15 +970,15 @@ private:
     juce::Label countLabel;
     juce::Rectangle<int> hint;
     std::unique_ptr<juce::FileChooser> chooser;
-    f8k::Table idx;
-    std::map<juce::String, f8k::Table> grades;                       //Meter version -> its grades
+    mdark::Table idx;
+    std::map<juce::String, mdark::Table> grades;                       //Meter version -> its grades
     std::map<juce::String, std::map<juce::String, size_t>> gradeRow; //Meter version -> track id -> row in its grades
     juce::String gradeVersion, compareVersion;
     std::map<juce::String, juce::String> dupOf;                      //track id -> the file names it may duplicate
     bool dupOnly = false;
     juce::ComboBox gradeBox, compareBox;
     juce::TextButton filterButton{"Filters..."};
-    const f8k::LevelMode level;                                        //always original: the files are graded as they are
+    const mdark::LevelMode level;                                        //always original: the files are graded as they are
     FilterStore filters;
     int filterGen = 0;
     std::vector<std::pair<size_t, size_t>> dupPairs;                   //rows of index.csv that may be the same song
@@ -989,7 +988,7 @@ private:
     juce::Label gradeLabel{{}, "Grades from"}, compareLabel{{}, "compare with"};
     juce::TextButton dupButton, howButton{"How to read a grade"};
     std::map<juce::String, std::map<juce::String, juce::String>> user;
-    std::vector<f8k::CustomColumn> custom;
+    std::vector<mdark::CustomColumn> custom;
     std::vector<Column> cols;
     juce::StringArray colKeys;
     std::vector<RowRef> all, shown;
@@ -1012,7 +1011,7 @@ private:
 class MainComponent : public juce::Component {
 public:
     explicit MainComponent(const juce::File& overrideFolder = {}) {
-        juce::PropertiesFile::Options o; o.applicationName = "Meter F8K Analyser"; o.filenameSuffix = ".settings"; o.folderName = "Meter F8K";
+        juce::PropertiesFile::Options o; o.applicationName = "meterDARK Analyser"; o.filenameSuffix = ".settings"; o.folderName = "meterDARK";
         settings = std::make_unique<juce::PropertiesFile>(o);
         setFolder(overrideFolder != juce::File() ? overrideFolder : juce::File(settings->getValue("library", defaultLibrary().getFullPathName())));
         worker.log = [this](const juce::String& l) { addPanel.log(l); };
@@ -1056,7 +1055,7 @@ public:
     //Each analyser build on GitHub is published as a release "analyser-b<build>". If a newer one exists (for example one that
     //adds a new original Meter version), say so on the Add tracks tab. Nothing is downloaded without you clicking.
     void checkForUpdate() {
-        if (F8K_BUILD_NUMBER <= 0) return; //a local build
+        if (MDARK_BUILD_NUMBER <= 0) return; //a local build
         juce::Component::SafePointer<MainComponent> sp(this);
         juce::Thread::launch([sp] {
             auto in = juce::URL("https://api.github.com/repos/Forty8k/Meter/releases?per_page=30")
@@ -1072,7 +1071,7 @@ public:
                     const int b = tag.fromFirstOccurrenceOf("analyser-b", false, false).getIntValue();
                     if (b > best) {best = b; title = r.getProperty("name", tag).toString(); page = r.getProperty("html_url", "").toString();}
                 }
-            if (best <= F8K_BUILD_NUMBER || page.isEmpty()) return;
+            if (best <= MDARK_BUILD_NUMBER || page.isEmpty()) return;
             juce::MessageManager::callAsync([sp, title, page] { if (sp != nullptr) sp->addPanel.showUpdate(title, juce::URL(page)); });
         });
     }
@@ -1094,12 +1093,12 @@ public:
             if (os.openedOk()) {os.setPosition(0); os.truncate(); juce::PNGImageFormat().writeImageToStream(img, os);}
         }
     }
-    std::shared_ptr<f8k::Library> getLibrary() const { return library; }
+    std::shared_ptr<mdark::Library> getLibrary() const { return library; }
     void showLabSoon() { tabs.setCurrentTabIndex(2); } //so the Lab loads its data before the pictures
 private:
     void setFolder(const juce::File& f) {
         folder = f;
-        library = std::make_shared<f8k::Library>(folder);
+        library = std::make_shared<mdark::Library>(folder);
         worker.setLibrary(library);
         addPanel.log("Library: " + folder.getFullPathName());
     }
@@ -1114,7 +1113,7 @@ private:
     }
     std::unique_ptr<juce::PropertiesFile> settings;
     juce::File folder;
-    std::shared_ptr<f8k::Library> library;
+    std::shared_ptr<mdark::Library> library;
     AddPanel addPanel;
     LibraryView libraryView;
     LibraryTab libraryTab{libraryView};
@@ -1128,7 +1127,7 @@ private:
 class AnalyserApp : public juce::JUCEApplication {
 public:
     const juce::String getApplicationName() override { return "meterDARK Analyser"; }
-    const juce::String getApplicationVersion() override { return "1.2.0 (build " + juce::String(F8K_BUILD_NUMBER) + ")"; }
+    const juce::String getApplicationVersion() override { return "1.2.0 (build " + juce::String(MDARK_BUILD_NUMBER) + ")"; }
     bool moreThanOneInstanceAllowed() override { return true; }
     void initialise(const juce::String& commandLine) override {
         juce::LookAndFeel::getDefaultLookAndFeel().setColour(juce::AlertWindow::backgroundColourId, kPanel);

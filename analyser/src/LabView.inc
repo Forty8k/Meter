@@ -7,8 +7,8 @@
 
 class LabView : public juce::Component, private juce::Timer {
 public:
-    std::function<std::shared_ptr<f8k::Library>()> getLibrary;
-    std::function<f8k::LevelMode()> getLevel;                                      //the Library tab's level mode (original / normalised / mix)
+    std::function<std::shared_ptr<mdark::Library>()> getLibrary;
+    std::function<mdark::LevelMode()> getLevel;                                      //the Library tab's level mode (original / normalised / mix)
     std::function<std::shared_ptr<const std::set<juce::String>>()> getAllowed;      //the tracks to use (null = all of them)
     std::function<int()> getFilterGen;                                             //goes up when the filters or the level mode change
 
@@ -30,7 +30,7 @@ public:
         percentBox.setSelectedId(15, juce::dontSendNotification);
         percentBox.setColour(juce::ComboBox::backgroundColourId, kPanel); percentBox.setColour(juce::ComboBox::textColourId, kText); percentBox.setColour(juce::ComboBox::outlineColourId, kPanel);
         fromLibrary.onClick = [this] { setFromLibrary(percentBox.getSelectedId()/100.0); };
-        resetButton.onClick = [this] { if (mode == 0) hints = f8k::HintSettings(); else score = f8k::ScoreParams(); paintEvery = 1; buildSettings(); recompute(); };
+        resetButton.onClick = [this] { if (mode == 0) hints = mdark::HintSettings(); else score = mdark::ScoreParams(); paintEvery = 1; buildSettings(); recompute(); };
         exportButton.onClick = [this] { exportToMeter(); };
         levelTestButton.onClick = [this] { runLevelTest(); };
         lowEndButton.onClick = [this] { measureLowEnd(); };
@@ -94,7 +94,7 @@ private:
     const int kind; bool useBlocks = false; juce::TextButton blocksToggle{"Use replay blocks"};
     bool testing = false;
     bool loading = false, loaded = false; const void* loadedFor = nullptr; int loadedChange = -1;
-    std::vector<f8k::HintTrackResult> hintResults;
+    std::vector<mdark::HintTrackResult> hintResults;
     std::map<juce::String, double> lowEnd; bool measuring = false; std::atomic<int> lowDone{0}, lowTotal{0}; //real low-end share per track id (-1 = no fine data)
     struct ScoreRow { juce::String grade, bonus; double letterValue = 0; bool done = false; };
     std::vector<ScoreRow> scoreResults;
@@ -105,7 +105,7 @@ private:
     std::atomic<int> generation{0};
     std::atomic<int> scoreDone{0}; int scoreTotal = 0; bool scoring = false;
     std::vector<char> use;                       //1 = the track is used (the Library's filters), same order as tracks
-    f8k::LevelMode loadedLevel; int seenGen = -1;
+    mdark::LevelMode loadedLevel; int seenGen = -1;
     std::atomic<int> loadDone{0}, loadTotal{0};
     bool inUse(size_t i) const { return i >= use.size() || use[i]; }
     void refreshUse() {
@@ -115,8 +115,8 @@ private:
     }
     int usedCount() const {int n = 0; for (size_t i = 0; i < tracks.size(); ++i) n += inUse(i); return n;}
 
-    f8k::HintSettings hints;
-    f8k::ScoreParams score;
+    mdark::HintSettings hints;
+    mdark::ScoreParams score;
     int paintEvery = 1;
     int mode = 0;
 
@@ -124,7 +124,7 @@ private:
         handlePending();
         auto lib = getLibrary ? getLibrary() : nullptr;
         if (lib == nullptr) return;
-        const f8k::LevelMode lvNow = getLevel ? getLevel() : f8k::LevelMode();
+        const mdark::LevelMode lvNow = getLevel ? getLevel() : mdark::LevelMode();
         if (!loading && !scoring && (!loaded || lib.get() != loadedFor || (isShowing() && (lib->changeCount() != loadedChange || lvNow.key() != loadedLevel.key())))) load(lib);
         else if (loaded && !loading && !scoring && getFilterGen && getFilterGen() != seenGen) { //the Library's filters changed
             seenGen = getFilterGen();
@@ -140,10 +140,10 @@ private:
         }
     }
 
-    void load(std::shared_ptr<f8k::Library> lib) {
+    void load(std::shared_ptr<mdark::Library> lib) {
         loading = true;
         loadedFor = lib.get(); loadedChange = lib->changeCount();
-        const f8k::LevelMode lm = getLevel ? getLevel() : f8k::LevelMode();
+        const mdark::LevelMode lm = getLevel ? getLevel() : mdark::LevelMode();
         loadedLevel = lm; loadDone = 0; loadTotal = 0;
         status.setText("Loading the library's window data ...", juce::dontSendNotification);
         juce::Component::SafePointer<LabView> sp(this);
@@ -151,8 +151,8 @@ private:
         pool.addJob([this, sp, lib, lm, fromBlocks] {
             std::vector<Track> t;
             const auto idx = lib->index();
-            const auto vids = f8k::Library::versionIds();
-            const juce::String newest = juce::String(f8k::tunableVersionId());
+            const auto vids = mdark::Library::versionIds();
+            const juce::String newest = juce::String(mdark::tunableVersionId());
             //everything the Lab reads is at 96 kHz (as the Library shows it); a track not rescanned yet is read as the file has it
             auto g = lm.mode == 0 ? lib->grades(newest, 96000)
                                   : lib->levelGrades(newest, 96000, lm, true, [&] {return sp == nullptr;}, [&](int d, int n) {loadDone = d; loadTotal = n;});
@@ -167,8 +167,8 @@ private:
                 if (gr >= 0) {tr.grade = g.get((size_t)gr, "grade"); tr.gradeBonus = g.get((size_t)gr, "bonus"); tr.letterValue = g.get((size_t)gr, "letter_value").getDoubleValue();}
                 bool gotBlock = false;
                 if (fromBlocks) { //the lean record's replay block (what a shared pack contains): no stored window data needed
-                    f8k::LeanRecord lr;
-                    if (lib->readLean(tr.id, lr) && f8k::unpackWindows(lr.replay, tr.names2, tr.core2)) {gotBlock = true; tr.sr = juce::String(lr.get("window_rate")).getDoubleValue(); if (tr.sr <= 0) tr.sr = 96000.0;}
+                    mdark::LeanRecord lr;
+                    if (lib->readLean(tr.id, lr) && mdark::unpackWindows(lr.replay, tr.names2, tr.core2)) {gotBlock = true; tr.sr = juce::String(lr.get("window_rate")).getDoubleValue(); if (tr.sr <= 0) tr.sr = 96000.0;}
                 }
                 if (gotBlock) {}
                 else if (!lib->readCoreAt(tr.id, newest, 96000, tr.names2, tr.core2)) lib->readCore(tr.id, newest, tr.names2, tr.core2); //the newest version's windows at 96 kHz
@@ -179,8 +179,8 @@ private:
             }
             if (fromBlocks) { //records shared with you (lean-shared) that carry a replay block are regraded too
                 for (auto& sid : lib->sharedIds()) {
-                    f8k::LeanRecord lr; Track tr;
-                    if (!lib->readShared(sid, lr) || lr.replay.empty() || !f8k::unpackWindows(lr.replay, tr.names2, tr.core2)) continue;
+                    mdark::LeanRecord lr; Track tr;
+                    if (!lib->readShared(sid, lr) || lr.replay.empty() || !mdark::unpackWindows(lr.replay, tr.names2, tr.core2)) continue;
                     tr.id = sid; tr.file = juce::String(lr.get("title")).isNotEmpty() ? juce::String(lr.get("artist")) + " - " + juce::String(lr.get("title")) + " (shared)" : sid + " (shared)";
                     tr.grade = juce::String(lr.get("grade")); tr.letterValue = juce::String(lr.get("letter_value")).getDoubleValue();
                     const int b = juce::String(lr.get("bonus_value")).getIntValue(); tr.gradeBonus = (b >= 1 && b <= 80) ? juce::String(b) : juce::String();
@@ -204,18 +204,18 @@ private:
     void recompute() {
         if (mode != 0) {model.refresh(); return;}
         const int gen = ++generation;
-        const f8k::HintSettings s = hints;
+        const mdark::HintSettings s = hints;
         const std::vector<char> useCopy = use;
         juce::Component::SafePointer<LabView> sp(this);
         pool.addJob([this, sp, gen, s, useCopy] {
-            std::vector<f8k::HintTrackResult> res;
+            std::vector<mdark::HintTrackResult> res;
             {
                 const juce::ScopedLock sl(dataLock);
                 for (size_t i = 0; i < tracks.size(); ++i) {
                     const auto& t = tracks[i];
                     if (generation.load() != gen) return; //a newer change is coming
                     const bool used = i >= useCopy.size() || useCopy[i];
-                    res.push_back(t.core.empty() || !used ? f8k::HintTrackResult() : f8k::simulateHints(t.names, t.core, s));
+                    res.push_back(t.core.empty() || !used ? mdark::HintTrackResult() : mdark::simulateHints(t.names, t.core, s));
                 }
             }
             juce::MessageManager::callAsync([this, sp, gen, res = std::move(res)]() mutable {
@@ -248,17 +248,17 @@ private:
         if (!loaded || loading || testing) return;
         testing = true;
         status.setText("Level test: replaying every track at five levels ...", juce::dontSendNotification);
-        const f8k::HintSettings s = hints;
+        const mdark::HintSettings s = hints;
         juce::Component::SafePointer<LabView> sp(this);
         pool.addJob([this, sp, s] {
-            std::vector<f8k::LevelTestRow> rows;
+            std::vector<mdark::LevelTestRow> rows;
             {
                 const juce::ScopedLock sl(dataLock);
-                std::vector<f8k::LevelTestTrack> tr;
+                std::vector<mdark::LevelTestTrack> tr;
                 for (size_t i = 0; i < tracks.size(); ++i) if (!tracks[i].core.empty() && inUse(i)) tr.push_back({&tracks[i].names, &tracks[i].core});
-                rows = f8k::levelTest(tr, s, {0.0, -6.0, -12.0, -18.0, -24.0}, [&] { return sp == nullptr; });
+                rows = mdark::levelTest(tr, s, {0.0, -6.0, -12.0, -18.0, -24.0}, [&] { return sp == nullptr; });
             }
-            const juce::String text = juce::String(f8k::levelTestReport(rows)) +
+            const juce::String text = juce::String(mdark::levelTestReport(rows)) +
                 "\nHow to read it: each number is how far, on average, a reading (or the share of time a hint shows) moves when the same music is played that much quieter. "
                 "0 = the hint does not care about level. 'audible' is the share of the track the hints count at that level.\n"
                 "The settings used are the ones on the left now. 'level cut limit' lower than 0.8 (try 0.6) also flattens very hot masters.";
@@ -299,7 +299,7 @@ private:
         std::vector<double> w, d, dk;
         for (auto& r : hintResults) if (r.audible > 0) {w.push_back(r.weight); d.push_back(r.dynamics); dk.push_back(r.tilt);}
         if (w.size() < 5) {status.setText("Add a few more tracks first (at least 5).", juce::dontSendNotification); return;}
-        auto set = [this](const char* k, double v) {const int i = f8k::hintParamIndex(k); const auto& p = f8k::hintParams()[(size_t)i]; hints.v[(size_t)i] = juce::jlimit(p.lo, p.hi, v);};
+        auto set = [this](const char* k, double v) {const int i = mdark::hintParamIndex(k); const auto& p = mdark::hintParams()[(size_t)i]; hints.v[(size_t)i] = juce::jlimit(p.lo, p.hi, v);};
         const double wm = percentile(w, 0.5), dm = percentile(d, 0.5);
         set("tune9", wm); set("tune0", wm - percentile(w, share)); set("tune1", percentile(w, 1 - share) - wm);
         set("tune11", dm); set("tune2", dm - percentile(d, share)); set("tune3", percentile(d, 1 - share) - dm);
@@ -315,8 +315,8 @@ private:
         dir.createDirectory();
 
         juce::StringArray changed; //what differs from the factory values, shown to the user afterwards
-        for (size_t i = 0; i < f8k::hintParams().size(); ++i) {
-            const auto& p = f8k::hintParams()[i];
+        for (size_t i = 0; i < mdark::hintParams().size(); ++i) {
+            const auto& p = mdark::hintParams()[i];
             if (std::fabs(hints.v[i] - p.def) < 1.0e-9) continue;
             changed.add(juce::String(p.group) + ": " + p.label + " = " + juce::String(hints.v[i], p.decimals) + p.unit + "   (factory " + juce::String(p.def, p.decimals) + p.unit + ")  "
                         + (juce::String(p.key).startsWith("tune") ? "[new instances]" : "[live]"));
@@ -324,8 +324,8 @@ private:
 
         juce::XmlElement lab("meterlabtuning");
         lab.setAttribute("ver", 1);
-        for (size_t i = 0; i < f8k::hintParams().size(); ++i) {
-            const auto& p = f8k::hintParams()[i];
+        for (size_t i = 0; i < mdark::hintParams().size(); ++i) {
+            const auto& p = mdark::hintParams()[i];
             if (juce::String(p.key).startsWith("tune")) continue;
             lab.setAttribute(p.key, hints.v[i]);
         }
@@ -348,8 +348,8 @@ private:
             }
         } else d = std::make_unique<juce::XmlElement>("meterdefaults");
         d->setAttribute("ver", pluginVersion);
-        for (size_t i = 0; i < f8k::hintParams().size(); ++i) {
-            const auto& p = f8k::hintParams()[i];
+        for (size_t i = 0; i < mdark::hintParams().size(); ++i) {
+            const auto& p = mdark::hintParams()[i];
             if (juce::String(p.key).startsWith("tune")) d->setAttribute(p.key, hints.v[i]);
         }
         const bool ok2 = d->writeTo(defaults);
@@ -394,20 +394,20 @@ private:
         scoring = true; scoreDone = 0; scoreTotal = usedCount();
         scoreResults.assign(tracks.size(), {});
         if (scoreTotal == 0) {scoring = false; status.setText("No track passes the Library's filters.", juce::dontSendNotification); return;}
-        const f8k::ScoreParams s = score; const int pe = paintEvery;
-        const f8k::LevelMode lv = getLevel ? getLevel() : f8k::LevelMode();
+        const mdark::ScoreParams s = score; const int pe = paintEvery;
+        const mdark::LevelMode lv = getLevel ? getLevel() : mdark::LevelMode();
         for (size_t i = 0; i < tracks.size(); ++i) {
             if (!inUse(i)) continue;
             pool.addJob([this, i, s, pe, lv] {
-                f8k::scoreParams() = s; //this thread's settings
+                mdark::scoreParams() = s; //this thread's settings
                 ScoreRow row;
                 {
                     const Track& t = tracks[i];
                     if (!t.core2.empty()) {
                         std::vector<float> scaled; const std::vector<float>* src = &t.core2; //the level mode's gain on the stored windows
-                        if (lv.mode == 1) {scaled = f8k::scaleWindows(t.names2, t.core2, lv.asLufs - lv.inLufs); src = &scaled;}
-                        else if (lv.mode == 2) {scaled = f8k::scaleWindowsEach(t.names2, t.core2, f8k::mixWindowGains(t.names2, t.core2, t.sr)); src = &scaled;}
-                        auto run = f8k::createTunableRun(t.sr, pe);
+                        if (lv.mode == 1) {scaled = mdark::scaleWindows(t.names2, t.core2, lv.asLufs - lv.inLufs); src = &scaled;}
+                        else if (lv.mode == 2) {scaled = mdark::scaleWindowsEach(t.names2, t.core2, mdark::mixWindowGains(t.names2, t.core2, t.sr)); src = &scaled;}
+                        auto run = mdark::createTunableRun(t.sr, pe);
                         for (size_t w = 0; w + t.names2.size() <= src->size(); w += t.names2.size()) run->feedWindow(t.names2, &(*src)[w]);
                         const auto res = run->result();
                         row.grade = juce::String(res.grade) + lv.suffix(); row.bonus = juce::String(res.bonus); row.letterValue = res.letterValue;
@@ -423,7 +423,7 @@ private:
         labRanks = ranks(true);
         int changed = 0, moved = 0;
         for (size_t i = 0; i < tracks.size(); ++i) if (inUse(i)) {changed += scoreResults[i].grade != tracks[i].grade; moved += labRanks[i] != origRanks[i];}
-        status.setText("Lab scoring (Meter " + juce::String(f8k::findMeterVersion(f8k::tunableVersionId())->version) + "):  " + juce::String(changed) + " of "
+        status.setText("Lab scoring (Meter " + juce::String(mdark::findMeterVersion(mdark::tunableVersionId())->version) + "):  " + juce::String(changed) + " of "
                        + juce::String(usedCount()) + " grades changed,  " + juce::String(moved) + " tracks moved in the ranking.", juce::dontSendNotification);
         model.refresh();
     }
@@ -433,8 +433,8 @@ private:
             const auto f = fc.getResult();
             if (f == juce::File()) return;
             auto* o = new juce::DynamicObject();
-            o->setProperty("meter_version", juce::String(f8k::tunableVersionId()));
-            for (auto& p : f8k::scoreParamInfo()) o->setProperty(p.key, score.*(p.member));
+            o->setProperty("meter_version", juce::String(mdark::tunableVersionId()));
+            for (auto& p : mdark::scoreParamInfo()) o->setProperty(p.key, score.*(p.member));
             o->setProperty("redraws_per_window", paintEvery);
             f.replaceWithText(juce::JSON::toString(juce::var(o)));
         });
@@ -473,17 +473,17 @@ private:
             const char* groups[4][2] = {{"weight", "WEIGHT  (thin / full)"}, {"dynamics", "DYNAMICS  (headroom / squashed)"}, {"detail", "DETAIL  (dark / bright, one gauge)"}, {"all", "ALL THREE"}};
             for (auto& g : groups) {
                 addHeader(g[1]);
-                for (size_t i = 0; i < f8k::hintParams().size(); ++i) {
-                    const auto& p = f8k::hintParams()[i];
+                for (size_t i = 0; i < mdark::hintParams().size(); ++i) {
+                    const auto& p = mdark::hintParams()[i];
                     if (juce::String(p.group) != g[0]) continue;
                     addSlider(p.label, p.lo, p.hi, hints.v[i], p.decimals, p.unit, p.help, [this, i](double v) {hints.v[i] = v;}, p.def);
                 }
             }
         } else {
-            addHeader("ORIGINAL METER " + juce::String(f8k::findMeterVersion(f8k::tunableVersionId())->version) + " SCORING (experiment)");
-            const auto& used = f8k::tunableSettingsUsed();
-            const f8k::ScoreParams defaults;
-            for (auto& p : f8k::scoreParamInfo()) {
+            addHeader("ORIGINAL METER " + juce::String(mdark::findMeterVersion(mdark::tunableVersionId())->version) + " SCORING (experiment)");
+            const auto& used = mdark::tunableSettingsUsed();
+            const mdark::ScoreParams defaults;
+            for (auto& p : mdark::scoreParamInfo()) {
                 if (juce::String(p.key) != "width" && std::find(used.begin(), used.end(), std::string(p.key)) == used.end()) continue;
                 auto member = p.member;
                 addSlider(p.label, p.lo, p.hi, score.*member, p.decimals, "", p.help, [this, member](double v) {score.*member = v;}, defaults.*member);

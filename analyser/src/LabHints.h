@@ -8,7 +8,7 @@
 #include <array>
 #include <functional>
 
-namespace f8k {
+namespace mdark {
 
 struct HintParam {
     const char* key;      // file/settings name
@@ -57,4 +57,4 @@ struct LevelTestTrack { const std::vector<std::string>* names; const std::vector
 std::vector<LevelTestRow> levelTest(const std::vector<LevelTestTrack>& tracks, const HintSettings& s, const std::vector<double>& dbs, const std::function<bool()>& shouldStop = {});
 std::string levelTestReport(const std::vector<LevelTestRow>& rows);
 
-} // namespace f8k
+} // namespace mdark

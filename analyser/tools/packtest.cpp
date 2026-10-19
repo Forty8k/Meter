@@ -8,7 +8,7 @@
 #include <cmath>
 #include <random>
 #include <functional>
-using namespace f8k;
+using namespace mdark;
 
 struct Maker { const char* name; std::function<void(double, float&, float&, std::mt19937&)> f; };
 

@@ -13,7 +13,7 @@
 #include <cmath>
 #include "Estimates.h"
 
-namespace f8k {
+namespace mdark {
 
 constexpr const char* kCaptureVersion = "1.2"; // 1.1 added the pitch layer; 1.2 added the 44.1 kHz / 96 kHz runs of every Meter version
 
@@ -104,4 +104,4 @@ private:
     void endBlock();
 };
 
-} // namespace f8k
+} // namespace mdark

@@ -10,7 +10,7 @@
 #include <vector>
 #include <cctype>
 
-namespace f8k {
+namespace mdark {
 
 inline std::string gradeTrim(const std::string& s) {
     size_t a = 0, b = s.size();
@@ -73,4 +73,4 @@ inline std::string legacySubGradeLetter(const std::string& field, int value) {
     return (value >= 0 && value < n) ? std::string(1, scale[value]) : std::string();
 }
 
-} // namespace f8k
+} // namespace mdark

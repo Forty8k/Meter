@@ -1,4 +1,4 @@
-METER F8K ANALYSER - HOW TO
+METER MDark ANALYSER - HOW TO
 ===========================
 
 What it does
@@ -12,7 +12,7 @@ Using it
   2. Drag audio files or whole folders onto the window, or use "Add files...".
      WAV, AIFF and FLAC are best (lossless). Ogg and MP3 also work but are marked as lossy.
   3. Each track gets one line in the log, with what the original meter reads for it.
-  4. "Open library folder" shows the results. The default library is Documents\meterDARK Library (an existing "Meter F8K Library" folder keeps being used).
+  4. "Open library folder" shows the results. The default library is Documents\meterDARK Library (an existing "meterDARK Library" folder keeps being used).
      "Change library folder..." picks another (for example on a bigger drive).
 
   Adding the same file again is skipped (it is recognised by its content, not its name).
@@ -66,7 +66,7 @@ Rescan library...  (Add tracks tab)
   several cores, keeps each finished track at once (so you can close the app and carry on later - it picks up the tracks
   not done yet), and shows an estimate of the time left. A track whose file has moved, been deleted or changed is listed in
   the log and left exactly as it is. Your own values are never touched.
-  From the command line: MeterF8KAnalyserCLI --library <folder> --rescan
+  From the command line: meterDARKAnalyserCLI --library <folder> --rescan
 
 Meter versions
   "Grades from" chooses which original Meter's grades the Library shows (the newest by default). "compare with" adds a
@@ -164,7 +164,7 @@ The original meter's grade
   why rendering faster than real time in a DAW changes its readings; the analyser does not have that problem.
 
 Command line (optional)
-  MeterF8KAnalyserCLI.exe [--library <folder>] [--rescan] <files or folders...>
+  meterDARKAnalyserCLI.exe [--library <folder>] [--rescan] <files or folders...>
 
 For analysis scripts
-  f8k_library.py (Python 3 + numpy) reads a library and rebuilds windows of any length from the fine blocks.
+  mdark_library.py (Python 3 + numpy) reads a library and rebuilds windows of any length from the fine blocks.

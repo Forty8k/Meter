@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <algorithm>
 
-namespace f8kdsp {
+namespace mdarkdsp {
 
 class Resampler {
 public:
@@ -115,4 +115,4 @@ private:
     int64_t phasePos = 0, baseIndex = 0, total = 0;
 };
 
-} // namespace f8kdsp
+} // namespace mdarkdsp

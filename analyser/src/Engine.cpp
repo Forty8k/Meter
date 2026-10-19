@@ -6,7 +6,7 @@
 #include <juce_cryptography/juce_cryptography.h>
 #include <thread>
 
-namespace f8k {
+namespace mdark {
 
 static const char* kIndexHeader[] = {"id", "file", "artist", "title", "album", "year", "genre", "format", "lossy", "sample_rate", "bits", "channels",
     "duration_s", "peak_dbfs", "true_peak_dbtp", "lufs_integrated", "bpm_est", "bpm_confidence", "key_est", "key_confidence", "analysed", "capture_version", "source_path"};
@@ -359,7 +359,7 @@ bool Library::readCore(const juce::String& id, const juce::String& vid, std::vec
 struct Library::Lane {
     int rate = 0;                    // 0 = as the file has it, else the anchor rate
     std::vector<std::unique_ptr<MeterRun>> runs; // one per Meter version asked for
-    std::unique_ptr<f8kdsp::Resampler> rl, rr;
+    std::unique_ptr<mdarkdsp::Resampler> rl, rr;
     std::vector<float> bl, br;
     size_t skip = 0;                 // converted samples still to drop (the filter's delay), so the converted audio lines up with the original
     void feed(const float* L, const float* R, int n, bool mono)
@@ -390,8 +390,8 @@ static bool addLane(std::vector<Library::Lane>& lanes, double fileRate, int rate
     Library::Lane ln; ln.rate = rate;
     const double runRate = rate > 0 ? (double)rate : fileRate;
     if (rate > 0) {
-        ln.rl = std::make_unique<f8kdsp::Resampler>(fileRate, (double)rate);
-        ln.rr = std::make_unique<f8kdsp::Resampler>(fileRate, (double)rate);
+        ln.rl = std::make_unique<mdarkdsp::Resampler>(fileRate, (double)rate);
+        ln.rr = std::make_unique<mdarkdsp::Resampler>(fileRate, (double)rate);
         if (!ln.rl->ok()) return false;
         ln.skip = (size_t)std::llround(ln.rl->latencyInputSamples()*(double)rate/fileRate);
     }
@@ -1182,4 +1182,4 @@ void Library::writeReadme()
         false, false, "\r\n");
 }
 
-} // namespace f8k
+} // namespace mdark

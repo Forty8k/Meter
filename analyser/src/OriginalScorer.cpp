@@ -6,7 +6,7 @@
 #include <map>
 #include <algorithm>
 
-namespace f8k {
+namespace mdark {
 // What the directions line said most of the time during the loud parts of the track (louder than half of the
 // level the loudest 10% of the track reaches), with its share, e.g. "allow detail (62%)".
 std::string mainDirection(const std::vector<std::string>& dirs, const std::vector<double>& vols)
@@ -22,10 +22,10 @@ std::string mainDirection(const std::vector<std::string>& dirs, const std::vecto
 }
 }
 
-namespace f8k { ScoreParams& scoreParams() { thread_local ScoreParams p; return p; } }
+namespace mdark { ScoreParams& scoreParams() { thread_local ScoreParams p; return p; } }
 #include "gen/Versions.inc"
 
-namespace f8k {
+namespace mdark {
 const MeterVersion* findMeterVersion(const std::string& id)
 {
     for (auto& v : meterVersions()) if (v.id == id) return &v;

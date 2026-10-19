@@ -10,7 +10,7 @@
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
-using namespace f8k;
+using namespace mdark;
 
 static CoreWindow mergeFine(const Capture& c, size_t firstBlock, size_t numBlocks, double sr)
 {
@@ -143,7 +143,7 @@ static bool rateInvariance()
             std::vector<Row> rows;
             for (int k = 0; k < 3; ++k) {
                 if (std::lround(rates[k]) == a) {rows.push_back(nat[(size_t)k]); continue;}
-                f8kdsp::Resampler rl(rates[k], a), rr(rates[k], a);
+                mdarkdsp::Resampler rl(rates[k], a), rr(rates[k], a);
                 std::vector<float> cl, cr;
                 for (size_t pos = 0; pos < L[k].size(); pos += 65536) { const size_t n = std::min<size_t>(65536, L[k].size() - pos); rl.process(&L[k][pos], n, cl); rr.process(&R[k][pos], n, cr); }
                 rl.flush(cl); rr.flush(cr);

@@ -1,11 +1,10 @@
-// meterDARK Analyser, command-line version: MeterF8KAnalyserCLI [--library <folder>] <files or folders...>
+// meterDARK Analyser, command-line version: meterDARKAnalyserCLI [--library <folder>] <files or folders...>
 #include "Engine.h"
 #include <iostream>
 
 int main(int argc, char* argv[])
 {
-    juce::File library = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("Meter F8K Library");
-    if (!library.isDirectory()) library = library.getSiblingFile("meterDARK Library"); //an existing library keeps its folder
+    juce::File library = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("meterDARK Library");
     juce::Array<juce::File> inputs;
     bool rescan = false; int levels = 0; int lean = 0; juce::String exportPack, importPack; bool fullPack = false;
     for (int i = 1; i < argc; ++i) {
@@ -19,18 +18,18 @@ int main(int argc, char* argv[])
         if (a == "--import-pack" && i + 1 < argc) {importPack = argv[++i]; continue;}
         if (a == "--lean-check") {lean = 2; continue;}
         if (a == "--help" || a == "-h") {
-            std::cout << "Usage: MeterF8KAnalyserCLI [--library <folder>] [--rescan] <audio files or folders...>\n"
+            std::cout << "Usage: meterDARKAnalyserCLI [--library <folder>] [--rescan] <audio files or folders...>\n"
                          "--rescan scans every track captured by an older analyser again from its stored file path.\n"
                          "--lean builds the small shareable record of every track (lean folder) from the stored window data; --lean-check also rebuilds them all and proves each replay block regrades to the same grade.\n"
                          "--export-pack <file> [--full] writes a share pack of every lean record (display only, or with the replay blocks); --import-pack <file> adds a pack to lean-shared.\n"
                          "--levels grades every track in the normalised and the mix level mode (replayed from the stored windows) and prints how many grades came out.\n"
-                         "Adds each track to the library (default: Documents/meterDARK Library (or the older Meter F8K Library if you have one)). WAV, AIFF, FLAC, Ogg and MP3.\n";
+                         "Adds each track to the library (default: Documents/meterDARK Library). WAV, AIFF, FLAC, Ogg and MP3.\n";
             return 0;
         }
-        f8k::Library::collectAudioFiles(juce::File::getCurrentWorkingDirectory().getChildFile(a), inputs);
+        mdark::Library::collectAudioFiles(juce::File::getCurrentWorkingDirectory().getChildFile(a), inputs);
     }
     if (inputs.isEmpty() && argc < 3 && !rescan && !levels && !lean && exportPack.isEmpty() && importPack.isEmpty()) {std::cout << "No audio files given. Try --help\n"; return 1;}
-    f8k::Library lib(library);
+    mdark::Library lib(library);
     std::cout << "Library: " << library.getFullPathName() << "\n";
     if (const int up = lib.upgradeOldRows()) std::cout << "Filled in newer values for " << up << " tracks already in the library\n";
     if (rescan) {
@@ -55,9 +54,9 @@ int main(int argc, char* argv[])
     }
     if (importPack.isNotEmpty()) std::cout << "Pack import: " << lib.importPack(juce::File::getCurrentWorkingDirectory().getChildFile(importPack)) << "\n";
     if (levels) {
-        const auto vid = f8k::Library::versionIds().back();
+        const auto vid = mdark::Library::versionIds().back();
         for (int m = 1; m <= 2; ++m) {
-            f8k::LevelMode lm; lm.mode = m;
+            mdark::LevelMode lm; lm.mode = m;
             const auto base = lib.grades(vid);
             const auto t = lib.levelGrades(vid, 0, lm, true);
             int changed = 0;
@@ -72,9 +71,9 @@ int main(int argc, char* argv[])
         const auto t0 = juce::Time::getMillisecondCounterHiRes();
         const auto r = lib.analyse(f);
         const double secs = (juce::Time::getMillisecondCounterHiRes() - t0) / 1000.0;
-        std::cout << (r.status == f8k::AnalyseOutcome::Added ? "added   " : r.status == f8k::AnalyseOutcome::Updated ? "updated " : r.status == f8k::AnalyseOutcome::AlreadyThere ? "skipped " : "FAILED  ")
+        std::cout << (r.status == mdark::AnalyseOutcome::Added ? "added   " : r.status == mdark::AnalyseOutcome::Updated ? "updated " : r.status == mdark::AnalyseOutcome::AlreadyThere ? "skipped " : "FAILED  ")
                   << f.getFileName() << "  (" << r.message << ", " << juce::String(secs, 1) << " s)\n";
-        if (r.status == f8k::AnalyseOutcome::Added || r.status == f8k::AnalyseOutcome::Updated) ++added; else if (r.status == f8k::AnalyseOutcome::AlreadyThere) ++skipped; else ++failed;
+        if (r.status == mdark::AnalyseOutcome::Added || r.status == mdark::AnalyseOutcome::Updated) ++added; else if (r.status == mdark::AnalyseOutcome::AlreadyThere) ++skipped; else ++failed;
     }
     std::cout << added << " added, " << skipped << " already there, " << failed << " failed\n";
     return failed > 0 ? 2 : 0;

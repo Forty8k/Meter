@@ -1,5 +1,5 @@
 // Minimal stand-ins for the JUCE types the ORIGINAL Airwindows Meter code touches: its audio loop (processBlock), its
-// editor's message handling and its meter's paint(). They live in namespace f8kstub::juce, and each Meter version's
+// editor's message handling and its meter's paint(). They live in namespace mdarkstub::juce, and each Meter version's
 // namespace aliases juce to it, so the original code compiles unchanged without clashing with the real JUCE elsewhere.
 // Drawing calls do nothing. Colour keeps JUCE's 8-bit behaviour so the original "directions" text comes out the same.
 #pragma once
@@ -10,7 +10,7 @@
 #include <vector>
 #include <optional>
 
-namespace f8kstub {
+namespace mdarkstub {
 namespace juce {
 
 struct String {
@@ -125,4 +125,4 @@ struct AudioPlayHead { //offline: no host play head, so the meter always runs
 };
 
 } // namespace juce
-} // namespace f8kstub
+} // namespace mdarkstub

@@ -1,7 +1,7 @@
 # meterDARK + meterDARK Analyser: handoff (19 Oct 2026, stages 1-10 BUILT, waiting for his hand check)
 
 ## STATE AFTER THE BUILD (read this first)
-All ten stages are built on the `analyser` branch (app) and `f8k-lab` (plugin, preset/project version 11). Nothing merged into main.
+All ten stages are built on the `analyser` branch (app) and `meterdark` (plugin, preset/project version 11). Nothing merged into main.
 CI is the only compile/test run so far; nothing has been run on his Windows machine or his real library. Releases are SWITCHED OFF
 (`release` job is `if: false` in .github/workflows/analyser.yml): download builds from the Actions tab (artifact meterDARK-Analyser-Windows).
 
@@ -16,7 +16,7 @@ What exists now:
 - Lean records: `lean/<id>.lnr.gz` in the library (src/LeanRecord.*, src/ReplayPack.h). Build with the button, or CLI `--lean` / `--lean-check`.
   Replay block precision: 16 bits (zero differences; 14 also clean on synthetic music, 12 and below not). About 30 KB per minute compressed
   for the replay block (about 120 KB for 4 min), about 9 KB for the display part. Window data per track is not removed from disk.
-- Share packs: `.f8kpack` (CLI `--export-pack file [--full]`, `--import-pack file`; app: Share packs...). Imports go to `lean-shared/`.
+- Share packs: `.mdarkpack` (CLI `--export-pack file [--full]`, `--import-pack file`; app: Share packs...). Imports go to `lean-shared/`.
   Records are keyed by the audio's content hash; they contain no path or file name. CI checks that.
 - Audio source: editable "Source" column in the full table, box in the overview; stored in user.csv ("source") and in the lean record.
 - Generator change: `OriginalResult` now also carries storeR/G/B and outputVol (the top bar colour of the latest window); regenerated `src/gen`.
@@ -48,7 +48,7 @@ Owner: Forty8k (Windows, works at 48 kHz, listens via Tidal at -14 LUFS). Librar
 - Work in stages, one at a time, and report back after each before starting the next.
 
 ## Repo (GitHub Forty8k/Meter, fork of Airwindows Meter)
-- `f8k-lab` = the meterDARK plugin. CI "Pamplejuce": Windows + Linux must pass (macOS always fails on signing, ignore).
+- `meterdark` = the meterDARK plugin. CI "Pamplejuce": Windows + Linux must pass (macOS always fails on signing, ignore).
 - `analyser` = the Analyser app in `analyser/`. CI "meterDARK Analyser": build, selftest, level test, replay test,
   command-line end-to-end, snapshots, auto release `analyser-b<run>`.
 - Generators wrap Chris's code: plugin `tools/make_chris_layer.py` -> `source/chris/`;
