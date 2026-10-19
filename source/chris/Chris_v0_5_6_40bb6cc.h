@@ -8,11 +8,11 @@
 #  define M_PI_2 (1.57079632679489661923)
 #endif
 namespace chris_v0_5_6_40bb6cc {
-namespace juce = ::f8kmix::juce;
+namespace juce = ::mdmix::juce;
 static constexpr const char* kVersion = "0.5.6";
 static constexpr const char* kCommit = "40bb6cc";
 
-//==== Chris's PluginProcessor: its audio thread, talking to Meter F8K's real processor for the host
+//==== Chris's PluginProcessor: its audio thread, talking to meterDARK's real processor for the host
 struct PluginProcessor {
 enum Parameters
     {
@@ -62,7 +62,7 @@ enum Parameters
             INCREMENT
         } what{NEW_VALUE};
         Parameters which;
-        float newValue = 0.0; float f8kGain = 1.0f; //(added) gain the scratch audio carried when this window was measured
+        float newValue = 0.0; float mdGain = 1.0f; //(added) gain the scratch audio carried when this window was measured
     };
     //This is kinds of information the audio thread can give the interface.
     
@@ -137,9 +137,9 @@ enum Parameters
 
 
     ::juce::AudioProcessor* host = nullptr; //(added) the real processor
-    double f8kRate = 0.0;     //(added) 0 = the host's sample rate; else the anchor rate meterDARK converted the audio to
-    double f8kGainNow = 1.0;  //(added) the level gain on the audio being measured (1 = none)
-    double getSampleRate() const { return f8kRate > 0.0 ? f8kRate : host->getSampleRate(); }
+    double mdRate = 0.0;     //(added) 0 = the host's sample rate; else the anchor rate meterDARK converted the audio to
+    double mdGainNow = 1.0;  //(added) the level gain on the audio being measured (1 = none)
+    double getSampleRate() const { return mdRate > 0.0 ? mdRate : host->getSampleRate(); }
     int getTotalNumInputChannels() const { return host->getTotalNumInputChannels(); }
     int getTotalNumOutputChannels() const { return host->getTotalNumOutputChannels(); }
     ::juce::AudioProcessor::Bus* getBus(bool in, int i) { return host->getBus(in, i); }
@@ -253,7 +253,7 @@ void processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessa
         
         if (windowCount > windowSize)
         {
-            AudioToUIMessage msg; msg.f8kGain = (float)f8kGainNow; //(added) //define the thing we're telling JUCE
+            AudioToUIMessage msg; msg.mdGain = (float)mdGainNow; //(added) //define the thing we're telling JUCE
             msg.what = AudioToUIMessage::PEAK_LEFT; msg.newValue = (float)sqrt(peakLeft); audioToUI.push(msg);
             msg.what = AudioToUIMessage::PEAK_RIGHT; msg.newValue = (float)sqrt(peakRight); audioToUI.push(msg);
             msg.what = AudioToUIMessage::SLEW_LEFT; msg.newValue = (float)slewLeft; audioToUI.push(msg);
@@ -401,7 +401,7 @@ void processBlock (juce::AudioBuffer<double>& buffer, juce::MidiBuffer& midiMess
         
         if (windowCount > windowSize)
         {
-            AudioToUIMessage msg; msg.f8kGain = (float)f8kGainNow; //(added) //define the thing we're telling JUCE
+            AudioToUIMessage msg; msg.mdGain = (float)mdGainNow; //(added) //define the thing we're telling JUCE
             msg.what = AudioToUIMessage::PEAK_LEFT; msg.newValue = (float)sqrt(peakLeft); audioToUI.push(msg);
             msg.what = AudioToUIMessage::PEAK_RIGHT; msg.newValue = (float)sqrt(peakRight); audioToUI.push(msg);
             msg.what = AudioToUIMessage::SLEW_LEFT; msg.newValue = (float)slewLeft; audioToUI.push(msg);
@@ -1343,7 +1343,7 @@ static constexpr int kNumWhats = 20;
 
 //==== The tuned copy: Chris's meter with meterDARK's Detail decay and fill gate (identical to the original when both are 0)
 namespace chris_v0_5_6_40bb6cc_tuned {
-namespace juce = ::f8kmix::juce;
+namespace juce = ::mdmix::juce;
 using PluginProcessor = ::chris_v0_5_6_40bb6cc::PluginProcessor;
 struct AirwindowsMeter : public juce::Component
 {
@@ -1507,12 +1507,12 @@ struct AirwindowsMeter : public juce::Component
     }
     //(tuned) DETAIL DECAY: hot slew bins (high up the meter) empty faster, so a brief overslew fades quickly and a sustained one keeps refilling.
     //FILL GATE: a hot slew bin fills at full strength only if it was also hit in the window before; a lone hit counts for less, more so the hotter the bin.
-    float f8kDecay = 0.0f, f8kGate = 0.0f;
-    bool f8kHitPrev[totalBins+2] = {}, f8kHitNow[totalBins+2] = {};
-    void f8kSlewFill(unsigned long b, float size) {
-        if (b > 0 && b <= totalBins) { const float up = (float)b/(float)totalBins; slewTrack[b] += size*(f8kHitPrev[b] ? 1.0f : 1.0f - 0.6f*f8kGate*up); f8kHitNow[b] = true; }
+    float mdDecay = 0.0f, mdGate = 0.0f;
+    bool mdHitPrev[totalBins+2] = {}, mdHitNow[totalBins+2] = {};
+    void mdSlewFill(unsigned long b, float size) {
+        if (b > 0 && b <= totalBins) { const float up = (float)b/(float)totalBins; slewTrack[b] += size*(mdHitPrev[b] ? 1.0f : 1.0f - 0.6f*mdGate*up); mdHitNow[b] = true; }
     }
-    void f8kRollHits() { for (int b = 0; b < totalBins+2; ++b) {f8kHitPrev[b] = f8kHitNow[b]; f8kHitNow[b] = false;} }
+    void mdRollHits() { for (int b = 0; b < totalBins+2; ++b) {mdHitPrev[b] = mdHitNow[b]; mdHitNow[b] = false;} }
 };
 
 inline void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
@@ -1657,10 +1657,10 @@ inline void AirwindowsMeter::paint(juce::Graphics &g)
         //peak textscore bins
         bintracker = (unsigned long)(slewL * (0.005f*(float)totalBins));//converts 0-200 to 0-bin number for textscore bins
         bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins))); //mirror around max value so it reflects
-        if (bintracker > 0 && bintracker <= totalBins) f8kSlewFill(bintracker, slewDotSizeL);
+        if (bintracker > 0 && bintracker <= totalBins) mdSlewFill(bintracker, slewDotSizeL);
         bintracker = (unsigned long)(slewR * (0.005f*(float)totalBins));
         bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins)));
-        if (bintracker > 0 && bintracker <= totalBins) f8kSlewFill(bintracker, slewDotSizeR);
+        if (bintracker > 0 && bintracker <= totalBins) mdSlewFill(bintracker, slewDotSizeR);
         //slew textscore bins
         bintracker = (unsigned long)(bassL * (0.005f*(float)totalBins));//converts 0-200 to 0-bin number for textscore bins
         bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins))); //mirror around max value so it reflects
@@ -1671,7 +1671,7 @@ inline void AirwindowsMeter::paint(juce::Graphics &g)
         //bass textscore bins
         
         //bins are for reinforcing score of a dispersed cloud of dot positions rather than maxing out a position
-        f8kRollHits(); //(tuned)
+        mdRollHits(); //(tuned)
         float peakScore = 0.0;
         float slewScore = 0.0;
         float bassScore = 0.0;
@@ -1682,7 +1682,7 @@ inline void AirwindowsMeter::paint(juce::Graphics &g)
             //sin(1.57) weighting means big red dots in good places, ignore green slews at bottom
             peakScore += (float)sin(peakTrack[binscale]) * sinScale;
             
-            {const float u = (float)binscale/(float)totalBins; slewTrack[binscale] = fmax(fmin(slewTrack[binscale]-0.1618033988749894f*(1.0f+f8kDecay*4.0f*u*u), 1.618033988749894f),0.0f);} //(tuned) hot bins empty faster //decrement speed
+            {const float u = (float)binscale/(float)totalBins; slewTrack[binscale] = fmax(fmin(slewTrack[binscale]-0.1618033988749894f*(1.0f+mdDecay*4.0f*u*u), 1.618033988749894f),0.0f);} //(tuned) hot bins empty faster //decrement speed
             slewScore += (float)sin(slewTrack[binscale]) * sinScale;
             
             bassTrack[binscale] = fmax(fmin(bassTrack[binscale]-0.1618033988749894f, 1.618033988749894f),0.0f); //decrement speed

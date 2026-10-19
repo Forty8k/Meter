@@ -177,7 +177,7 @@ private:
     double levelGain(int mode, const float* l, const float* r, int count, double rate);
     juce::AudioBuffer<float> scratchF;
     juce::AudioBuffer<double> scratchD;
-    f8kdsp::Resampler anchorL[2], anchorR[2]; //0 = to 44.1 kHz, 1 = to 96 kHz
+    mddsp::Resampler anchorL[2], anchorR[2]; //0 = to 44.1 kHz, 1 = to 96 kHz
     std::vector<float> rsOutL, rsOutR, convL, convR;
     int lastAnchorSel = 0;
     double mixCeiling = 0.0; int mixHold = 0;

@@ -158,8 +158,8 @@ void PluginEditor::resetChris()
     chrisTunedMeter.h = chrisTunedMeter.displayHeight = meter.displayHeight;
     chrisTunedMeter.pluginColour = airwindowsLookAndFeel.defaultColour;
     chrisTunedMeter.resetArrays();
-    for (auto& b : chrisTunedMeter.f8kHitPrev) b = false;
-    for (auto& b : chrisTunedMeter.f8kHitNow) b = false;
+    for (auto& b : chrisTunedMeter.mdHitPrev) b = false;
+    for (auto& b : chrisTunedMeter.mdHitNow) b = false;
     chrisTunedMeter.outputR = 10.0; chrisTunedMeter.outputG = 10.0; chrisTunedMeter.outputB = 10.0;
     processorRef.requestLevelReset(); //the mix gain starts again too
 }
@@ -195,7 +195,7 @@ void PluginEditor::idle()
         const juce::String what((int)msg.what >= 0 && (int)msg.what < chris::kNumWhats ? chris::kWhatNames[(int)msg.what] : "");
         if (what == "INCREMENT") {
             chrisMeter.paint(noDraw); //his scoring for this window
-            chrisTunedMeter.f8kDecay = meter.tune[6]; chrisTunedMeter.f8kGate = meter.tune[7];
+            chrisTunedMeter.mdDecay = meter.tune[6]; chrisTunedMeter.mdGate = meter.tune[7];
             chrisTunedMeter.paint(noDraw);
             //"grade" ticked and a Detail setting above 0: the grade and tone colours come from the tuned copy. Otherwise they are exactly Chris's.
             meter.gradeTuned = meter.tune[12] > 0.5f && (meter.tune[6] > 0.0f || meter.tune[7] > 0.0f);
@@ -207,7 +207,7 @@ void PluginEditor::idle()
         }
         //meterDARK's display shows the REAL level: take the level gain (normalised / mix modes) off again. Peaks are square-rooted amplitudes, slews and the beam/departure
         //lines scale with amplitude, zero-cross lengths do not change.
-        const double gn = msg.f8kGain > 0.0f ? (double)msg.f8kGain : 1.0;
+        const double gn = msg.mdGain > 0.0f ? (double)msg.mdGain : 1.0;
         float v = msg.newValue;
         if (gn != 1.0) {
             if (what.startsWith("PEAK")) v = (float)(v/std::sqrt(gn));

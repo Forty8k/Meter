@@ -30,8 +30,6 @@ juce::File PluginProcessor::userDefaultsFile()
 {
     const auto data = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
     const auto f = data.getChildFile("meterDARK").getChildFile("defaults.xml");
-    const auto old = data.getChildFile("Meter F8K").getChildFile("defaults.xml"); //from before the rename: carried over once
-    if (!f.existsAsFile() && old.existsAsFile()) { f.getParentDirectory().createDirectory(); old.copyFileTo(f); }
     return f;
 }
 
@@ -305,7 +303,7 @@ template <typename T> void PluginProcessor::feedChris(juce::AudioBuffer<T>& buff
     if (nIn <= 0 || nch < 1) return;
     if (levelResetPending.exchange(false)) {mixCeiling = 0.0; mixHold = 0;}
     if (anchorSel == 0 && mode == 0) { //stock: an exact copy, measured as Chris's plugin would
-        chrisAudio.f8kRate = 0.0; chrisAudio.f8kGainNow = 1.0;
+        chrisAudio.mdRate = 0.0; chrisAudio.mdGainNow = 1.0;
         if constexpr (std::is_same_v<T, double>) {
             scratchD.setSize(nch, nIn, false, false, true);
             for (int c = 0; c < nch; ++c) scratchD.copyFrom(c, 0, buffer, c, 0, nIn);
@@ -327,12 +325,12 @@ template <typename T> void PluginProcessor::feedChris(juce::AudioBuffer<T>& buff
     const T* inL = buffer.getReadPointer(0);
     const T* inR = buffer.getReadPointer(nch > 1 ? 1 : 0);
     int n = nIn;
-    chrisAudio.f8kRate = 0.0;
-    f8kdsp::Resampler* rl = nullptr; f8kdsp::Resampler* rr = nullptr;
+    chrisAudio.mdRate = 0.0;
+    mddsp::Resampler* rl = nullptr; mddsp::Resampler* rr = nullptr;
     if (anchorRate > 0.0 && std::fabs(hostRate - anchorRate) > 0.5 && anchorL[anchorSel-1].ok() && !anchorL[anchorSel-1].isPassThrough()) {
         rl = &anchorL[anchorSel-1]; rr = &anchorR[anchorSel-1];
     }
-    if (anchorRate > 0.0 && (rl != nullptr || std::fabs(hostRate - anchorRate) <= 0.5)) chrisAudio.f8kRate = anchorRate;
+    if (anchorRate > 0.0 && (rl != nullptr || std::fabs(hostRate - anchorRate) <= 0.5)) chrisAudio.mdRate = anchorRate;
     if (rl != nullptr) {
         rsOutL.clear(); rsOutR.clear();
         if constexpr (std::is_same_v<T, float>) {rl->process(inL, (size_t)nIn, rsOutL); rr->process(inR, (size_t)nIn, rsOutR);}
@@ -352,7 +350,7 @@ template <typename T> void PluginProcessor::feedChris(juce::AudioBuffer<T>& buff
         for (int c = 0; c < nch; ++c) { float* d = scratchF.getWritePointer(c); const T* sIn = buffer.getReadPointer(c); for (int i = 0; i < n; ++i) d[i] = (float)sIn[i]; }
     }
     //gain, in stretches of 64 samples so the mix gain can follow the ceiling; each stretch is measured with its own gain tag
-    const double rate = chrisAudio.f8kRate > 0.0 ? chrisAudio.f8kRate : hostRate;
+    const double rate = chrisAudio.mdRate > 0.0 ? chrisAudio.mdRate : hostRate;
     const int stretch = mode == 2 ? 64 : n;
     for (int start = 0; start < n; start += stretch) {
         const int cnt = std::min(stretch, n - start);
@@ -360,11 +358,11 @@ template <typename T> void PluginProcessor::feedChris(juce::AudioBuffer<T>& buff
         float* r = scratchF.getWritePointer(nch > 1 ? 1 : 0) + start;
         const double g = levelGain(mode, l, r, cnt, rate);
         if (g != 1.0) for (int c = 0; c < std::min(nch, 2); ++c) { float* d = scratchF.getWritePointer(c) + start; for (int i = 0; i < cnt; ++i) d[i] = (float)(d[i]*g); }
-        chrisAudio.f8kGainNow = g;
+        chrisAudio.mdGainNow = g;
         juce::AudioBuffer<float> view(scratchF.getArrayOfWritePointers(), nch, start, cnt);
         chrisAudio.processBlock(view, midi);
     }
-    chrisAudio.f8kGainNow = 1.0;
+    chrisAudio.mdGainNow = 1.0;
 }
 
 void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)

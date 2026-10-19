@@ -4,7 +4,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <iostream>
 
-namespace f8kmix {
+namespace mdmix {
 namespace juce {
 using namespace ::juce;
 struct Graphics {
@@ -33,4 +33,4 @@ struct Component {
     ::juce::Colour findColour(int) const { return ::juce::Colours::lightgrey; }
 };
 } // namespace juce
-} // namespace f8kmix
+} // namespace mdmix

@@ -5,7 +5,7 @@ Owner: Forty8k (Windows, works at 48 kHz, listens via Tidal at -14 LUFS). Librar
 never merge into `main`, never hand-edit generated files.
 
 ## Repo (GitHub Forty8k/Meter, fork of Airwindows Meter)
-- `f8k-lab` = the meterDARK plugin. CI "Pamplejuce": Windows + Linux must pass (macOS always fails on signing, ignore).
+- `meterdark` = the meterDARK plugin. CI "Pamplejuce": Windows + Linux must pass (macOS always fails on signing, ignore).
 - `analyser` = the Analyser app in `analyser/`. CI "meterDARK Analyser": build, selftest, level test, replay test,
   command-line end-to-end, snapshots, auto release `analyser-b<run>`.
 - Chris Johnson's code is never edited. Generators wrap it: plugin `tools/make_chris_layer.py` -> `source/chris/`;
