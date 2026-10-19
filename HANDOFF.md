@@ -1,5 +1,11 @@
 # meterDARK + meterDARK Analyser: handoff (19 Oct 2026, stages 1-10 BUILT, waiting for his hand check)
 
+## LATEST (after his Library-tab feedback)
+Library tab: same-width bars with labels above, rows weight/punch/detail, in-bar overlay lines (off by default), leader readout + legend + tooltip,
+optional extra columns (remembered in overview-columns.txt in the library folder). hintLAB: "dynamics" renamed "punch"; selected track's dots green/red.
+Plugin: hints hidden by default (tune17=1), strip label "punch". Windows installer (analyser/packaging/installer.iss, Inno Setup) + inverted icon;
+the Actions artifact is meterDARK-Analyser-Setup.exe. Not yet hand-checked.
+
 ## STATE AFTER THE BUILD (read this first)
 All ten stages are built on the `analyser` branch (app) and `meterdark` (plugin, preset/project version 11). Nothing merged into main.
 CI is the only compile/test run so far; nothing has been run on his Windows machine or his real library. Releases are SWITCHED OFF

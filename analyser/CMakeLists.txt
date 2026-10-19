@@ -26,7 +26,8 @@ target_link_libraries(meterDARKAnalyserCLI PRIVATE juce::juce_core juce::juce_au
     juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 
 if (MDARK_BUILD_GUI)
-    juce_add_gui_app(meterDARKAnalyser PRODUCT_NAME "meterDARK Analyser" COMPANY_NAME "Forty8k" VERSION 1.1.0)
+    juce_add_gui_app(meterDARKAnalyser PRODUCT_NAME "meterDARK Analyser" COMPANY_NAME "Forty8k" VERSION 1.1.0
+        ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/packaging/icon.png" ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/packaging/icon.png")
     target_sources(meterDARKAnalyser PRIVATE src/MainGui.cpp ${MDARK_ENGINE_SOURCES})
     target_compile_definitions(meterDARKAnalyser PRIVATE ${MDARK_DEFS} JUCE_APPLICATION_NAME_STRING="meterDARK Analyser" JUCE_APPLICATION_VERSION_STRING="1.1.0")
     target_link_libraries(meterDARKAnalyser PRIVATE juce::juce_gui_basics juce::juce_audio_devices juce::juce_audio_formats juce::juce_cryptography

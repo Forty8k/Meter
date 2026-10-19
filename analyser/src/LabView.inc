@@ -470,7 +470,7 @@ private:
             settingsPanel.addAndMakeVisible(r->name); settingsPanel.addAndMakeVisible(r->slider);
         };
         if (mode == 0) {
-            const char* groups[4][2] = {{"weight", "WEIGHT  (thin / full)"}, {"dynamics", "DYNAMICS  (headroom / squashed)"}, {"detail", "DETAIL  (dark / bright, one gauge)"}, {"all", "ALL THREE"}};
+            const char* groups[4][2] = {{"weight", "WEIGHT  (thin / full)"}, {"punch", "PUNCH  (headroom / squashed)"}, {"detail", "DETAIL  (dark / bright, one gauge)"}, {"all", "ALL THREE"}};
             for (auto& g : groups) {
                 addHeader(g[1]);
                 for (size_t i = 0; i < mdark::hintParams().size(); ++i) {
@@ -527,7 +527,7 @@ private:
             auto& h = owner->table.getHeader();
             h.removeAllColumns();
             if (m == 0) {
-                const char* c[] = {"Track", "Grade", "Weight", "Thin %", "Full %", "Dynamics", "Headroom %", "Squashed %", "Dark-bright", "Dark %", "Bright %", "Old weight", "Low end %"};
+                const char* c[] = {"Track", "Grade", "Weight", "Thin %", "Full %", "Punch", "Headroom %", "Squashed %", "Dark-bright", "Dark %", "Bright %", "Old weight", "Low end %"};
                 for (int i = 0; i < 13; ++i) h.addColumn(c[i], i + 1, i == 0 ? 240 : (i == 1 ? 70 : 72), 30, 600, juce::TableHeaderComponent::defaultFlags);
             } else {
                 const char* c[] = {"Track", "Original grade", "Lab grade", "Original rank", "Lab rank", "Moved"};
@@ -596,6 +596,7 @@ private:
             g.drawText(text(i, col), 6, 0, w - 12, h, col <= 2 || (mode == 1 && col == 3) ? juce::Justification::centredLeft : juce::Justification::centredRight, true);
         }
         void sortOrderChanged(int col, bool forwards) override { sortCol = col; fwd = forwards; refresh(); }
+        void selectedRowsChanged(int) override { owner->dist.repaint(); }
     } model;
     friend struct Model;
 
@@ -605,7 +606,7 @@ private:
         void paint(juce::Graphics& g) override {
             g.fillAll(kPanel.darker(0.2f));
             const auto& o = *owner;
-            const char* names[3] = {"weight  (thin | full)", "dynamics  (headroom | squashed)", "dark | bright  (balance, dark left)"};
+            const char* names[3] = {"weight  (thin | full)", "punch  (headroom | squashed)", "dark | bright  (balance, dark left)"};
             const int rowH = getHeight()/3;
             for (int k = 0; k < 3; ++k) {
                 auto r = getLocalBounds().withY(k*rowH).withHeight(rowH).reduced(8, 3);
@@ -618,11 +619,26 @@ private:
                 if (k == 0) {line(h["tune9"], kDim); line(h["tune9"] - h["tune0"], kYours); line(h["tune9"] + h["tune1"], kAccent);}
                 if (k == 1) {line(h["tune11"], kDim); line(h["tune11"] - h["tune2"], kYours); line(h["tune11"] + h["tune3"], kAccent);}
                 if (k == 2) {line(h["tune18"], kDim); line(h["tune18"] - h["tune4"], kYours); line(h["tune18"] + h["tune5"], kAccent);}
-                for (auto& t : o.hintResults) {
+                int selTrack = -1; { const int sr = o.table.getSelectedRow(); if (sr >= 0 && sr < (int)o.model.order.size()) selTrack = o.model.order[(size_t)sr]; }
+                for (size_t ti = 0; ti < o.hintResults.size(); ++ti) {
+                    const auto& t = o.hintResults[ti];
+                    if ((int)ti == selTrack) continue; //drawn last, on top
                     if (t.audible == 0) continue;
                     const double v = k == 0 ? t.weight : (k == 1 ? t.dynamics : t.tilt);
                     g.setColour(kText.withAlpha(0.55f));
                     g.fillEllipse(x0 + wd*(float)juce::jlimit(0.0, 1.0, v) - 2.5f, cy - 2.5f, 5.0f, 5.0f);
+                }
+                //the highlighted track: green while this gauge sits inside the balanced zone, red once it would trigger a hint
+                if (selTrack >= 0 && selTrack < (int)o.hintResults.size() && o.hintResults[(size_t)selTrack].audible > 0) {
+                    const auto& t = o.hintResults[(size_t)selTrack];
+                    const double v = k == 0 ? t.weight : (k == 1 ? t.dynamics : t.tilt);
+                    const double mid = k == 0 ? h["tune9"] : (k == 1 ? h["tune11"] : h["tune18"]);
+                    const double lo = mid - (k == 0 ? h["tune0"] : (k == 1 ? h["tune2"] : h["tune4"]));
+                    const double hi = mid + (k == 0 ? h["tune1"] : (k == 1 ? h["tune3"] : h["tune5"]));
+                    const bool ok = v >= lo && v <= hi;
+                    const float px = x0 + wd*(float)juce::jlimit(0.0, 1.0, v);
+                    g.setColour(juce::Colours::black.withAlpha(0.7f)); g.fillEllipse(px - 7.0f, cy - 7.0f, 14.0f, 14.0f);
+                    g.setColour(ok ? juce::Colour(0xff3fd16a) : juce::Colour(0xffe5484d)); g.fillEllipse(px - 5.5f, cy - 5.5f, 11.0f, 11.0f);
                 }
             }
         }

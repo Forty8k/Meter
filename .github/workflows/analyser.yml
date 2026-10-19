@@ -206,6 +206,14 @@ jobs:
           fi
           cp analyser/HOW-TO.txt package/
           cp analyser/tools/mdark_library.py package/
+      - name: Windows installer (Inno Setup)
+        if: runner.os == 'Windows'
+        run: |
+          rm -rf analyser/package-stage analyser/package-out
+          cp -r package analyser/package-stage
+          iscc "analyser\\packaging\\installer.iss"
+          rm -rf package && mkdir package
+          cp analyser/package-out/meterDARK-Analyser-Setup.exe package/
       - uses: actions/upload-artifact@v4
         with:
           name: meterDARK-Analyser-${{ matrix.name }}

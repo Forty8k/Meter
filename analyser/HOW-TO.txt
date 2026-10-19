@@ -85,11 +85,20 @@ Possible duplicates
   shows only those. Right-click a track (or open its details) and choose "Not a duplicate" to stop it being flagged.
 
 The Library tab (overview)
-  Top: the selected track: name, grade, a large tone bar (the meter's top colour bar over the track) with overlay lines (white = peak,
-    green = bass position, red = slew; "Overlay lines" turns them off), and three separate bars under it: weight (green), peaks (blue),
-    slew (red); each lights up where that meter led the other two. Under them: length, sample rate, bit depth, peak, true peak, LUFS, Meter version, source.
-    Play / Stop plays the file from where it was when you added it; click or drag on the big bar to seek.
-  Bottom: three columns: track name, a small tone strip, grade (click the header to sort; best first). Stacked strips show trends.
+  Top: the selected track: name, grade, technical details, then a large tone bar (the meter's top colour bar over the track) and three small
+    bars under it, all on the same horizontal scale so playback lines up across all four. Rows are named weight / punch / detail.
+    Each small bar lights up where that meter is leading the other two:
+      Green = weight leads (the weight and low end carry that section, at the expense of punch and detail).
+      Blue = punch leads (the peaks, hits and impact are out in front; it does not mean squashed).
+      Red = detail leads (the slews, brightness and fine high detail are out in front).
+      White in the big bar with all three small bars dark = balanced: nothing leads.
+      A lit bar says "this is what dominates here", not "this is wrong".
+    The same legend shows as a tooltip over the bars. A line under the bars says in words who leads at the playhead or mouse
+    ("2:41 punch leads", "punch + detail lead", "balanced").
+    "Overlay lines" (off by default) draws, inside each small bar, a line: weight = bass position, punch = peak, detail = slew.
+    Play / Stop plays the file from where it was when you added it; click or drag on any of the bars to seek.
+  Bottom: the list. Default columns: track name, a small tone strip, grade. Right-click the column header to add more columns (artist, album, year,
+    BPM, key, LUFS, peak, true peak, length, sample rate, bits, source, format); your choice is remembered. Click a header to sort.
   "Build / update records" makes the small lean record of every track from the window data already stored (no audio is read) and keeps tags and
     source up to date. Records are in the library's lean folder. "Full table" opens the old table.
   "Source" (Tidal, Spotify, Apple Music, Vinyl, CD, HDtracks, Qobuz, Other, or type your own in the full table's Source column) says where a copy came from.
@@ -105,6 +114,7 @@ The gradeLAB tab
 
 The hintLAB tab  (this was called the Lab; its "Original scoring" part will move to a gradeLAB tab later)
   An experiment space. Nothing in it changes the Library's real grades.
+  Click a track in the list: its dot in the top strips is drawn big, green if that gauge is inside the balanced zone, red if it would trigger a hint.
   meterDARK hints: the plugin's thin/full, headroom/squashed and dark/bright hints (three gauges; dark/bright is one gauge with a width shade), simulated over your whole library as
     you move the settings. The strip at the top shows where every track's readings sit (dots) against the triggers (lines);
     the table shows each track's average readings and how much of the time each hint would show (yellow = most of it).

@@ -4,9 +4,9 @@
 // tone strip, and a sortable grade. Stacked together the strips show trends across the library. It reads only the lean records (see LeanRecord.h); the audio is
 // opened from its stored file path just for playing. The full table stays one click away.
 
-class GlanceView : public juce::Component, public juce::TableListBoxModel, private juce::Timer {
+class GlanceView : public juce::Component, public juce::TableListBoxModel, public juce::TooltipClient, private juce::Timer, private juce::TableHeaderComponent::Listener {
 public:
-    struct Item { juce::String id, name, grade, path, song, source; double key = 0, dur = 0, sr = 0; int group = -1, groupSize = 1; bool best = false, shared = false; mdark::LeanRecord rec; };
+    struct Item { juce::String id, name, grade, path, song, source; juce::String bpm, musicalKey; double key = 0, dur = 0, sr = 0; int group = -1, groupSize = 1; bool best = false, shared = false; mdark::LeanRecord rec; };
     std::function<std::shared_ptr<mdark::Library>()> getLibrary;
     std::function<std::shared_ptr<const std::set<juce::String>>()> getAllowed;
     std::function<int()> getFilterGen;
@@ -20,10 +20,17 @@ public:
         table.getHeader().setColour(juce::TableHeaderComponent::backgroundColourId, kPanel);
         table.getHeader().setColour(juce::TableHeaderComponent::textColourId, kText);
         table.getHeader().setColour(juce::TableHeaderComponent::outlineColourId, kBg);
-        table.getHeader().addColumn("Track", 1, 420, 120, 2000, juce::TableHeaderComponent::defaultFlags);
-        table.getHeader().addColumn("Tone", 2, 320, 80, 1200, juce::TableHeaderComponent::notSortable);
-        table.getHeader().addColumn("Grade", 3, 110, 60, 300, juce::TableHeaderComponent::defaultFlags);
-        table.getHeader().setSortColumnId(3, true);
+        {   //the three default columns, and the rest of the full table's columns, hidden until you add them (right-click the header)
+            const int hidden = juce::TableHeaderComponent::defaultFlags & ~juce::TableHeaderComponent::visible;
+            auto& h = table.getHeader();
+            h.addColumn("Track", 1, 420, 120, 2000, juce::TableHeaderComponent::defaultFlags & ~juce::TableHeaderComponent::appearsOnColumnMenu);
+            h.addColumn("Tone", 2, 320, 80, 1200, juce::TableHeaderComponent::visible | juce::TableHeaderComponent::resizable | juce::TableHeaderComponent::appearsOnColumnMenu);
+            h.addColumn("Grade", 3, 110, 60, 300, juce::TableHeaderComponent::defaultFlags);
+            const struct {const char* name; int w;} extra[] = {{"Artist", 150}, {"Album", 150}, {"Year", 56}, {"BPM", 56}, {"Key", 80}, {"LUFS", 60}, {"Peak dB", 66}, {"True peak", 70}, {"Length", 62}, {"Rate Hz", 70}, {"Bits", 44}, {"Source", 100}, {"Format", 90}};
+            for (int i = 0; i < 13; ++i) h.addColumn(extra[i].name, 4 + i, extra[i].w, 40, 600, hidden);
+            h.setSortColumnId(3, true);
+            h.addListener(this);
+        }
         for (auto* b : {&playButton, &linesButton, &buildButton, &compareButton, &shareButton}) {addAndMakeVisible(b); styleButton(*b);}
         shareButton.onClick = [this] { shareMenu(); };
         compareButton.setClickingTogglesState(true); compareButton.setColour(juce::TextButton::buttonOnColourId, kSelect);
@@ -33,7 +40,7 @@ public:
         for (int i = 0; i < 8; ++i) sourceBox.addItem(kSources[i], i + 1);
         sourceBox.setColour(juce::ComboBox::backgroundColourId, kPanel); sourceBox.setColour(juce::ComboBox::textColourId, kText); sourceBox.setColour(juce::ComboBox::outlineColourId, kPanel);
         sourceBox.onChange = [this] { setSourceOfSelected(sourceBox.getText()); };
-        linesButton.setClickingTogglesState(true); linesButton.setToggleState(true, juce::dontSendNotification);
+        linesButton.setClickingTogglesState(true); linesButton.setToggleState(false, juce::dontSendNotification);
         linesButton.setColour(juce::TextButton::buttonOnColourId, kSelect);
         linesButton.onClick = [this] { repaint(); };
         playButton.onClick = [this] { togglePlay(); };
@@ -43,7 +50,7 @@ public:
         startTimer(250);
     }
     ~GlanceView() override {
-        stopTimer();
+        stopTimer(); table.getHeader().removeListener(this);
         if (devices != nullptr) { devices->removeAudioCallback(&player); }
         player.setSource(nullptr); transport.setSource(nullptr); readAhead.stopThread(2000);
         pool.removeAllJobs(true, 10000);
@@ -53,7 +60,7 @@ public:
         auto lib = getLibrary ? getLibrary() : nullptr;
         if (lib == nullptr) return;
         loadedFor = lib.get(); loadedChange = lib->changeCount();
-        items = gather(lib, getAllowed ? getAllowed() : nullptr); loaded = true;
+        items = gather(lib, getAllowed ? getAllowed() : nullptr); loaded = true; restoreColumns();
         status.setText(juce::String((int)items.size()) + " tracks", juce::dontSendNotification);
         resort(); repaint();
     }
@@ -68,7 +75,7 @@ public:
         sourceBox.setBounds(bar.removeFromLeft(130)); bar.removeFromLeft(6);
         shareButton.setBounds(bar.removeFromLeft(120)); bar.removeFromLeft(10);
         status.setBounds(bar.withTrimmedRight(146));
-        const int topH = juce::jmax(180, (int)(r.getHeight()*0.40f));
+        const int topH = juce::jmax(372, (int)(r.getHeight()*0.44f));
         topArea = r.removeFromTop(topH);
         table.setBounds(r);
     }
@@ -91,39 +98,118 @@ public:
         g.drawText(it->name, head.withTrimmedRight(220), juce::Justification::centredLeft, true);
         g.setColour(kAccent); g.setFont(juce::Font(26.0f, juce::Font::bold));
         g.drawText(it->grade, head.removeFromRight(210), juce::Justification::centredRight);
-        // the large overall tone bar
-        const int barH = juce::jmax(40, (int)(a.getHeight()*0.34f));
+        // technical details
+        {
+            juce::StringArray d;
+            auto num = [&](const char* k, const char* fmt) { const juce::String v = juce::String(rec.get(k)); return v.isEmpty() ? juce::String("-") : juce::String::formatted(fmt, v.getDoubleValue()); };
+            const juce::String bits = juce::String(rec.get("bits")), src = juce::String(rec.get("source"));
+            const int secs = juce::roundToInt(juce::String(rec.get("length_s")).getDoubleValue());
+            d.add("Length " + juce::String(secs/60) + ":" + juce::String::formatted("%02d", secs % 60));
+            d.add(num("sample_rate", "%.0f Hz") + " / " + (bits.isEmpty() ? juce::String("-") : bits + " bit"));
+            d.add("Peak " + num("peak_db", "%.1f dBFS")); d.add("True peak " + num("true_peak_db", "%.1f dBTP")); d.add("LUFS " + num("lufs", "%.1f"));
+            d.add("Meter " + juce::String(rec.get("meter_version")));
+            d.add("Source " + (src.isEmpty() ? juce::String("not set") : src));
+            g.setColour(kText); g.setFont(juce::Font(13.0f));
+            g.drawFittedText(d.joinIntoString("      "), a.removeFromTop(20), juce::Justification::centredLeft, 1);
+        }
+        a.removeFromTop(4);
+        // the large overall tone bar: the three small bars under it share its exact left edge and width, so a point in time is one x position in all four
+        const int barH = juce::jlimit(50, 110, (int)(a.getHeight()*0.30f));
         bigBar = a.removeFromTop(barH);
         drawBar(g, bigBar, rec, 0);
-        if (linesButton.getToggleState()) drawLines(g, bigBar, rec);
-        if (transportReady) { //playhead
-            const double len = transport.getLengthInSeconds();
-            if (len > 0) { const float x = (float)bigBar.getX() + (float)(transport.getCurrentPosition()/len)*(float)bigBar.getWidth(); g.setColour(juce::Colours::white); g.fillRect(x - 1.0f, (float)bigBar.getY() - 3.0f, 2.0f, (float)bigBar.getHeight() + 6.0f); }
-        }
-        a.removeFromTop(6);
-        // the three separate meters
-        const char* names[3] = {"weight", "peaks", "slew"};
-        const int smallH = 15;
+        a.removeFromTop(4);
+        // the three separate meters: the label sits above each bar, the line (when "Overlay lines" is on) lives inside its own bar
+        static const char* names[3] = {"weight", "punch", "detail"};
+        static const char* leadWords[3] = {"weight leads", "punch leads", "detail leads"};
+        (void)leadWords;
+        const int smallH = 24;
         for (int k = 1; k <= 3; ++k) {
-            auto row = a.removeFromTop(smallH);
+            auto labelRow = a.removeFromTop(14);
+            g.setColour(meterColour(k - 1)); g.fillRect(bigBar.getX(), labelRow.getY() + 3, 8, 8);
             g.setColour(kDim); g.setFont(juce::Font(12.0f));
-            g.drawText(names[k - 1], row.removeFromLeft(54), juce::Justification::centredLeft);
-            drawBar(g, row.withTrimmedLeft(0).withWidth(bigBar.getWidth() - 54).withX(bigBar.getX() + 54), rec, k);
+            g.drawText(names[k - 1], bigBar.getX() + 13, labelRow.getY(), 120, 14, juce::Justification::centredLeft);
+            auto row = a.removeFromTop(smallH).withX(bigBar.getX()).withWidth(bigBar.getWidth());
+            smallBars[k - 1] = row;
+            drawBar(g, row, rec, k);
+            if (linesButton.getToggleState()) drawLine(g, row, k == 1 ? rec.lineBass : k == 2 ? rec.linePeak : rec.lineSlew, meterColour(k - 1).interpolatedWith(juce::Colours::white, 0.45f));
             a.removeFromTop(3);
         }
-        // technical details
-        juce::StringArray d;
-        auto num = [&](const char* k, const char* fmt) { const juce::String v = juce::String(rec.get(k)); return v.isEmpty() ? juce::String("-") : juce::String::formatted(fmt, v.getDoubleValue()); };
-        const juce::String bits = juce::String(rec.get("bits")), src = juce::String(rec.get("source"));
-        const int secs = juce::roundToInt(juce::String(rec.get("length_s")).getDoubleValue());
-        d.add("Length " + juce::String(secs/60) + ":" + juce::String::formatted("%02d", secs % 60));
-        d.add(num("sample_rate", "%.0f Hz") + " / " + (bits.isEmpty() ? juce::String("-") : bits + " bit"));
-        d.add("Peak " + num("peak_db", "%.1f dBFS")); d.add("True peak " + num("true_peak_db", "%.1f dBTP")); d.add("LUFS " + num("lufs", "%.1f"));
-        d.add("Meter " + juce::String(rec.get("meter_version")));
-        d.add("Source " + (src.isEmpty() ? juce::String("not set") : src));
-        g.setColour(kText); g.setFont(juce::Font(13.0f));
-        g.drawFittedText(d.joinIntoString("      "), a.removeFromTop(34), juce::Justification::topLeft, 2);
+        // the playhead, through all four bars at the same x
+        {
+            double frac = -1;
+            if (transportReady) { const double len = transport.getLengthInSeconds(); if (len > 0) frac = transport.getCurrentPosition()/len; }
+            if (frac >= 0) {
+                const float x = (float)bigBar.getX() + (float)frac*(float)bigBar.getWidth();
+                g.setColour(juce::Colours::white); g.fillRect(x - 1.0f, (float)bigBar.getY() - 2.0f, 2.0f, (float)(smallBars[2].getBottom() - bigBar.getY()) + 4.0f);
+            }
+        }
+        // what leads where the playhead is (or the mouse)
+        {
+            auto line = a.removeFromTop(20);
+            double frac = hoverFrac;
+            if (transportReady) { const double len = transport.getLengthInSeconds(); if (len > 0) frac = transport.getCurrentPosition()/len; }
+            g.setFont(juce::Font(14.0f, juce::Font::bold));
+            if (frac >= 0 && rec.columns > 0) {
+                const int c = juce::jlimit(0, rec.columns - 1, (int)(frac*rec.columns));
+                const double secs = frac*juce::String(rec.get("length_s")).getDoubleValue();
+                g.setColour(kAccent);
+                g.drawText(juce::String((int)secs/60) + ":" + juce::String::formatted("%02d", (int)secs % 60) + "   " + whoLeads(rec, c), line, juce::Justification::centredLeft);
+            } else {
+                g.setColour(kDim); g.setFont(juce::Font(13.0f));
+                g.drawText("Hover over the bars, or play the track, to see what leads at that point.", line, juce::Justification::centredLeft);
+            }
+        }
+        // the legend: how to read the bars
+        legendArea = a.removeFromTop(juce::jmax(60, a.getHeight()));
+        paintLegend(g, legendArea.withTrimmedBottom(2));
     }
+
+    static juce::Colour meterColour(int k) { static const juce::Colour c[3] = {juce::Colour(70, 205, 100), juce::Colour(80, 140, 255), juce::Colour(240, 85, 75)}; return c[k]; }
+    //which meter leads at a column: one word group. A meter leads when it is clearly ahead; two are named when they are nearly level; none = balanced
+    static juce::String whoLeads(const mdark::LeanRecord& rec, int c) {
+        const double d[3] = {rec.devWeight[(size_t)c]/127.0, rec.devPeaks[(size_t)c]/127.0, rec.devSlew[(size_t)c]/127.0};
+        static const char* n[3] = {"weight", "punch", "detail"};
+        int best = 0; for (int i = 1; i < 3; ++i) if (d[i] > d[best]) best = i;
+        if (d[best] < 0.10) return "balanced";
+        juce::StringArray lead; lead.add(n[best]);
+        for (int i = 0; i < 3; ++i) if (i != best && d[i] > 0.10 && d[best] - d[i] < 0.06) lead.add(n[i]);
+        return lead.joinIntoString(" + ") + " lead" + (lead.size() == 1 ? "s" : "");
+    }
+    static const char* legendText(int i) {
+        static const char* t[5] = {
+            "Green means weight leads. The weight and low end are carrying that section, at the expense of punch and detail.",
+            "Blue means punch leads. The peaks, the hits and impact, are out in front. It doesn't mean squashed.",
+            "Red means detail leads. The slews, the brightness and fine high detail, are out in front.",
+            "White in the big bar, with all three small bars dark, means balanced: nothing leads.",
+            "So a lit bar says \"this is what dominates here\", not \"this is wrong\"."};
+        return t[i];
+    }
+    void paintLegend(juce::Graphics& g, juce::Rectangle<int> r) {
+        g.setFont(juce::Font(12.5f));
+        const int colW = r.getWidth()/2 - 10;
+        for (int i = 0; i < 4; ++i) {
+            const int cx = r.getX() + (i % 2)*(colW + 20), cy = r.getY() + (i/2)*34;
+            if (i < 3) g.setColour(meterColour(i)); else g.setColour(juce::Colours::white);
+            g.fillRect(cx, cy + 3, 9, 9);
+            g.setColour(kText.withAlpha(0.9f));
+            g.drawFittedText(legendText(i), cx + 15, cy, colW - 15, 32, juce::Justification::topLeft, 2, 1.0f);
+        }
+        g.setColour(kDim); g.setFont(juce::Font(12.5f, juce::Font::italic));
+        g.drawText(legendText(4), r.getX(), r.getY() + 70, r.getWidth(), 16, juce::Justification::centredLeft);
+    }
+    //the hover tooltip over the bars: the same legend
+    juce::String getTooltip() override {
+        const auto p = getMouseXYRelative();
+        if (bigBar.expanded(0, 4).contains(p) || smallBars[0].getUnion(smallBars[2]).contains(p))
+            return juce::String(legendText(0)) + "\n" + legendText(1) + "\n" + legendText(2) + "\n" + legendText(3) + "\n" + legendText(4);
+        return {};
+    }
+    void mouseMove(const juce::MouseEvent& e) override {
+        const bool over = bigBar.getWidth() > 0 && e.y >= bigBar.getY() && e.y <= smallBars[2].getBottom() && e.x >= bigBar.getX() && e.x <= bigBar.getRight();
+        const double f = over ? juce::jlimit(0.0, 1.0, (double)(e.x - bigBar.getX())/(double)bigBar.getWidth()) : -1.0;
+        if (f != hoverFrac) { hoverFrac = f; repaint(topArea); }
+    }
+    void mouseExit(const juce::MouseEvent&) override { if (hoverFrac >= 0) { hoverFrac = -1; repaint(topArea); } }
 
     //COMPARE VERSIONS: every copy of the song, one under the other, each with its source, grade and levels, so a vinyl original and a remaster can be read against each other
     void paintCompare(juce::Graphics& g, juce::Rectangle<int> a, const Item& sel) {
@@ -147,7 +233,7 @@ public:
     }
 
     void mouseDown(const juce::MouseEvent& e) override {
-        if (bigBar.expanded(0, 6).contains(e.getPosition()) && transportReady) {
+        if (bigBar.getWidth() > 0 && e.y >= bigBar.getY() - 4 && e.y <= smallBars[2].getBottom() + 4 && transportReady) {
             const double len = transport.getLengthInSeconds();
             transport.setPosition(len*juce::jlimit(0.0, 1.0, (double)(e.x - bigBar.getX())/(double)juce::jmax(1, bigBar.getWidth())));
             repaint();
@@ -163,13 +249,48 @@ public:
         const Item& it = items[order[(size_t)row]];
         if (col == 2) { drawBar(g, juce::Rectangle<int>(4, 3, w - 8, h - 6), it.rec, 0); return; }
         g.setColour(kText); g.setFont(juce::Font(14.0f));
+        if (col >= 4) { g.drawText(cellText(it, col), 6, 0, w - 12, h, isNumericCol(col) ? juce::Justification::centredRight : juce::Justification::centredLeft, true); return; }
         juce::String t = col == 1 ? it.name : it.grade;
         if (col == 1 && it.groupSize > 1) t << "   (" << it.groupSize << " versions" << (it.source.isNotEmpty() ? ", " + it.source : juce::String()) << ")";
         if (col == 3 && it.best) t << "  best";
         g.setColour(col == 3 && it.best ? kAccent : kText);
         g.drawText(t, 6, 0, w - 12, h, juce::Justification::centredLeft, true);
     }
+    static bool isNumericCol(int col) { return col == 6 || col == 7 || (col >= 9 && col <= 14); }
+    static juce::String cellText(const Item& it, int col) {
+        const auto& r = it.rec;
+        auto f1 = [&](const char* k) { const juce::String v = juce::String(r.get(k)); return v.isEmpty() ? juce::String() : juce::String(v.getDoubleValue(), 1); };
+        switch (col) {
+            case 4: return juce::String(r.get("artist")); case 5: return juce::String(r.get("album")); case 6: return juce::String(r.get("year"));
+            case 7: return it.bpm; case 8: return it.musicalKey; case 9: return f1("lufs"); case 10: return f1("peak_db"); case 11: return f1("true_peak_db");
+            case 12: { const int s = juce::roundToInt(juce::String(r.get("length_s")).getDoubleValue()); return s > 0 ? juce::String(s/60) + ":" + juce::String::formatted("%02d", s % 60) : juce::String(); }
+            case 13: return juce::String(r.get("sample_rate")); case 14: return juce::String(r.get("bits")); case 15: return it.source; case 16: return juce::String(r.get("format"));
+            default: return {};
+        }
+    }
+    static double cellNumber(const Item& it, int col) {
+        const auto& r = it.rec;
+        switch (col) {
+            case 6: return juce::String(r.get("year")).getDoubleValue(); case 7: return it.bpm.getDoubleValue();
+            case 9: return juce::String(r.get("lufs")).getDoubleValue(); case 10: return juce::String(r.get("peak_db")).getDoubleValue(); case 11: return juce::String(r.get("true_peak_db")).getDoubleValue();
+            case 12: return juce::String(r.get("length_s")).getDoubleValue(); case 13: return juce::String(r.get("sample_rate")).getDoubleValue(); case 14: return juce::String(r.get("bits")).getDoubleValue();
+            default: return 0;
+        }
+    }
     void sortOrderChanged(int col, bool fwd) override { sortCol = col; sortFwd = fwd; resort(); }
+    //remember which columns you added, their order and widths (per library)
+    void tableColumnsChanged(juce::TableHeaderComponent*) override { saveColumns(); }
+    void tableColumnsResized(juce::TableHeaderComponent*) override { saveColumns(); }
+    void tableSortOrderChanged(juce::TableHeaderComponent*) override {}
+    juce::File overviewColumnsFile() const { auto lib = getLibrary ? getLibrary() : nullptr; return lib ? lib->folder.getChildFile("overview-columns.txt") : juce::File(); }
+    void saveColumns() { if (!restoredColumns) return; const auto f = overviewColumnsFile(); if (f != juce::File()) f.replaceWithText(table.getHeader().toString()); }
+    void restoreColumns() {
+        if (restoredColumns) return;
+        const auto f = overviewColumnsFile();
+        if (f == juce::File()) return;
+        restoredColumns = true;
+        if (f.existsAsFile()) { const juce::String t = f.loadFileAsString(); if (t.isNotEmpty()) table.getHeader().restoreFromString(t); }
+    }
     void selectedRowsChanged(int row) override {
         if (row < 0 || row >= (int)order.size()) return;
         selectedId = items[order[(size_t)row]].id;
@@ -181,8 +302,8 @@ public:
 private:
     std::vector<Item> items; std::vector<size_t> order;
     bool loaded = false, loading = false, building = false; const void* loadedFor = nullptr; int loadedChange = -1, seenGen = -1;
-    juce::String selectedId; int sortCol = 3; bool sortFwd = true;
-    juce::Rectangle<int> topArea, bigBar;
+    juce::String selectedId; int sortCol = 3; bool sortFwd = true; bool restoredColumns = false;
+    juce::Rectangle<int> topArea, bigBar, legendArea, smallBars[3]; double hoverFrac = -1; juce::TooltipWindow tooltips{this, 500};
     juce::TableListBox table;
     juce::TextButton shareButton{"Share packs..."};
     std::unique_ptr<juce::FileChooser> chooser;
@@ -253,18 +374,15 @@ private:
             g.setColour(col); g.fillRect(r.getX() + x, r.getY(), 1, r.getHeight());
         }
     }
-    static void drawLines(juce::Graphics& g, juce::Rectangle<int> r, const mdark::LeanRecord& rec) {
-        if (rec.columns < 2) return;
-        auto line = [&](const std::vector<uint8_t>& v, juce::Colour c) {
-            juce::Path p;
-            for (int x = 0; x < r.getWidth(); ++x) {
-                const int col = juce::jmin(rec.columns - 1, (int)((int64_t)x*rec.columns/r.getWidth()));
-                const float y = (float)r.getBottom() - (float)v[(size_t)col]/200.0f*(float)r.getHeight();
-                if (x == 0) p.startNewSubPath((float)r.getX(), y); else p.lineTo((float)(r.getX() + x), y);
-            }
-            g.setColour(c.withAlpha(0.85f)); g.strokePath(p, juce::PathStrokeType(1.2f));
-        };
-        line(rec.linePeak, juce::Colour(255, 255, 255)); line(rec.lineBass, juce::Colour(60, 220, 110)); line(rec.lineSlew, juce::Colour(255, 90, 80));
+    static void drawLine(juce::Graphics& g, juce::Rectangle<int> r, const std::vector<uint8_t>& v, juce::Colour c) {
+        if (v.size() < 2 || r.getWidth() < 2) return;
+        juce::Path p;
+        for (int x = 0; x < r.getWidth(); ++x) {
+            const size_t col = juce::jmin(v.size() - 1, (size_t)((int64_t)x*(int64_t)v.size()/r.getWidth()));
+            const float y = (float)r.getBottom() - 1.0f - (float)v[col]/200.0f*(float)(r.getHeight() - 2);
+            if (x == 0) p.startNewSubPath((float)r.getX(), y); else p.lineTo((float)(r.getX() + x), y);
+        }
+        g.setColour(c.withAlpha(0.95f)); g.strokePath(p, juce::PathStrokeType(1.3f));
     }
 
     //---------------------------------------------------------------- data
@@ -273,6 +391,10 @@ private:
         for (size_t i = 0; i < items.size(); ++i) order[i] = i;
         std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
             if (sortCol == 1) { const int c = items[a].name.compareNatural(items[b].name); return sortFwd ? c < 0 : c > 0; }
+            if (sortCol >= 4) {
+                if (isNumericCol(sortCol)) { const double x = cellNumber(items[a], sortCol), y = cellNumber(items[b], sortCol); return sortFwd ? x < y : x > y; }
+                const int c = cellText(items[a], sortCol).compareNatural(cellText(items[b], sortCol)); return sortFwd ? c < 0 : c > 0;
+            }
             return sortFwd ? items[a].key < items[b].key : items[a].key > items[b].key; //grade: Chris's order (numbered bonus first, then by letter value)
         });
         table.updateContent(); table.repaint();
@@ -309,7 +431,8 @@ private:
     }
     static std::vector<Item> gather(const std::shared_ptr<mdark::Library>& lib, const std::shared_ptr<const std::set<juce::String>>& allowed) {
         std::vector<Item> out;
-            const auto idx = lib->index();
+        const auto idx = lib->index();
+        const auto users = lib->userValues();
         for (size_t r = 0; r < idx.rows.size(); ++r) {
             const juce::String id = idx.get(r, "id");
             if (allowed && !allowed->count(id)) continue;
@@ -322,6 +445,8 @@ private:
             const double lv = juce::String(it.rec.get("letter_value")).getDoubleValue();
             it.key = (bonus >= 1 && bonus <= 80) ? (double)bonus : 1000.0 - lv;
             it.path = idx.get(r, "source_path");
+            it.bpm = idx.get(r, "bpm_est"); it.musicalKey = idx.get(r, "key_est");
+            { auto uv = users.find(id); if (uv != users.end()) { auto b = uv->second.find("bpm"); if (b != uv->second.end() && b->second.isNotEmpty()) it.bpm = b->second; auto k = uv->second.find("key"); if (k != uv->second.end() && k->second.isNotEmpty()) it.musicalKey = k->second; } }
             it.source = juce::String(it.rec.get("source"));
             it.dur = juce::String(it.rec.get("length_s")).getDoubleValue(); it.sr = juce::String(it.rec.get("sample_rate")).getDoubleValue();
             it.song = songKey(artist, title, idx.get(r, "file"));
@@ -357,7 +482,7 @@ private:
             std::vector<Item> out = gather(lib, allowed);
             juce::MessageManager::callAsync([this, sp, out = std::move(out)]() mutable {
                 if (sp == nullptr) return;
-                items = std::move(out); loading = false; loaded = true;
+                items = std::move(out); loading = false; loaded = true; restoreColumns();
                 status.setText(juce::String((int)items.size()) + " tracks", juce::dontSendNotification);
                 resort(); repaint();
             });
