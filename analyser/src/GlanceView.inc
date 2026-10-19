@@ -177,7 +177,7 @@ public:
     }
     static const char* legendText(int i) {
         static const char* t[5] = {
-            "GREEN means TONE leads. The body or weight of the track carries this section, at the expense of punch and detail.",
+            "GREEN means TONE leads. The body or weight of the track carries this section.",
             "BLUE means PUNCH leads. The peaks, the hits and impact, are out in front. It doesn't mean squashed.",
             "RED means DETAIL leads. The slews, the brightness and fine high detail, are out in front.",
             "White in the big bar, with all three small bars dark, means balanced: nothing leads.",

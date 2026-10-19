@@ -88,7 +88,7 @@ The Library tab (overview)
   Top: the selected track: name, grade, technical details, then a large tone bar (the meter's top colour bar over the track) and three small
     bars under it, all on the same horizontal scale so playback lines up across all four. Rows are named tone / punch / detail.
     Each small bar lights up where that meter is leading the other two:
-      Green = TONE leads (the body or weight of the track carries that section, at the expense of punch and detail).
+      Green = TONE leads (the body or weight of the track carries that section).
       Blue = PUNCH leads (the peaks, hits and impact are out in front; it does not mean squashed).
       Red = DETAIL leads (the slews, brightness and fine high detail are out in front).
       White in the big bar with all three small bars dark = balanced: nothing leads.
