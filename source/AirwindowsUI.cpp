@@ -611,7 +611,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         }
     }
     
-    const juce::String scoreStr = bonusScore+totalPackage+authority+power+detail+((gradeTuned || levelMode != 0 || gradeConverted) ? "*" : ""); //* = not exactly Chris's stock grade: the Detail decay / fill gate are in the scoring, a level mode is on, or the audio is converted to the anchor rate
+    const juce::String scoreStr = bonusScore+totalPackage+authority+power+detail+((gradeTuned || levelMode != 0) ? "*" : ""); //* = this grade is not exactly Chris's stock grade: the Detail decay / fill gate are in the scoring (grade ticked), or a level mode is on. The anchor-rate conversion never counts (it is always on, as a fix), nor do the hint settings.
     float scaleFont = (sqrt(vS*64.0f)*1.618f);
     if (scaleFont > 10.0f) {
         g.setFont(scaleFont*1.618f);

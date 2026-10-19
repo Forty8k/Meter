@@ -293,7 +293,6 @@ struct AirwindowsMeter : public juce::Component
     //plus the slew colour shares and the track's own peak ceiling. Index 0 = low end, 1 = dynamics.
     float hintUpperAvg[3] = {0.5f, 0.5f, 0.5f};
     float hintRedAvg = 0.0f;   //slews: share of recent dots that are red (slews well ahead of peaks)
-    bool gradeConverted = false; //set by the editor: the audio is being converted to the anchor rate (also shown as *)
     bool gradeTuned = false; //set by the editor: the grade and tone colours come from the tuned copy of Chris's meter (shown as * after the grade)
     bool hintRedPrev = false; //the window before was red (for the fill gate on the bright reading)
     float hintRedRun = 0.0f, hintGreenRun = 0.0f; //how many windows in a row have been red / green: sustained runs count fully, brief ones count less
