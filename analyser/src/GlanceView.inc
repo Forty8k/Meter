@@ -119,8 +119,8 @@ public:
         drawBar(g, bigBar, rec, 0);
         a.removeFromTop(4);
         // the three separate meters: the label sits above each bar, the line (when "Overlay lines" is on) lives inside its own bar
-        static const char* names[3] = {"weight", "punch", "detail"};
-        static const char* leadWords[3] = {"weight leads", "punch leads", "detail leads"};
+        static const char* names[3] = {"tone", "punch", "detail"};
+        static const char* leadWords[3] = {"tone leads", "punch leads", "detail leads"};
         (void)leadWords;
         const int smallH = 24;
         for (int k = 1; k <= 3; ++k) {
@@ -168,7 +168,7 @@ public:
     //which meter leads at a column: one word group. A meter leads when it is clearly ahead; two are named when they are nearly level; none = balanced
     static juce::String whoLeads(const mdark::LeanRecord& rec, int c) {
         const double d[3] = {rec.devWeight[(size_t)c]/127.0, rec.devPeaks[(size_t)c]/127.0, rec.devSlew[(size_t)c]/127.0};
-        static const char* n[3] = {"weight", "punch", "detail"};
+        static const char* n[3] = {"tone", "punch", "detail"};
         int best = 0; for (int i = 1; i < 3; ++i) if (d[i] > d[best]) best = i;
         if (d[best] < 0.10) return "balanced";
         juce::StringArray lead; lead.add(n[best]);
@@ -177,7 +177,7 @@ public:
     }
     static const char* legendText(int i) {
         static const char* t[5] = {
-            "Green means weight leads. The weight and low end are carrying that section, at the expense of punch and detail.",
+            "Green means tone leads. The tone, the body and low end, is carrying that section, at the expense of punch and detail.",
             "Blue means punch leads. The peaks, the hits and impact, are out in front. It doesn't mean squashed.",
             "Red means detail leads. The slews, the brightness and fine high detail, are out in front.",
             "White in the big bar, with all three small bars dark, means balanced: nothing leads.",

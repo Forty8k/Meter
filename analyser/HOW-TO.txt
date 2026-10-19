@@ -86,16 +86,16 @@ Possible duplicates
 
 The Library tab (overview)
   Top: the selected track: name, grade, technical details, then a large tone bar (the meter's top colour bar over the track) and three small
-    bars under it, all on the same horizontal scale so playback lines up across all four. Rows are named weight / punch / detail.
+    bars under it, all on the same horizontal scale so playback lines up across all four. Rows are named tone / punch / detail.
     Each small bar lights up where that meter is leading the other two:
-      Green = weight leads (the weight and low end carry that section, at the expense of punch and detail).
+      Green = tone leads (the tone, the body and low end, carries that section, at the expense of punch and detail).
       Blue = punch leads (the peaks, hits and impact are out in front; it does not mean squashed).
       Red = detail leads (the slews, brightness and fine high detail are out in front).
       White in the big bar with all three small bars dark = balanced: nothing leads.
       A lit bar says "this is what dominates here", not "this is wrong".
     A line under the bars says in words who leads at the playhead or mouse
     ("2:41 punch leads", "punch + detail lead", "balanced").
-    "Overlay lines" (off by default) draws, inside each small bar, a line: weight = bass position, punch = peak, detail = slew.
+    "Overlay lines" (off by default) draws, inside each small bar, a line: tone = bass position, punch = peak, detail = slew.
     Play / Stop plays the file from where it was when you added it. Click anywhere on the bars to start playing from that point (or drag to seek while playing); the playhead shows on the big bar.
   Bottom: the list. Default columns: track name, a small tone strip, grade. Right-click the column header to add more columns (artist, album, year,
     BPM, key, LUFS, peak, true peak, length, sample rate, bits, source, format); your choice is remembered. Click a header to sort.
@@ -125,10 +125,10 @@ The hintLAB tab  (this was called the Lab; its "Original scoring" part will move
     When it finishes it lists every setting that differs from factory. If everything is still factory nothing will look
     different. Plugins already open and saved projects keep their own triggers until you press "factory" or
     double-click the setting in the plugin's tune panel.
-    Weight is now THIN <-> FULL: where the loud part of the sound sits in the bass (about 300 Hz = thin, about 60 Hz = full).
+    Tone (it was called weight) is now THIN <-> FULL: where the loud part of the sound sits in the bass (about 300 Hz = thin, about 60 Hz = full).
     "Measure low end" reads each track's real low-end energy (the 31, 62 and 125 Hz bands, from the stored fine blocks; first run
-    takes a few minutes, then it is cached in lowend.csv). The two plots under the strips put real low end across and the weight
-    reading up, for the retired "old weight" and the new one, with a correlation number r (1 = follows it perfectly, 0 = unrelated).
+    takes a few minutes, then it is cached in lowend.csv). The two plots under the strips put real low end across and the tone
+    reading up, for the retired "old tone" and the new one, with a correlation number r (1 = follows it perfectly, 0 = unrelated).
     The new one should be clearly higher. Please check this on your library: it could not be tested without your tracks.
   Detail decay and fill gate (in DETAIL, 0 = stock) are meterDARK's two settings for keeping brief bright transients out of
     the Detail readings; they are exported with the rest. In "Original scoring" the same two settings show what they do to

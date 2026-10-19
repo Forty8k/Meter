@@ -470,7 +470,7 @@ private:
             settingsPanel.addAndMakeVisible(r->name); settingsPanel.addAndMakeVisible(r->slider);
         };
         if (mode == 0) {
-            const char* groups[4][2] = {{"weight", "WEIGHT  (thin / full)"}, {"punch", "PUNCH  (headroom / squashed)"}, {"detail", "DETAIL  (dark / bright, one gauge)"}, {"all", "ALL THREE"}};
+            const char* groups[4][2] = {{"tone", "TONE  (thin / full)"}, {"punch", "PUNCH  (headroom / squashed)"}, {"detail", "DETAIL  (dark / bright, one gauge)"}, {"all", "ALL THREE"}};
             for (auto& g : groups) {
                 addHeader(g[1]);
                 for (size_t i = 0; i < mdark::hintParams().size(); ++i) {
@@ -527,7 +527,7 @@ private:
             auto& h = owner->table.getHeader();
             h.removeAllColumns();
             if (m == 0) {
-                const char* c[] = {"Track", "Grade", "Weight", "Thin %", "Full %", "Punch", "Headroom %", "Squashed %", "Dark-bright", "Dark %", "Bright %", "Old weight", "Low end %"};
+                const char* c[] = {"Track", "Grade", "Tone", "Thin %", "Full %", "Punch", "Headroom %", "Squashed %", "Dark-bright", "Dark %", "Bright %", "Old tone", "Low end %"};
                 for (int i = 0; i < 13; ++i) h.addColumn(c[i], i + 1, i == 0 ? 240 : (i == 1 ? 70 : 72), 30, 600, juce::TableHeaderComponent::defaultFlags);
             } else {
                 const char* c[] = {"Track", "Original grade", "Lab grade", "Original rank", "Lab rank", "Moved"};
@@ -606,7 +606,7 @@ private:
         void paint(juce::Graphics& g) override {
             g.fillAll(kPanel.darker(0.2f));
             const auto& o = *owner;
-            const char* names[3] = {"weight  (thin | full)", "punch  (headroom | squashed)", "dark | bright  (balance, dark left)"};
+            const char* names[3] = {"tone  (thin | full)", "punch  (headroom | squashed)", "dark | bright  (balance, dark left)"};
             const int rowH = getHeight()/3;
             for (int k = 0; k < 3; ++k) {
                 auto r = getLocalBounds().withY(k*rowH).withHeight(rowH).reduced(8, 3);
@@ -667,12 +667,12 @@ private:
         juce::String summary() const {
             std::vector<double> x, a, b; collect(x, a, b);
             if (x.size() < 3) return "Not enough tracks with low-end data.";
-            return "Correlation with the real low end (1 = perfect, 0 = none): old weight " + juce::String(pearson(x, a), 2) + ", new weight " + juce::String(pearson(x, b), 2) + "  (" + juce::String((int)x.size()) + " tracks).";
+            return "Correlation with the real low end (1 = perfect, 0 = none): old tone " + juce::String(pearson(x, a), 2) + ", new tone " + juce::String(pearson(x, b), 2) + "  (" + juce::String((int)x.size()) + " tracks).";
         }
         void paint(juce::Graphics& g) override {
             g.fillAll(kPanel.darker(0.2f));
             std::vector<double> x, a, b; collect(x, a, b);
-            if (x.size() < 3) {g.setColour(kDim); g.setFont(juce::Font(13.0f)); g.drawText("Press \"Measure low end\" to compare the weight readings with the real low-end energy of each track.", getLocalBounds().reduced(10), juce::Justification::centred); return;}
+            if (x.size() < 3) {g.setColour(kDim); g.setFont(juce::Font(13.0f)); g.drawText("Press \"Measure low end\" to compare the tone readings with the real low-end energy of each track.", getLocalBounds().reduced(10), juce::Justification::centred); return;}
             double xmax = 0; for (double v : x) xmax = juce::jmax(xmax, v);
             xmax = juce::jmax(0.05, xmax);
             auto area = getLocalBounds().reduced(8, 6);
@@ -680,7 +680,7 @@ private:
                 auto r = area.removeFromLeft(area.getWidth()/(2 - k)).reduced(6, 0);
                 const auto& y = k == 0 ? a : b;
                 g.setColour(kDim); g.setFont(juce::Font(12.0f));
-                g.drawText(juce::String(k == 0 ? "OLD weight" : "NEW weight (thin-full)") + "  r = " + juce::String(pearson(x, y), 2) + "      across: real low end, up: reading", r.removeFromTop(16), juce::Justification::centredLeft);
+                g.drawText(juce::String(k == 0 ? "OLD tone" : "NEW tone (thin-full)") + "  r = " + juce::String(pearson(x, y), 2) + "      across: real low end, up: reading", r.removeFromTop(16), juce::Justification::centredLeft);
                 g.setColour(kDim.withAlpha(0.5f)); g.drawRect(r.toFloat(), 1.0f);
                 double ymax = 0; for (double v : y) ymax = juce::jmax(ymax, v);
                 ymax = juce::jmax(0.05, k == 1 ? 1.0 : ymax);

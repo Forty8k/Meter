@@ -9,9 +9,9 @@ const std::vector<HintParam>& hintParams()
 {
     static const std::vector<HintParam> p = {
         //---- where each hint switches on (the plugin's tune settings)
-        {"tune9",  "weight",   "balance point",     "",    0.02, 0.98, 0.50, 2, "the weight reading that counts as balanced"},
-        {"tune0",  "weight",   "thin distance",     "",    0.02, 0.98, 0.30, 2, "how far below the balance point counts as thin"},
-        {"tune1",  "weight",   "full distance",     "",    0.02, 0.98, 0.30, 2, "how far above the balance point counts as full"},
+        {"tune9",  "tone",     "balance point",     "",    0.02, 0.98, 0.50, 2, "the tone reading that counts as balanced"},
+        {"tune0",  "tone",     "thin distance",     "",    0.02, 0.98, 0.30, 2, "how far below the balance point counts as thin"},
+        {"tune1",  "tone",     "full distance",     "",    0.02, 0.98, 0.30, 2, "how far above the balance point counts as full"},
         {"tune11", "punch",    "balance point",     "",    0.02, 0.98, 0.50, 2, "the punch reading that counts as balanced"},
         {"tune2",  "punch",    "headroom distance", "",    0.02, 0.98, 0.30, 2, "how far below the balance point counts as headroom"},
         {"tune3",  "punch",    "squashed distance", "",    0.02, 0.98, 0.30, 2, "how far above the balance point counts as squashed"},
@@ -22,14 +22,14 @@ const std::vector<HintParam>& hintParams()
         {"tune7",  "detail",   "fill gate",         "",    0.00, 0.98, 0.00, 2, "a lone bright window counts for less, more so the higher it sits (0 = stock)"},
         {"tune8",  "all",      "hint speed",        "",    0.00, 0.98, 0.10, 2, "how fast every reading follows the music"},
         //---- what shapes the readings (constants in the plugin's code)
-        {"weightThinHz", "weight", "thin at",            " Hz", 100,  1000, 300,  0, "the average bass position that reads 0 (thin): music that sits around this frequency"},
-        {"weightFullHz", "weight", "full at",            " Hz", 25,   150,  60,   0, "the average bass position that reads 1 (full): music that sits around this frequency"},
-        {"refOffsetDb",  "weight", "reference above mean", " dB", 0,  12,   4.5,  1, "where Detail's level reference sits above the mean peak"},
-        {"refTarget",    "weight", "reference target",   "",    100,  200,  170,  0, "the level the reference is brought to (170 = about -1.5 dB)"},
-        {"fMax",         "weight", "level boost limit",  "x",   1,    40,   16,   1, "the most a quiet track is boosted to read like a loud one in Detail (4 = +24 dB, 16 = +48 dB)"},
+        {"weightThinHz", "tone",   "thin at",            " Hz", 100,  1000, 300,  0, "the average bass position that reads 0 (thin): music that sits around this frequency"},
+        {"weightFullHz", "tone",   "full at",            " Hz", 25,   150,  60,   0, "the average bass position that reads 1 (full): music that sits around this frequency"},
+        {"refOffsetDb",  "tone",   "reference above mean", " dB", 0,  12,   4.5,  1, "where Detail's level reference sits above the mean peak"},
+        {"refTarget",    "tone",   "reference target",   "",    100,  200,  170,  0, "the level the reference is brought to (170 = about -1.5 dB)"},
+        {"fMax",         "tone",   "level boost limit",  "x",   1,    40,   16,   1, "the most a quiet track is boosted to read like a loud one in Detail (4 = +24 dB, 16 = +48 dB)"},
         {"dynRangeDb",   "punch",    "punch range",    " dB", 2,    16,   8,    1, "this much peak swing reads as full headroom"},
         {"followRate",   "punch",    "level follow",      "",    0.002,0.1,  0.02, 3, "how fast the mean level reference catches up (per window)"},
-        {"gateDb",       "all",    "quiet gate",         " dB", 6,    36,   18,   0, "windows this far under the recent ceiling are ignored by weight and punch"},
+        {"gateDb",       "all",    "quiet gate",         " dB", 6,    36,   18,   0, "windows this far under the recent ceiling are ignored by tone and punch"},
         {"ceilRise",     "all",    "ceiling rise",       "",    0.005,0.2,  0.04, 3, "how fast the ceiling rises to a louder part (per window)"},
         {"ceilFall",     "all",    "ceiling fall",       "",    0.001,0.1,  0.01, 3, "how fast it falls back in a quieter part (per window)"},
         {"detailGate",   "detail", "detail quiet gate",  "",    20,   150,  70,   0, "windows with peaks under this position (70 = about -18 dB under a full-scale ceiling) are ignored by detail"},
@@ -272,7 +272,7 @@ std::string levelTestReport(const std::vector<LevelTestRow>& rows)
     out += b;
     snprintf(b, sizeof b, "%-8s %-21s %-48s %s\n", "level", "readings (0-1)", "share of time each hint shows (0-1)", "audible");
     out += b;
-    snprintf(b, sizeof b, "%-8s %-6s %-6s %-6s  %-7s %-7s %-7s %-7s %-7s %-7s %s\n", "", "weight", "dynam", "tilt", "thin", "full", "headrm", "squash", "dark", "bright", "share");
+    snprintf(b, sizeof b, "%-8s %-6s %-6s %-6s  %-7s %-7s %-7s %-7s %-7s %-7s %s\n", "", "tone", "dynam", "tilt", "thin", "full", "headrm", "squash", "dark", "bright", "share");
     out += b;
     for (auto& r : rows) {
         snprintf(b, sizeof b, "%+5.0f dB %6.3f %6.3f %6.3f  %7.3f %7.3f %7.3f %7.3f %7.3f %7.3f  %5.2f\n", r.db, r.readingAbs[0], r.readingAbs[1], r.readingAbs[2],
