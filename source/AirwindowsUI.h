@@ -208,8 +208,11 @@ struct AirwindowsMeter : public juce::Component
     float trimDragStart = 0.0f;
     //HINT TUNING (a small "tune" label at the bottom right shows or hides it): where each hint switches on, 0-1. Index = section*2 + (0 = the "more" hint
     //light / headroom / dark, 1 = the "less" hint heavy / squashed / bright). Saved with the project, defaults are the calibrated values.
-    //WEIGHT: one reading (the mass of the weight dots, 0-1) on one gauge with three points: tune[9] = the balance point, tune[0] = how far BELOW it counts as light,
-    //tune[1] = how far ABOVE it counts as heavy. tune[10] = frequency push: how much dots below ~80 Hz count extra (heavier) and dots above ~180 Hz count less (lighter).
+    //WEIGHT (thin <-> full): one reading (0-1) on one gauge with three points: tune[9] = the balance point, tune[0] = how far BELOW it counts as thin,
+    //tune[1] = how far ABOVE it counts as full. The reading is how low the music sits: the average position of the zero-cross (bass) meter, each window counted by its level
+    //against the track's own ceiling. (tune[10] used to be the frequency push; it is retired and unused.)
+    //DARK <-> BRIGHT: the same kind of gauge: tune[18] = the balance point, tune[4] = how far BELOW it counts as dark, tune[5] = how far ABOVE it counts as bright.
+    //The reading is the bright (red) share minus the dark (green) share of the recent windows, 0.5 = balanced. A shade behind the needle shows how much of the time is not neutral.
     //tune[8] = hint speed: how fast all the hint averages rise and fall (rate = 0.01 + 0.07*value)
     //tune[6] = detail decay, tune[7] = fill gate: keep brief bright transients from swaying the Detail readings (0 = stock).
     //  decay: the bright reading falls faster once the brightness stops, so a brief burst fades quickly and a sustained one stays.
@@ -219,37 +222,28 @@ struct AirwindowsMeter : public juce::Component
     //DYNAMICS: the same idea. The reading is how flat the peaks are (0 = peaks swing a lot, 1 = every window peaks at the same level), measured as how far each window's
     //peak lands from the slow mean peak level, so it does not depend on how loud the material is. tune[11] = the balance point, tune[2] = how far BELOW it counts as headroom
     //(undercompressed), tune[3] = how far ABOVE it counts as squashed (a flat line, a test tone, an over-compressed or saturated sound).
-    float tune[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault, 0.00f};
-    static constexpr float tuneDefault[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault, 0.00f};
-    float tuneUser[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault, 0.00f}; //the saved default preset (double-click on a label goes back to this)
+    float tune[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault, 0.00f, 0.50f};
+    static constexpr float tuneDefault[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault, 0.00f, 0.50f};
+    float tuneUser[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault, 0.00f, 0.50f}; //the saved default preset (double-click on a label goes back to this)
     //LEVEL (not hints, they are about what Chris's scoring is given; see PluginProcessor::feedChris). tune[13] = anchor rate (0 off, .5 = 44.1 kHz, 1 = 96 kHz): the
     //audio is converted to that rate before Chris's loop. tune[14] = level mode (0 original, .5 normalised, 1 mix). tune[15] = "input at" and tune[16] = "score as if at"
     //(LUFS = -30 + 24 x value) for normalised. Everything on screen stays at the real level; only the scoring and the grade see the mode's gain (grade letter N or M).
     int levelMode = 0; //set by the editor from tune[14]: 0 original, 1 normalised, 2 mix
     std::function<void()> onSaveDefault; //set by the editor: writes tune and trims to the preset file
     juce::uint32 savedAtMs = 0;
-    //The bright reading is 1 - exp(-brightSpread * red share). It is spread so that the bright threshold sits 30% in from the far right edge, like squashed (about .70).
-    static constexpr float brightSpread = 13.5f; //(the Lab setting lab.brightSpread is what the hints use; this is its factory value)
-    //LAB TUNING: the constants that shape the hint readings. Factory values below; the Analyser's Lab can export new ones to
+    //LAB TUNING: the constants that shape the hint readings. Factory values below; the Analyser's hintLAB can export new ones to
     //<user app data>/meterDARK/lab-tuning.xml, which is read on start and again whenever it changes (checked about once a second).
     struct LabTuning {
-        float lowFromPos = 139.0f, lowFullPos = 160.0f, highFromPos = 107.0f, highFullPos = 82.0f; //push ramps, in meter positions
-        float lowPushGain = 0.6f, highPushGain = 0.5f, peakInfluence = 1.0f, peakDiv = 140.0f, peakPow = 4.0f;
-        float massOffset = 2.0f, massRange = 3.4f, refOffsetDb = 4.5f, refTarget = 170.0f, fMax = 16.0f; //fMax: the most a quiet track is boosted to read like a loud one (4 = +24 dB before, 16 = +48 dB)
+        float weightThinPos = 89.2f, weightFullPos = 149.1f; //weight (thin <-> full): the average bass position that reads 0 (thin, about 300 Hz) and 1 (full, about 60 Hz), in meter positions
+        float refOffsetDb = 4.5f, refTarget = 170.0f, fMax = 16.0f; //the level reference Detail's level match uses. fMax: the most a quiet track is boosted to read like a loud one (4 = +24 dB before, 16 = +48 dB)
         float dynRangeDb = 8.0f, followRate = 0.02f, gateDb = 18.0f, ceilRise = 0.04f, ceilFall = 0.01f;
-        float detailGate = 70.0f, runLength = 8.0f, lone = 0.4f, brightSpread = 13.5f, keepWeight = 0.04f;
+        float detailGate = 70.0f, runLength = 8.0f, lone = 0.4f, tiltGain = 4.0f, keepWeight = 0.04f; //tiltGain: how far the dark <-> bright gauge swings for a given red-minus-green share
         //LEVEL-INDEPENDENT HINTS (1 = on, 0 = how it was before): relativeGates = Detail's quiet gate and the quiet fade of the tone strips and hints follow the track's own
         //ceiling instead of fixed levels, so a quiet stem is read like a loud master. detailLevelComp = Detail's red/green dot test is made as if the track sat at the reference level.
         float relativeGates = 1.0f, detailLevelComp = 1.0f;
-        float fMin = 0.8f; //weight: the most a LOUD track is turned down to read like the reference (0.8 = about -2 dB; 0.6 makes hot masters read the same as quiet copies of themselves)
         juce::Time loadedTime; bool fromFile = false;
         float gateRatio() const { return gateDb == 18.0f ? 0.355f : powf(10.0f, -gateDb/40.0f); } //18 dB = the factory 0.355 exactly
         static float posFromHz(double hz) { return (float)fmin(sqrt(fmax(sqrt(22050.0/fmax(hz, 1.0))*6.0 - 6.0, 0.0))*16.2 - 20.0, 199.0); }
-        static float ramp(float v, float from, float full) { //0 at "from", 1 at "full", smoothstep between
-            const float w = fmax(fabsf(full - from), 0.5f), dir = (full >= from) ? 1.0f : -1.0f;
-            const float x = fmin(fmax(dir*(v - from)/w, 0.0f), 1.0f);
-            return x*x*(3.0f - 2.0f*x);
-        }
         static juce::File file() { return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("meterDARK").getChildFile("lab-tuning.xml"); }
         void reloadIfChanged() {
             const juce::File f = file();
@@ -261,15 +255,13 @@ struct AirwindowsMeter : public juce::Component
             LabTuning n;
             auto get = [&](const char* k, float& v) {if (x->hasAttribute(k)) v = (float)x->getDoubleAttribute(k, v);};
             double hz;
-            if (x->hasAttribute("lowPushHz")) {hz = x->getDoubleAttribute("lowPushHz"); n.lowFromPos = posFromHz(hz);}
-            if (x->hasAttribute("lowPushFullHz")) {hz = x->getDoubleAttribute("lowPushFullHz"); n.lowFullPos = posFromHz(hz);}
-            if (x->hasAttribute("highPushHz")) {hz = x->getDoubleAttribute("highPushHz"); n.highFromPos = posFromHz(hz);}
-            if (x->hasAttribute("highPushFullHz")) {hz = x->getDoubleAttribute("highPushFullHz"); n.highFullPos = posFromHz(hz);}
-            get("lowPushGain", n.lowPushGain); get("highPushGain", n.highPushGain); get("peakInfluence", n.peakInfluence); get("peakDiv", n.peakDiv); get("peakPow", n.peakPow);
-            get("massOffset", n.massOffset); get("massRange", n.massRange); get("refOffsetDb", n.refOffsetDb); get("refTarget", n.refTarget); get("fMax", n.fMax);
+            if (x->hasAttribute("weightThinHz")) {hz = x->getDoubleAttribute("weightThinHz"); n.weightThinPos = posFromHz(hz);}
+            if (x->hasAttribute("weightFullHz")) {hz = x->getDoubleAttribute("weightFullHz"); n.weightFullPos = posFromHz(hz);}
+            get("refOffsetDb", n.refOffsetDb); get("refTarget", n.refTarget); get("fMax", n.fMax);
             get("dynRangeDb", n.dynRangeDb); get("followRate", n.followRate); get("gateDb", n.gateDb); get("ceilRise", n.ceilRise); get("ceilFall", n.ceilFall);
-            get("fMin", n.fMin); get("relativeGates", n.relativeGates); get("detailLevelComp", n.detailLevelComp); get("detailGate", n.detailGate); get("runLength", n.runLength); get("lone", n.lone); get("brightSpread", n.brightSpread); get("keepWeight", n.keepWeight);
-            n.massRange = fmax(n.massRange, 0.05f); n.dynRangeDb = fmax(n.dynRangeDb, 0.1f); n.runLength = fmax(n.runLength, 1.0f); n.peakDiv = fmax(n.peakDiv, 1.0f);
+            get("relativeGates", n.relativeGates); get("detailLevelComp", n.detailLevelComp); get("detailGate", n.detailGate); get("runLength", n.runLength); get("lone", n.lone); get("tiltGain", n.tiltGain); get("keepWeight", n.keepWeight);
+            n.dynRangeDb = fmax(n.dynRangeDb, 0.1f); n.runLength = fmax(n.runLength, 1.0f); n.tiltGain = fmax(n.tiltGain, 0.1f);
+            if (fabsf(n.weightFullPos - n.weightThinPos) < 1.0f) n.weightFullPos = n.weightThinPos + 1.0f;
             n.loadedTime = t; n.fromFile = true;
             *this = n;
         }
@@ -278,7 +270,7 @@ struct AirwindowsMeter : public juce::Component
     bool tuneOpen = false;
     int tuneDragging = -1;
     float tuneDragStart = 0.0f;
-    float massAvg = 3.7f;        //weight: slow average of the weight dot size (peak part measured against the track's own ceiling), see scoreColumn
+    float weightNum = 119.0f, weightDen = 1.0f; //weight: slow level-weighted average of the bass position (num / den), see scoreColumn. Starts balanced.
     float quietNow = 1.0f;       //the quiet fade (0-1) of the latest window: tone strips and hint opacity use it (fixed level, or relative to the track's ceiling: see relativeQuiet)
     float detailF = 1.0f;        //detail: how much the track is brought up to the reference level for its dot test (1 = not at all), set by the weight block
     float relativeQuiet(float p) const; //p = the window's loudness (the larger of the peak and slew readings, as Chris's outputVol squared)
@@ -292,6 +284,7 @@ struct AirwindowsMeter : public juce::Component
     //LIVE HINT DETECTORS: slow averages (only over audible windows) of how often the bass and the peaks reach their target zones,
     //plus the slew colour shares and the track's own peak ceiling. Index 0 = low end, 1 = dynamics.
     float hintUpperAvg[3] = {0.5f, 0.5f, 0.5f};
+    float hintWidthAvg = 0.0f; //dark <-> bright: the share of recent windows that were red OR green (not neutral): the width shade behind the needle
     float hintRedAvg = 0.0f;   //slews: share of recent dots that are red (slews well ahead of peaks)
     bool hintsHidden() const {return tune[17] > 0.5f;} //the "hide hints" setting: the hint words and live hint gauges are not drawn (the tune panel still shows them so it can be switched back)
     bool gradeTuned = false; //set by the editor: the grade and tone colours come from the tuned copy of Chris's meter (shown as * after the grade)
@@ -374,7 +367,7 @@ struct AirwindowsMeter : public juce::Component
         }
         hintRedAvg = 0.0f;
         hintGreenAvg = 0.0f;
-        massAvg = 3.7f; massCeil = 0.0f; detailF = 1.0f; quietNow = 1.0f;
+        weightNum = 119.0f; weightDen = 1.0f; hintWidthAvg = 0.0f; massCeil = 0.0f; detailF = 1.0f; quietNow = 1.0f;
         spreadMean = 0.0f; spreadAvg = 4.0f; spreadInit = false;
         slewHotFill = 0.0f; gateEffectAvg = 0.0f; gateKept = 0.0f; gateAll = 0.0f;
         for (unsigned long b = 0; b < totalBins+2; ++b) {slewHitNow[b] = false; slewHitPrev[b] = false;}

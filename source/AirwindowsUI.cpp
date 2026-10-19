@@ -18,7 +18,6 @@ static bool onRail(const juce::MouseEvent &event, int sec, float vS) {return eve
 static int tuneLabelW(float vS) {return (int)(tuneFont(vS)*11.0f);}
 static int tuneGap(float vS) {return (int)(tuneFont(vS)*0.2f);}
 static int tuneCentreX(int displayWidth, float vS) {return displayWidth/2 - tuneLabelW(vS) - tuneGap(vS)/2;} //left edge of the centred gauge pair
-static int tunePairX(int displayWidth, float vS, int k) {return tuneCentreX(displayWidth, vS) + k*(tuneLabelW(vS)+tuneGap(vS));}
 static int tuneRightX(int displayWidth, float vS, int k) {return displayWidth - (k+1)*(tuneLabelW(vS)+tuneGap(vS)) - (int)(tuneFont(vS)*0.5f);} //k = 0 is the rightmost label
 
 //THE LEVEL SETTINGS sit along the bottom row between "on Airwindows Meter ..." and "factory" (tune open): anchor rate, level mode, input at, score as if at.
@@ -60,8 +59,6 @@ static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, int disp
         }
         const int xr = tuneRightX(displayWidth, vS, 0);
         if (event.x >= xr && event.x < xr+tuneLabelW(vS)) return 8; //hint speed
-        const int xp = tuneRightX(displayWidth, vS, 1);
-        if (event.x >= xp && event.x < xp+tuneLabelW(vS)) return 10; //frequency push
         return -1;
     }
     for (int sec = 1; sec < 3; ++sec) {
@@ -76,9 +73,12 @@ static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, int disp
             if (event.x >= xh && event.x < xh+tuneLabelW(vS)) return 17; //hide hints (a tick)
             continue;
         }
-        for (int k = 0; k < 2; ++k) {
-            const int x0 = tunePairX(displayWidth, vS, k);
-            if (event.x >= x0 && event.x < x0+tuneLabelW(vS)) return sec*2 + k;
+        if (sec == 2) { //the dark <-> bright gauge is one control in three parts, like weight: dark distance, balance point, bright distance
+            const int x0 = tuneCentreX(displayWidth, vS), span = 2*tuneLabelW(vS) + tuneGap(vS);
+            if (event.x >= x0 && event.x < x0+span) {
+                const int third = (event.x-x0)*3/span;
+                return third == 0 ? 4 : (third == 1 ? 18 : 5);
+            }
         }
         if (sec == 2) for (int k = 0; k < 3; ++k) { //detail decay (6) at the far right, fill gate (7) beside it, the grade tick (12) beside that
             const int x0 = tuneRightX(displayWidth, vS, k);
@@ -132,7 +132,7 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
 
 void AirwindowsMeter::mouseDrag(const juce::MouseEvent &event)
 {
-    if (tuneDragging >= 15) { //input at / score as if at: one dB per step
+    if (tuneDragging == 15 || tuneDragging == 16) { //input at / score as if at: one dB per step
         float v = tuneDragStart - (float)event.getDistanceFromDragStartY() * 0.01f;
         v = std::round(fmin(fmax(v, 0.0f), 1.0f) * 24.0f) / 24.0f;
         if (v != tune[tuneDragging]) {tune[tuneDragging] = v; repaint();}
@@ -247,19 +247,14 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                             //Before the mean has started, the ceiling stands in for it.
                             const float refLevel = spreadInit ? 200.0f*powf(10.0f, (spreadMean + lab.refOffsetDb)/40.0f) : massCeil;
                             const float refFloor = lab.refTarget/lab.fMax; //(40 when fMax is 4: a quiet track can be brought up by at most fMax)
-                            const float f = fmin(fmax(lab.refTarget/fmax(refLevel, refFloor), lab.fMin), lab.fMax); //brings that reference level to about -1.5 dB
                             detailF = fmin(fmax(lab.refTarget/fmax(refLevel, refFloor), 1.0f), lab.fMax); //the same for Detail, but a loud track is left as it is
-                            //FREQUENCY PUSH: dots low on the meter (below about 80 Hz, positions past 139) count extra, dots high on it (above about 180 Hz, positions under 107)
-                            //count less. It ramps in smoothly rather than cutting off, and tune[10] sets how strong it is (0 = pure mass).
-                            auto dotMass = [&](float meterZero, float peak, float dataP, float bassPos) {
-                                const float lowPush = LabTuning::ramp(bassPos, lab.lowFromPos, lab.lowFullPos);
-                                const float highPush = LabTuning::ramp(bassPos, lab.highFromPos, lab.highFullPos);
-                                const float push = 1.0f + tune[10]*(lab.lowPushGain*lowPush - lab.highPushGain*highPush);
-                                return (sqrtf(fmax(meterZero, 0.0f)*0.1f*dataP*f) + lab.peakInfluence*powf(fmin(peak*f, 200.0f)/lab.peakDiv, lab.peakPow)) * push;
-                            };
-                            const float massNow = 0.5f*(dotMass(m.meterZeroL, peakL, dataPL[col], bassL) + dotMass(m.meterZeroR, peakR, dataPR[col], bassR));
-                            massAvg += (massNow - massAvg) * avgRate;
-                            hintUpperAvg[0] = fmin(fmax((massAvg - lab.massOffset)/lab.massRange, 0.0f), 1.0f); //the live weight reading, 0 = light, 0.5 = balanced, 1 = heavy
+                            //WEIGHT (thin <-> full): how low the music sits. The bass position of each window (the zero-cross meter, 0-199, higher = lower notes) averaged over time,
+                            //each window counted by its level against the track's own ceiling (amplitude: the peak position is a square root), so loud low notes count and quiet gaps do not.
+                            const float winLevel = fmin(topPeakM/fmax(massCeil, 1.0f), 1.0f);
+                            const float winWeight = winLevel*winLevel;
+                            weightNum += (winWeight*0.5f*(bassL + bassR) - weightNum) * avgRate;
+                            weightDen += (winWeight - weightDen) * avgRate;
+                            hintUpperAvg[0] = fmin(fmax((weightNum/fmax(weightDen, 1.0e-6f) - lab.weightThinPos)/(lab.weightFullPos - lab.weightThinPos), 0.0f), 1.0f); //the live weight reading, 0 = thin, 0.5 = balanced, 1 = full
                             //DYNAMICS (spread): how far each window's peak lands from the slow mean peak level, in dB (the peak position is a square root of the level, so 40 per decade).
                             //Peaks that swing about give a wide spread (headroom, undercompressed). Peaks that all land in the same place give none (squashed). Level does not matter.
                             const float dbNow = 40.0f*log10f(fmax(topPeakM, 1.0f)/200.0f);
@@ -299,7 +294,10 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
                     //Detail decay: once the brightness stops, the bright reading falls up to five times faster
                     hintRedAvg += (redWeighted - hintRedAvg) * avgRate * (redWeighted < hintRedAvg ? 1.0f + 4.0f*tune[6] : 1.0f);
                     hintGreenAvg += (greenWeighted - hintGreenAvg) * avgRate;
+                    hintWidthAvg += ((redWeighted + greenWeighted) - hintWidthAvg) * avgRate; //how much of the time the dots are not neutral
                 }
+                //DARK <-> BRIGHT: one reading. Bright (red) share minus dark (green) share, swung by tiltGain around the middle: 0 = dark, 0.5 = balanced, 1 = bright.
+                hintUpperAvg[2] = fmin(fmax(0.5f + 0.5f*lab.tiltGain*(hintRedAvg - hintGreenAvg), 0.0f), 1.0f);
             }
         }
         //(the grades and the tone colour come from Chris's own meter, run once per window underneath: see PluginEditor::idle)
@@ -576,24 +574,23 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                 const float quietGate = lab.relativeGates > 0.5f ? quietNow : (float)fmin(outputVol*outputVol*8.0, 1.0);
                 //The hints name a state, not an order: a dominant sub, a bright top or a dark record can all be deliberate.
                 //(hintTextMore = under target, hintTextLess = over target)
-                hintTextMore[0] = juce::String("light");      hintTextLess[0] = juce::String("heavy");
+                hintTextMore[0] = juce::String("thin");       hintTextLess[0] = juce::String("full");
                 hintTextMore[1] = juce::String("headroom");   hintTextLess[1] = juce::String("squashed");
                 hintTextMore[2] = juce::String("dark");       hintTextLess[2] = juce::String("bright");
                 for (int hint = 0; hint < 3; ++hint) {
                     int state = hintState[hint];
                     bool overNow, overKeep, underNow, underKeep;
-                    if (hint == 2) { //slews: colour balance. over = bright (red share), under = dark (green share)
-                        const float brightLive = 1.0f - expf(-lab.brightSpread*hintRedAvg); //spreads the red share (rarely above 0.5, usually under 0.15) over the whole 0-1 range so it can be tuned
-                        overNow = brightLive > tune[5];    overKeep = brightLive > fmax(tune[5]-0.06f, 0.0f);
-                        const float darkRead = 1.0f - hintGreenAvg; //1 = nothing dark, 0 = fully dark, so dark sits on the left like light and headroom
-                        underNow = darkRead < tune[4]; underKeep = darkRead < fmin(tune[4]+0.10f, 1.0f);
+                    if (hint == 2) { //slews: colour balance, one gauge like the other two. Below the balance point by the dark distance is dark, above it by the bright distance is bright
+                        const float darkLevel = tune[18] - tune[4], brightLevel = tune[18] + tune[5];
+                        overNow = hintUpperAvg[2] > brightLevel;  overKeep = hintUpperAvg[2] > brightLevel - lab.keepWeight;
+                        underNow = hintUpperAvg[2] < darkLevel;   underKeep = hintUpperAvg[2] < darkLevel + lab.keepWeight;
                     } else if (hint == 1) { //dynamics: the spread reading against the balance point. Peaks that all land in one place are squashed, peaks that swing about have headroom
                         const float headLevel = tune[11] - tune[2], squashLevel = tune[11] + tune[3];
                         overNow = hintUpperAvg[1] > squashLevel;
                         overKeep = hintUpperAvg[1] > squashLevel - lab.keepWeight;
                         underNow = hintUpperAvg[1] < headLevel;
                         underKeep = hintUpperAvg[1] < headLevel + lab.keepWeight;
-                    } else { //weight: the mass reading against the balance point. Below it by the light distance is light, above it by the heavy distance is heavy
+                    } else { //weight: the thin <-> full reading against the balance point. Below it by the thin distance is thin, above it by the full distance is full
                         const float lightLevel = tune[9] - tune[0], heavyLevel = tune[9] + tune[1];
                         overNow = hintUpperAvg[0] > heavyLevel;
                         overKeep = hintUpperAvg[0] > heavyLevel - lab.keepWeight;
@@ -706,8 +703,8 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             railLabel(trimText(peakTrimDb), (int)scaleFont/2, 1, (int)(tuneFont(vS)*14.0f), juce::Justification::centredLeft, 0.6f);
             railLabel(trimText(slewTrimDb), (int)scaleFont/2, 2, (int)(tuneFont(vS)*14.0f), juce::Justification::centredLeft, 0.6f);
             //WEIGHT and DYNAMICS: one gauge with three points each (low distance, balance point, high distance). The dot is the live reading, and the hint shows
-            //when it goes past the low or high tick. Weight: 0 = small and sparse dots (light), 1 = big and dense (heavy). Dynamics: 0 = peaks swing (headroom), 1 = a flat line (squashed).
-            auto threePoint = [&](int sec, int idxLow, int idxBal, int idxHigh, const char* lowName, const char* highName, float liveV, int hint) {
+            //when it goes past the low or high tick. Weight: 0 = thin (music sits high), 1 = full (music sits low). Dynamics: 0 = peaks swing (headroom), 1 = a flat line (squashed).
+            auto threePoint = [&](int sec, int idxLow, int idxBal, int idxHigh, const char* lowName, const char* highName, float liveV, int hint, float widthV = -1.0f) {
                 const int x0 = tuneCentreX(displayWidth, vS), span = 2*rw + gap, third = span/3;
                 const bool lowOn = hintState[hint] == -1, highOn = hintState[hint] == 1;
                 const float bal = tune[idxBal];
@@ -717,23 +714,21 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                 //The balance line stays in the middle of the gauge. The dot is drawn relative to it (the reading minus the balance point), and the two ticks sit that far either side,
                 //so changing the balance value pulls the dot toward the middle without moving anything else. The number in brackets is always the raw reading.
                 const float ticks[2] = {0.5f - tune[idxLow], 0.5f + tune[idxHigh]};
+                if (widthV >= 0.0f) { //a shade behind the needle: how much of the time the dots are not neutral (wide = it swings between the two, narrow = it stays put)
+                    const float half = fmin(widthV, 1.0f)*0.5f, centre = 0.5f + (liveV - bal);
+                    const float l = fmin(fmax(centre - half, 0.0f), 1.0f), r = fmin(fmax(centre + half, 0.0f), 1.0f);
+                    g.setColour(juce::Colours::black); g.setOpacity(0.16f);
+                    g.fillRect((float)x0 + (float)span*0.98f*l, railTopPx(sec, vS) - 7.0f - 5.0f, (float)span*0.98f*(r - l), 11.0f);
+                }
                 railGauge(sec, x0, (float)span*0.98f, ticks, 2, 0.5f, 0.5f + (liveV - bal), true, lowOn || highOn);
             };
             const bool showHintGauges = !hintsHidden() || tuneOpen; //hide hints: the live gauges go too (they come back while tune is open, so the setting can be switched back)
             if (showHintGauges) {
-            threePoint(0, 0, 9, 1, "light", "heavy", hintUpperAvg[0], 0);
+            threePoint(0, 0, 9, 1, "thin", "full", hintUpperAvg[0], 0);
             threePoint(1, 2, 11, 3, "headroom", "squashed", hintUpperAvg[1], 1);
             }
-            if (showHintGauges) {   //DETAIL: a pair of gauges. The hint shows when the dot crosses the tick in the arrow's direction.
-                const char* tuneNames[2] = {"dark<", "bright>"};
-                const float live[2] = {1.0f - hintGreenAvg, 1.0f - expf(-lab.brightSpread*hintRedAvg)};
-                for (int j = 0; j < 2; ++j) {
-                    const int i = j + 4, sec = 2;
-                    const bool active = (i%2 == 0) ? (hintState[sec] == -1) : (hintState[sec] == 1); //this label's hint is showing now
-                    const int lx = tunePairX(displayWidth, vS, i%2);
-                    railLabel(juce::String(active ? "* " : "") + juce::String(tuneNames[j]) + fmt(tune[i]) + " [" + fmt(live[j]) + "]", lx, sec, rw, juce::Justification::centredLeft, active ? 1.0f : 0.8f);
-                    railGauge(sec, lx, (float)rw*0.98f, &tune[i], 1, -1.0f, live[j], true, active);
-                }
+            if (showHintGauges) {   //DETAIL (dark <-> bright): one gauge with three points, like the other two, and the width shade behind the needle
+                threePoint(2, 4, 18, 5, "dark", "bright", hintUpperAvg[2], 2, 0.5f*lab.tiltGain*hintWidthAvg);
             }
             if (tuneOpen) {   //the extra settings sit at the right of their rails
                 auto setting = [&](int sec, int k, const char* name, int idx, float liveV, bool hasLive) {
@@ -746,7 +741,6 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     railLabel(juce::String(on ? "[x] " : "[ ] ") + "hide hints", tuneRightX(displayWidth, vS, 0), 1, rw, juce::Justification::centredLeft, on ? 1.0f : 0.8f);
                 }
                 setting(0, 0, "hint speed ", 8, 0.0f, false);
-                setting(0, 1, "push ", 10, 0.0f, false);                 //frequency push: low dots count heavier, high dots lighter
                 setting(2, 0, "detail decay ", 6, 0.0f, false);          //brief bright bursts fade from the Detail readings faster
                 setting(2, 1, "fill gate ", 7, 0.0f, false);             //lone bright windows count for less
                 {   //the grade tick: the two settings above also change the grade and tone colours (a copy of Chris's scoring with them added)
