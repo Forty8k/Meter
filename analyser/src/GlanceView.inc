@@ -47,7 +47,7 @@ public:
         buildButton.onClick = [this] { buildRecords(); };
         addAndMakeVisible(status);
         status.setColour(juce::Label::textColourId, kDim);
-        startTimer(250);
+        startTimer(80);
     }
     ~GlanceView() override {
         stopTimer(); table.getHeader().removeListener(this);
@@ -177,9 +177,9 @@ public:
     }
     static const char* legendText(int i) {
         static const char* t[5] = {
-            "Green means tone leads. The tone, the body and low end, is carrying that section, at the expense of punch and detail.",
-            "Blue means punch leads. The peaks, the hits and impact, are out in front. It doesn't mean squashed.",
-            "Red means detail leads. The slews, the brightness and fine high detail, are out in front.",
+            "GREEN means TONE leads. The body or weight of the track carries this section, at the expense of punch and detail.",
+            "BLUE means PUNCH leads. The peaks, the hits and impact, are out in front. It doesn't mean squashed.",
+            "RED means DETAIL leads. The slews, the brightness and fine high detail, are out in front.",
             "White in the big bar, with all three small bars dark, means balanced: nothing leads.",
             "So a lit bar says \"this is what dominates here\", not \"this is wrong\"."};
         return t[i];
@@ -501,7 +501,7 @@ private:
         else if (lib != nullptr && !loading && isShowing() && (!loaded || lib.get() != loadedFor || lib->changeCount() != loadedChange || (getFilterGen && getFilterGen() != seenGen))) load();
         if (transportReady) {
             if (!transport.isPlaying() && playButton.getButtonText() == "Stop") playButton.setButtonText("Play");
-            repaint(bigBar.expanded(0, 8));
+            repaint(topArea); //the playhead and the yellow time / who-leads line follow playback live
         }
     }
 
