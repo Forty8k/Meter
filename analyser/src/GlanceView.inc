@@ -4,7 +4,7 @@
 // tone strip, and a sortable grade. Stacked together the strips show trends across the library. It reads only the lean records (see LeanRecord.h); the audio is
 // opened from its stored file path just for playing. The full table stays one click away.
 
-class GlanceView : public juce::Component, public juce::TableListBoxModel, public juce::TooltipClient, private juce::Timer, private juce::TableHeaderComponent::Listener {
+class GlanceView : public juce::Component, public juce::TableListBoxModel, private juce::Timer, private juce::TableHeaderComponent::Listener {
 public:
     struct Item { juce::String id, name, grade, path, song, source; juce::String bpm, musicalKey; double key = 0, dur = 0, sr = 0; int group = -1, groupSize = 1; bool best = false, shared = false; mdark::LeanRecord rec; };
     std::function<std::shared_ptr<mdark::Library>()> getLibrary;
@@ -140,7 +140,7 @@ public:
             if (transportReady) { const double len = transport.getLengthInSeconds(); if (len > 0) frac = transport.getCurrentPosition()/len; }
             if (frac >= 0) {
                 const float x = (float)bigBar.getX() + (float)frac*(float)bigBar.getWidth();
-                g.setColour(juce::Colours::white); g.fillRect(x - 1.0f, (float)bigBar.getY() - 2.0f, 2.0f, (float)(smallBars[2].getBottom() - bigBar.getY()) + 4.0f);
+                g.setColour(juce::Colours::white); g.fillRect(x - 1.0f, (float)bigBar.getY() - 2.0f, 2.0f, (float)bigBar.getHeight() + 4.0f);
             }
         }
         // what leads where the playhead is (or the mouse)
@@ -197,13 +197,6 @@ public:
         g.setColour(kDim); g.setFont(juce::Font(12.5f, juce::Font::italic));
         g.drawText(legendText(4), r.getX(), r.getY() + 70, r.getWidth(), 16, juce::Justification::centredLeft);
     }
-    //the hover tooltip over the bars: the same legend
-    juce::String getTooltip() override {
-        const auto p = getMouseXYRelative();
-        if (bigBar.expanded(0, 4).contains(p) || smallBars[0].getUnion(smallBars[2]).contains(p))
-            return juce::String(legendText(0)) + "\n" + legendText(1) + "\n" + legendText(2) + "\n" + legendText(3) + "\n" + legendText(4);
-        return {};
-    }
     void mouseMove(const juce::MouseEvent& e) override {
         const bool over = bigBar.getWidth() > 0 && e.y >= bigBar.getY() && e.y <= smallBars[2].getBottom() && e.x >= bigBar.getX() && e.x <= bigBar.getRight();
         const double f = over ? juce::jlimit(0.0, 1.0, (double)(e.x - bigBar.getX())/(double)bigBar.getWidth()) : -1.0;
@@ -233,10 +226,10 @@ public:
     }
 
     void mouseDown(const juce::MouseEvent& e) override {
-        if (bigBar.getWidth() > 0 && e.y >= bigBar.getY() - 4 && e.y <= smallBars[2].getBottom() + 4 && transportReady) {
-            const double len = transport.getLengthInSeconds();
-            transport.setPosition(len*juce::jlimit(0.0, 1.0, (double)(e.x - bigBar.getX())/(double)juce::jmax(1, bigBar.getWidth())));
-            repaint();
+        if (bigBar.getWidth() > 0 && e.y >= bigBar.getY() - 4 && e.y <= smallBars[2].getBottom() + 4) {
+            const double f = juce::jlimit(0.0, 1.0, (double)(e.x - bigBar.getX())/(double)juce::jmax(1, bigBar.getWidth()));
+            if (transportReady) { transport.setPosition(transport.getLengthInSeconds()*f); if (!transport.isPlaying()) transport.start(); repaint(); }
+            else startPlayback(f); //a click anywhere on the bars starts playing from there
         }
     }
     void mouseDrag(const juce::MouseEvent& e) override { mouseDown(e); }
@@ -303,7 +296,7 @@ private:
     std::vector<Item> items; std::vector<size_t> order;
     bool loaded = false, loading = false, building = false; const void* loadedFor = nullptr; int loadedChange = -1, seenGen = -1;
     juce::String selectedId; int sortCol = 3; bool sortFwd = true; bool restoredColumns = false;
-    juce::Rectangle<int> topArea, bigBar, legendArea, smallBars[3]; double hoverFrac = -1; juce::TooltipWindow tooltips{this, 500};
+    juce::Rectangle<int> topArea, bigBar, legendArea, smallBars[3]; double hoverFrac = -1;
     juce::TableListBox table;
     juce::TextButton shareButton{"Share packs..."};
     std::unique_ptr<juce::FileChooser> chooser;
@@ -519,6 +512,9 @@ private:
     }
     void togglePlay() {
         if (transportReady && transport.isPlaying()) { stopPlayback(); repaint(); return; }
+        startPlayback(0.0);
+    }
+    void startPlayback(double startFrac) {
         const Item* it = current();
         if (it == nullptr) return;
         const juce::File f(it->path);
@@ -534,7 +530,7 @@ private:
         const double sr = rd->sampleRate;
         readerSource = std::make_unique<juce::AudioFormatReaderSource>(rd.release(), true);
         readAhead.startThread(); transport.setSource(readerSource.get(), 32768, &readAhead, sr);
-        transport.setPosition(0.0); transport.start(); transportReady = true;
+        transport.setPosition(transport.getLengthInSeconds()*startFrac); transport.start(); transportReady = true;
         playButton.setButtonText("Stop");
     }
 };

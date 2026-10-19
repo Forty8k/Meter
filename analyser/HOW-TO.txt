@@ -93,10 +93,10 @@ The Library tab (overview)
       Red = detail leads (the slews, brightness and fine high detail are out in front).
       White in the big bar with all three small bars dark = balanced: nothing leads.
       A lit bar says "this is what dominates here", not "this is wrong".
-    The same legend shows as a tooltip over the bars. A line under the bars says in words who leads at the playhead or mouse
+    A line under the bars says in words who leads at the playhead or mouse
     ("2:41 punch leads", "punch + detail lead", "balanced").
     "Overlay lines" (off by default) draws, inside each small bar, a line: weight = bass position, punch = peak, detail = slew.
-    Play / Stop plays the file from where it was when you added it; click or drag on any of the bars to seek.
+    Play / Stop plays the file from where it was when you added it. Click anywhere on the bars to start playing from that point (or drag to seek while playing); the playhead shows on the big bar.
   Bottom: the list. Default columns: track name, a small tone strip, grade. Right-click the column header to add more columns (artist, album, year,
     BPM, key, LUFS, peak, true peak, length, sample rate, bits, source, format); your choice is remembered. Click a header to sort.
   "Build / update records" makes the small lean record of every track from the window data already stored (no audio is read) and keeps tags and
