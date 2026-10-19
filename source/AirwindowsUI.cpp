@@ -200,7 +200,9 @@ float AirwindowsMeter::relativeQuiet(float p) const
 
 void AirwindowsMeter::scoreColumn(unsigned long col)
 {
-    if (++labCheckCounter >= 24) {labCheckCounter = 0; lab.reloadIfChanged();} //about once a second: settings exported from the Analyser's Lab take effect live
+    if (++labCheckCounter >= 24) {labCheckCounter = 0; lab.reloadIfChanged();
+        if (lab.tuneFresh) {lab.tuneFresh = false; for (int i = 0; i < kTuneCount; ++i) if (lab.hasTune[i]) tune[i] = lab.tuneVal[i];} //the trigger settings from hintLAB apply to the open meter too
+    } //about once a second: settings exported from the Analyser's Lab take effect live
     const ColumnMetrics m = columnMetrics(col);
     const float peakL = m.peakL, peakR = m.peakR, slewL = m.slewL, slewR = m.slewR, bassL = m.bassL, bassR = m.bassR;
     const float psDotSizeL = m.psDotSizeL, psDotSizeR = m.psDotSizeR;

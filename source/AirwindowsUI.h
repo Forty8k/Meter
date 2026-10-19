@@ -242,6 +242,7 @@ struct AirwindowsMeter : public juce::Component
         //ceiling instead of fixed levels, so a quiet stem is read like a loud master. detailLevelComp = Detail's red/green dot test is made as if the track sat at the reference level.
         float relativeGates = 1.0f, detailLevelComp = 1.0f;
         juce::Time loadedTime; bool fromFile = false;
+        float tuneVal[kTuneCount] = {}; bool hasTune[kTuneCount] = {}; bool tuneFresh = false; //the hint trigger settings (tune0-9, 11, 18) in the file: applied live to the open meter, once per export
         float gateRatio() const { return gateDb == 18.0f ? 0.355f : powf(10.0f, -gateDb/40.0f); } //18 dB = the factory 0.355 exactly
         static float posFromHz(double hz) { return (float)fmin(sqrt(fmax(sqrt(22050.0/fmax(hz, 1.0))*6.0 - 6.0, 0.0))*16.2 - 20.0, 199.0); }
         static juce::File file() { return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("meterDARK").getChildFile("lab-tuning.xml"); }
@@ -262,6 +263,11 @@ struct AirwindowsMeter : public juce::Component
             get("relativeGates", n.relativeGates); get("detailLevelComp", n.detailLevelComp); get("detailGate", n.detailGate); get("runLength", n.runLength); get("lone", n.lone); get("tiltGain", n.tiltGain); get("keepWeight", n.keepWeight);
             n.dynRangeDb = fmax(n.dynRangeDb, 0.1f); n.runLength = fmax(n.runLength, 1.0f); n.tiltGain = fmax(n.tiltGain, 0.1f);
             if (fabsf(n.weightFullPos - n.weightThinPos) < 1.0f) n.weightFullPos = n.weightThinPos + 1.0f;
+            for (int i = 0; i < kTuneCount; ++i) {
+                if (i == 10 || (i >= 12 && i <= 17)) continue; //retired / grade / level / hide hints are never set from hintLAB
+                const juce::String k = "tune" + juce::String(i);
+                if (x->hasAttribute(k)) {const float v = (float)x->getDoubleAttribute(k); if (v >= 0.0f && v <= 1.0f) {n.tuneVal[i] = v; n.hasTune[i] = true; n.tuneFresh = fromFile;}}  //only when the file changes while this meter is open: opening a project keeps its own settings
+            }
             n.loadedTime = t; n.fromFile = true;
             *this = n;
         }
