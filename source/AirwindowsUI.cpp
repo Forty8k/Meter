@@ -72,6 +72,8 @@ static int onTuneLabel(const juce::MouseEvent &event, int displayWidth, int disp
                 const int third = (event.x-x0)*3/span;
                 return third == 0 ? 2 : (third == 1 ? 11 : 3);
             }
+            const int xh = tuneRightX(displayWidth, vS, 0);
+            if (event.x >= xh && event.x < xh+tuneLabelW(vS)) return 17; //hide hints (a tick)
             continue;
         }
         for (int k = 0; k < 2; ++k) {
@@ -105,7 +107,7 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
     }
     if (tuneOpen) {
         const int t = onTuneLabel(event, displayWidth, displayHeight, vS);
-        if (t == 12) {tune[12] = tune[12] > 0.5f ? 0.0f : 1.0f; tuneDragging = -1; repaint(); return;} //the grade tick: a click toggles it
+        if (t == 12 || t == 17) {tune[t] = tune[t] > 0.5f ? 0.0f : 1.0f; tuneDragging = -1; repaint(); return;} //the grade tick and the hide hints tick: a click toggles them
         if (t == 13 || t == 14) { //anchor rate and level mode: a click steps to the next choice, a double-click goes back to the saved default
             if (event.getNumberOfClicks() > 1) tune[t] = tuneUser[t];
             else tune[t] = (float)(((tune[t] > 0.75f ? 2 : (tune[t] > 0.25f ? 1 : 0)) + 1) % 3) * 0.5f;
@@ -627,7 +629,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         };
         stripText("weight "+authority, (int)scaleFont/2, (int)(21.0f*vS), displayWidth/2, (int)(29.0f*vS), juce::Justification::centredLeft, 1.0f);
         stripText("zero crosses", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(21.0f*vS), displayWidth/2, (int)(29.0f*vS), juce::Justification::centredRight, 1.0f);
-        stripText(hintText[0], 0, (int)(23.0f*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[0],1.0f));
+        if (!hintsHidden()) stripText(hintText[0], 0, (int)(23.0f*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[0],1.0f));
          //authority is the amount of varying zero cross energy, between maximum and minimum.
         //it can't be always maximum because that is just one frequency and reads as boring, plus it doesn't translate across bassbins as well.
         //The zero cross meter measures how long the audio can go before crossing the middle of the waveform again.
@@ -650,7 +652,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         g.setOpacity(1.0f);
         stripText("dynamics "+power, (int)scaleFont/2, (int)(202*vS), displayWidth/3, (int)(28.0f*vS), juce::Justification::centredLeft, 1.0f);
         stripText("peaks", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(202*vS), displayWidth/2, (int)(28.0f*vS), juce::Justification::centredRight, 1.0f);
-        stripText(hintText[1], 0, (int)(203*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[1],1.0f));
+        if (!hintsHidden()) stripText(hintText[1], 0, (int)(203*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[1],1.0f));
         //power is the intensity of varying peak energy, between maximum and minimum.
         //it can't be always maximum because that is just constant loudness and can't startle or vary.
         //Power is the derivative, the unexpected. it's the ability of sound to be producing peak 'aura' beyond what our ears think is the median loud.
@@ -667,7 +669,7 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         
         stripText("detail "+detail, (int)scaleFont/2, (int)(402*vS), displayWidth/2, (int)(28.0f*vS), juce::Justification::centredLeft, 1.0f);
         stripText("slews", (displayWidth/2)-(int)(scaleFont*0.618f), (int)(402*vS), displayWidth/2, (int)(28.0f*vS), juce::Justification::centredRight, 1.0f);
-        stripText(hintText[2], 0, (int)(403*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[2],1.0f));
+        if (!hintsHidden()) stripText(hintText[2], 0, (int)(403*vS), displayWidth, 32, juce::Justification::centredTop, fmin(hintOpacity[2],1.0f));
         if (displayWidth >= 700) { //THE CONTROL RAILS: hint gauges always visible; settings (greyed ticks) only respond once tune is open
             g.setFont(scaleFont*0.95f);
             auto fmt = [](float v) { juce::String t = juce::String(v, 2); return t.startsWith("0.") ? t.substring(1) : t; };
@@ -717,9 +719,12 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                 const float ticks[2] = {0.5f - tune[idxLow], 0.5f + tune[idxHigh]};
                 railGauge(sec, x0, (float)span*0.98f, ticks, 2, 0.5f, 0.5f + (liveV - bal), true, lowOn || highOn);
             };
+            const bool showHintGauges = !hintsHidden() || tuneOpen; //hide hints: the live gauges go too (they come back while tune is open, so the setting can be switched back)
+            if (showHintGauges) {
             threePoint(0, 0, 9, 1, "light", "heavy", hintUpperAvg[0], 0);
             threePoint(1, 2, 11, 3, "headroom", "squashed", hintUpperAvg[1], 1);
-            {   //DETAIL: a pair of gauges. The hint shows when the dot crosses the tick in the arrow's direction.
+            }
+            if (showHintGauges) {   //DETAIL: a pair of gauges. The hint shows when the dot crosses the tick in the arrow's direction.
                 const char* tuneNames[2] = {"dark<", "bright>"};
                 const float live[2] = {1.0f - hintGreenAvg, 1.0f - expf(-lab.brightSpread*hintRedAvg)};
                 for (int j = 0; j < 2; ++j) {
@@ -736,6 +741,10 @@ void AirwindowsMeter::paint(juce::Graphics &g)
                     railLabel(juce::String(name) + fmt(tune[idx]) + (hasLive ? juce::String(" [") + fmt(liveV) + "]" : juce::String()), x, sec, rw, juce::Justification::centredLeft, 0.9f);
                     railGauge(sec, x, (float)rw*0.9f, &tune[idx], 1, -1.0f, liveV, hasLive, false);
                 };
+                {   //hide hints: no hint words and no live hint gauges on screen (the grade, tone bars and everything else stay)
+                    const bool on = hintsHidden();
+                    railLabel(juce::String(on ? "[x] " : "[ ] ") + "hide hints", tuneRightX(displayWidth, vS, 0), 1, rw, juce::Justification::centredLeft, on ? 1.0f : 0.8f);
+                }
                 setting(0, 0, "hint speed ", 8, 0.0f, false);
                 setting(0, 1, "push ", 10, 0.0f, false);                 //frequency push: low dots count heavier, high dots lighter
                 setting(2, 0, "detail decay ", 6, 0.0f, false);          //brief bright bursts fade from the Detail readings faster
@@ -773,10 +782,11 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             g.setOpacity(tuneOpen ? 0.9f : 0.4f);
             g.drawText("tune", displayWidth-62, displayHeight-24, 56, 20, juce::Justification::bottomRight);
             g.setColour(labelCol); g.setOpacity(0.35f); //which original Meter is underneath
-            g.drawText(juce::String("on Airwindows Meter ") + chris::kVersion, (int)scaleFont/2, displayHeight-24, 260, 20, juce::Justification::bottomLeft);
-            if (lab.fromFile) { //the reading settings came from the Analyser's Lab
+            const juce::String underneath = juce::String("on Airwindows Meter ") + chris::kVersion;
+            g.drawText(underneath, (int)scaleFont/2, displayHeight-24, 260, 20, juce::Justification::bottomLeft);
+            if (lab.fromFile) { //the hint constants came from the Analyser's hintLAB (they only change the hints, never the grade)
                 g.setColour(juce::Colour(255, 225, 40)); g.setOpacity(0.7f);
-                g.drawText("lab", displayWidth-110, displayHeight-24, 44, 20, juce::Justification::bottomRight);
+                g.drawText("hintLAB", (int)scaleFont/2 + (int)g.getCurrentFont().getStringWidth(underneath) + 12, displayHeight-24, 70, 20, juce::Justification::bottomLeft);
             }
             g.setFont(scaleFont*1.618f);
         }

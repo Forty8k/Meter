@@ -6,7 +6,7 @@
 //meterDARK's tune settings: 0-11 the hint and Detail controls, 12 = "grade" (1 = the Detail decay and fill gate also change the grade and tone colours),
 //13 = anchor rate (0 off = the host's rate, 0.5 = 44.1 kHz, 1 = 96 kHz), 14 = level mode (0 original, 0.5 normalised, 1 mix),
 //15 = "input at" (LUFS = -30 + 24 x value, default -14), 16 = "score as if at" (default -11)
-static constexpr int kTuneCount = 17;
+static constexpr int kTuneCount = 18; //tune17 = hide hints (0 = shown)
 static constexpr float kTuneInputAtDefault = 16.0f/24.0f, kTuneAsIfAtDefault = 19.0f/24.0f;
 
 #if (MSVC)
@@ -151,13 +151,13 @@ public:
     int windowCount = 0;
     bool audioPlaying = true;
     bool playheadMoving = false;
-    float hintTune[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault}; //where each hint switches on (see the meter's tune controls), saved with the project
+    float hintTune[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault, 0.00f}; //where each hint switches on (see the meter's tune controls), saved with the project
     chris::PluginProcessor chrisAudio; //Chris's original audio thread (measures each window and sends it to the display)
     float peakTrimDb = 0.0f; //display-only level trim for the peak meter, same idea as slewTrimDb
     float slewTrimDb = 0.0f; //display-only zoom for the slew meter (0 = original). Saved with the project, never touches the audio or the scoring
     //YOUR DEFAULT PRESET: the tune values and the two display trims, kept in a small file in the user's application data folder. New instances
     //start from it, and a project that lacks a value falls back to it. (The numbers in the code are the factory ones, used when there is no file.)
-    float userTune[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault};
+    float userTune[kTuneCount] = {0.30f, 0.30f, 0.30f, 0.30f, 0.30f, 0.70f, 0.00f, 0.00f, 0.10f, 0.50f, 0.30f, 0.50f, 0.00f, 1.00f, 0.00f, kTuneInputAtDefault, kTuneAsIfAtDefault, 0.00f};
     float userPeakTrim = 0.0f;
     float userSlewTrim = 0.0f;
     //WHAT CHRIS'S AUDIO LOOP IS GIVEN: a scratch copy of the audio, never the host's buffer (the host's audio passes through untouched).
