@@ -319,15 +319,14 @@ private:
             const auto& p = mdark::hintParams()[i];
             if (std::fabs(hints.v[i] - p.def) < 1.0e-9) continue;
             changed.add(juce::String(p.group) + ": " + p.label + " = " + juce::String(hints.v[i], p.decimals) + p.unit + "   (factory " + juce::String(p.def, p.decimals) + p.unit + ")  "
-                        + (juce::String(p.key).startsWith("tune") ? "[new instances]" : "[live]"));
+                        + "[live]");
         }
 
         juce::XmlElement lab("meterlabtuning");
         lab.setAttribute("ver", 1);
         for (size_t i = 0; i < mdark::hintParams().size(); ++i) {
             const auto& p = mdark::hintParams()[i];
-            if (juce::String(p.key).startsWith("tune")) continue;
-            lab.setAttribute(p.key, hints.v[i]);
+            lab.setAttribute(p.key, hints.v[i]); //the constants and the trigger settings: all of it applies to an open meterDARK within a second
         }
         lab.setAttribute("exported", juce::Time::getCurrentTime().toISO8601(true));
         const bool ok1 = lab.writeTo(dir.getChildFile("lab-tuning.xml"));
@@ -364,9 +363,9 @@ private:
                 if (changed.size() > 14) msg << "   ... and " << juce::String(changed.size() - 14) << " more\n";
                 msg << "\n";
             }
-            msg << "[live] settings are read by meterDARK within a second, even while it is open. They only change the hints, never the grade.\n"
-                   "[new instances] settings go into your default preset: a meterDARK you open from now on starts with them. One that is already open, and saved projects,\n"
-                   "keep their own until you press \"factory\" or double-click the setting in the plugin's tune panel.\n"
+            msg << "Every setting reaches a meterDARK that is already open within a second, and is also saved in your default preset, so new ones start with it.\n"
+                   "Saved projects keep their own trigger settings until the next export (or until you press \"factory\" or double-click a setting in the plugin).\n"
+                   "The settings only change the hints, never the grade.\n"
                    "Detail decay and fill gate also change the GRADE (and the * shows) but only when \"grade\" is ticked in the plugin's tune panel.\n";
             if (replacedOld) msg << "\nYour old default preset was from a much older meterDARK, so it was replaced by the factory one with these settings.\n";
             msg << "\nYour previous default preset was kept as defaults-before-lab.xml in\n" + dir.getFullPathName();

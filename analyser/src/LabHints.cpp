@@ -24,9 +24,9 @@ const std::vector<HintParam>& hintParams()
         //---- what shapes the readings (constants in the plugin's code)
         {"weightThinHz", "tone",   "thin at",            " Hz", 100,  1000, 300,  0, "the average bass position that reads 0 (thin): music that sits around this frequency"},
         {"weightFullHz", "tone",   "full at",            " Hz", 25,   150,  60,   0, "the average bass position that reads 1 (full): music that sits around this frequency"},
-        {"refOffsetDb",  "tone",   "reference above mean", " dB", 0,  12,   4.5,  1, "where Detail's level reference sits above the mean peak"},
-        {"refTarget",    "tone",   "reference target",   "",    100,  200,  170,  0, "the level the reference is brought to (170 = about -1.5 dB)"},
-        {"fMax",         "tone",   "level boost limit",  "x",   1,    40,   16,   1, "the most a quiet track is boosted to read like a loud one in Detail (4 = +24 dB, 16 = +48 dB)"},
+        {"refOffsetDb",  "detail",   "reference above mean", " dB", 0,  12,   4.5,  1, "where Detail's level reference sits above the mean peak"},
+        {"refTarget",    "detail",   "reference target",   "",    100,  200,  170,  0, "the level the reference is brought to (170 = about -1.5 dB)"},
+        {"fMax",         "detail",   "level boost limit",  "x",   1,    40,   16,   1, "the most a quiet track is boosted to read like a loud one in Detail (4 = +24 dB, 16 = +48 dB)"},
         {"dynRangeDb",   "punch",    "punch range",    " dB", 2,    16,   8,    1, "this much peak swing reads as full headroom"},
         {"followRate",   "punch",    "level follow",      "",    0.002,0.1,  0.02, 3, "how fast the mean level reference catches up (per window)"},
         {"gateDb",       "all",    "quiet gate",         " dB", 6,    36,   18,   0, "windows this far under the recent ceiling are ignored by tone and punch"},
