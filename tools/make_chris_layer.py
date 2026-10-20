@@ -26,6 +26,27 @@ def block_from(text, start):
     fail("unbalanced braces")
 def ident(vid): return "v" + re.sub(r"[^A-Za-z0-9]", "_", vid)
 
+# gradeLAB's constants in the tuned copy (same keys and the same order as the analyser's make_original_scorer.py RULES; the slew decay and bin cap are in the
+# Detail decay line above). A rule that finds nothing leaves that constant as Chris wrote it.
+GRADE_RULES = [
+    ("decayPeak",  "peakTrack[binscale]-0.1618033988749894f", "peakTrack[binscale]-(float)mdP.decayPeak", "paint"),
+    ("decayBass",  "bassTrack[binscale]-0.1618033988749894f", "bassTrack[binscale]-(float)mdP.decayBass", "paint"),
+    ("binCap",     "-(float)mdP.decayPeak, 1.618033988749894f)", "-(float)mdP.decayPeak, (float)mdP.binCap)", "paint"),
+    ("binCap",     "-(float)mdP.decayBass, 1.618033988749894f)", "-(float)mdP.decayBass, (float)mdP.binCap)", "paint"),
+    ("curvePS",    "*(float)M_PI_2),0.0f)", "*(float)mdP.curvePS),0.0f)", "paint"),
+    ("curveBass",  "*(float)M_PI),0.0f)", "*(float)mdP.curveBass),0.0f)", "paint"),
+    ("gradeExp",   r"re:pow\((peak|slew|bass)Score, 1\.618033988749894f\)", r"pow(\1Score, (float)mdP.gradeExp)", "paint"),
+    ("gradeRise",  r"re:\((peak|slew|bass)PrevGrade\*0\.9\)\+\(pow\((\w+), \(float\)mdP\.gradeExp\)\*0\.1\)", r"(\1PrevGrade*(1.0-mdP.gradeRise))+(pow(\2, (float)mdP.gradeExp)*mdP.gradeRise)", "paint"),
+    ("balanceExp", "applyCurve = 1.0f-pow(1.0f-applyCurve,1.618033988749894f);", "applyCurve = 1.0f-pow(1.0f-applyCurve,(float)mdP.balanceExp);", "paint"),
+    ("letterExp",  "pow(1.0-(cumulative/duration),1.618033988749894)", "pow(1.0-(cumulative/duration),mdP.letterExp)", "paint"),
+    ("clipLevel",  "> 197.0f", "> (float)mdP.clipLevel", "paint"),
+    ("clipDecay",  "sustainedClip *= 0.99f;", "sustainedClip *= (float)mdP.clipDecay;", "paint"),
+    ("clipDecayBoth", "sustainedClip *= 0.975f;", "sustainedClip *= (float)mdP.clipDecayBoth;", "paint"),
+    ("clipWeight", "(180.0f-sustainedClip)*1.618033988749894f)", "(180.0f-sustainedClip)*(float)mdP.clipWeight)", "paint"),
+    ("blackLine",  " * departureSlew)*0.3;", " * departureSlew)*mdP.blackLine;", "paint"),
+    ("toneDecay",  "*0.125f*meter.outputVol", "*(float)meter.mdP.toneDecay*meter.outputVol", "editor"),
+]
+
 dirs = sorted((p for p in src.iterdir() if p.is_dir()), key=lambda p: [int(x) if x.isdigit() else x for x in re.split(r"[.-]", p.name)])
 for d in dirs:
     f = {n: (d / n).read_text() for n in ["AirwindowsUI.cpp", "AirwindowsUI.h", "PluginEditor.cpp", "PluginProcessor.cpp", "PluginProcessor.h"]}
@@ -64,10 +85,26 @@ for d in dirs:
     roll = "float peakScore = 0.0;"
     if body.count(fill) != 2 or body.count(dec) != 1 or body.count(roll) != 1: fail(f"{vid}: slew bins not shaped as expected (tuned copy)")
     tbody = body.replace(fill + "L;", "mdSlewFill(bintracker, slewDotSizeL);").replace(fill + "R;", "mdSlewFill(bintracker, slewDotSizeR);")
-    tbody = tbody.replace(dec, "{const float u = (float)binscale/(float)totalBins; slewTrack[binscale] = fmax(fmin(slewTrack[binscale]-0.1618033988749894f*(1.0f+mdDecay*4.0f*u*u), 1.618033988749894f),0.0f);} //(tuned) hot bins empty faster")
+    tbody = tbody.replace(dec, "{const float u = (float)binscale/(float)totalBins; slewTrack[binscale] = fmax(fmin(slewTrack[binscale]-(float)mdP.decaySlew*(1.0f+mdDecay*4.0f*u*u), (float)mdP.binCap),0.0f);} //(tuned) hot bins empty faster; gradeLAB's slew decay and bin cap")
     tbody = tbody.replace(roll, "mdRollHits(); //(tuned)\n        " + roll)
     if "mdSlewFill(bintracker, slewDotSizeL)" not in tbody or "mdSlewFill(bintracker, slewDotSizeR)" not in tbody: fail(f"{vid}: slew fills not found (tuned copy)")
-    tstruct = struct[:struct.rindex("}")] + """    //(tuned) DETAIL DECAY: hot slew bins (high up the meter) empty faster, so a brief overslew fades quickly and a sustained one keeps refilling.
+    # gradeLAB's constants (the analyser's tools/make_original_scorer.py RULES, same keys): each found constant becomes mdP.<key>, whose default is the exact
+    # original value, so with no gradeLAB file the tuned copy is still Chris's code (plus the two Detail settings above, 0 = off).
+    tsw = sw; used = ["decaySlew", "binCap"]
+    for key, find, repl, where in GRADE_RULES:
+        srcText = tbody if where == "paint" else tsw
+        if find.startswith("re:"): new, n = re.subn(find[3:], repl, srcText)
+        else: n = srcText.count(find); new = srcText.replace(find, repl)
+        if n > 0 and key not in used: used.append(key)
+        if where == "paint": tbody = new
+        else: tsw = new
+    tused = ", ".join(f'"{k}"' for k in used)
+    tstruct = struct[:struct.rindex("}")] + """    //(tuned) gradeLAB: the original's constants as settings. Defaults = the original values exactly.
+    struct MdParams { double decayPeak = 0.1618033988749894, decaySlew = 0.1618033988749894, decayBass = 0.1618033988749894, binCap = 1.618033988749894,
+                      curvePS = 1.57079632679489661923, curveBass = 3.14159265358979323846, gradeExp = 1.618033988749894, gradeRise = 0.1,
+                      balanceExp = 1.618033988749894, letterExp = 1.618033988749894, clipLevel = 197.0, clipDecay = 0.99, clipDecayBoth = 0.975,
+                      clipWeight = 1.618033988749894, blackLine = 0.3, toneDecay = 0.125; } mdP;
+    //(tuned) DETAIL DECAY: hot slew bins (high up the meter) empty faster, so a brief overslew fades quickly and a sustained one keeps refilling.
     //FILL GATE: a hot slew bin fills at full strength only if it was also hit in the window before; a lone hit counts for less, more so the hotter the bin.
     float mdDecay = 0.0f, mdGate = 0.0f;
     bool mdHitPrev[totalBins+2] = {}, mdHitNow[totalBins+2] = {};
@@ -89,6 +126,7 @@ namespace {ns} {{
 namespace juce = ::mdmix::juce;
 static constexpr const char* kVersion = "{up['version']}";
 static constexpr const char* kCommit = "{up['commit']}";
+static constexpr const char* kId = "{vid}"; //the version id the Analyser's gradeLAB uses
 
 //==== Chris's PluginProcessor: its audio thread, talking to meterDARK's real processor for the host
 struct PluginProcessor {{
@@ -127,8 +165,9 @@ using PluginProcessor = ::{ns}::PluginProcessor;
 
 {tbody}
 
+static constexpr const char* kGradeLabKeys[] = {{{tused}}}; //the gradeLAB settings this version's tuned copy takes
 inline void dispatch(AirwindowsMeter& meter, const PluginProcessor::AudioToUIMessage& msg, bool& repaintTS) {{
-    {sw}
+    {tsw}
 }}
 }} // namespace {ns}_tuned
 """

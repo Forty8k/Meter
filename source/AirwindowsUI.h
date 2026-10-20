@@ -293,6 +293,10 @@ struct AirwindowsMeter : public juce::Component
     float hintWidthAvg = 0.0f; //dark <-> bright: the share of recent windows that were red OR green (not neutral): the width shade behind the needle
     float hintRedAvg = 0.0f;   //slews: share of recent dots that are red (slews well ahead of peaks)
     bool hintsHidden() const {return tune[17] > 0.5f;} //the "hide hints" setting: the hint words and live hint gauges are not drawn (the tune panel still shows them so it can be switched back)
+    //THE LAB MARKERS on the bottom row: "hintLAB" (hint constants from the Analyser) and "gradeLAB" (scoring constants from the Analyser). A click switches either
+    //off for this meter (back to stock) and on again. gradeLabState is set by the editor: 0 = no file, 1 = active, 2 = switched off, 3 = tuned on another Meter version.
+    bool hintLabDisabled = false, hintLabFile = false, gradeLabDisabled = false; int gradeLabState = 0;
+    juce::Rectangle<int> hintLabRect, gradeLabRect;
     bool gradeTuned = false; //set by the editor: the grade and tone colours come from the tuned copy of Chris's meter (shown as * after the grade)
     bool hintRedPrev = false; //the window before was red (for the fill gate on the bright reading)
     float hintRedRun = 0.0f, hintGreenRun = 0.0f; //how many windows in a row have been red / green: sustained runs count fully, brief ones count less

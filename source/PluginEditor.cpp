@@ -178,8 +178,36 @@ template <typename M> void PluginEditor::takeScores(const M& c)
     meter.authority = c.authority; meter.power = c.power; meter.detail = c.detail;
 }
 
+void PluginEditor::applyGradeLab()
+{
+    decltype(chrisTunedMeter.mdP) p; //the original values
+    const bool sameVersion = gradeLab.version == juce::String(chris::kId);
+    bool differs = false;
+    if (gradeLab.fromFile && sameVersion && !meter.gradeLabDisabled) {
+        std::map<juce::String, double*> field = {{"decayPeak", &p.decayPeak}, {"decaySlew", &p.decaySlew}, {"decayBass", &p.decayBass}, {"binCap", &p.binCap}, {"curvePS", &p.curvePS},
+            {"curveBass", &p.curveBass}, {"gradeExp", &p.gradeExp}, {"gradeRise", &p.gradeRise}, {"balanceExp", &p.balanceExp}, {"letterExp", &p.letterExp}, {"clipLevel", &p.clipLevel},
+            {"clipDecay", &p.clipDecay}, {"clipDecayBoth", &p.clipDecayBoth}, {"clipWeight", &p.clipWeight}, {"blackLine", &p.blackLine}, {"toneDecay", &p.toneDecay}};
+        for (const char* k : chrisTuned::kGradeLabKeys) { //only the constants this version's code has
+            auto v = gradeLab.values.find(k); auto f = field.find(k);
+            if (v == gradeLab.values.end() || f == field.end() || !std::isfinite(v->second)) continue;
+            if (std::abs(v->second - *f->second) > 1.0e-12) differs = true;
+            *f->second = v->second;
+        }
+    }
+    chrisTunedMeter.mdP = p;
+    gradeLabActive = differs;
+    meter.gradeLabState = !gradeLab.fromFile ? 0 : (!sameVersion ? 3 : (meter.gradeLabDisabled ? 2 : (differs ? 1 : 0)));
+    gradeLabDisabledSeen = meter.gradeLabDisabled;
+    meter.repaint();
+}
+
 void PluginEditor::idle()
 {
+    if (++gradeLabCounter >= 30 || meter.gradeLabDisabled != gradeLabDisabledSeen) { //about once a second: gradeLAB settings exported from the Analyser take effect live
+        const bool clicked = meter.gradeLabDisabled != gradeLabDisabledSeen;
+        gradeLabCounter = 0;
+        if (gradeLab.reloadIfChanged() || clicked) applyGradeLab();
+    }
     //MESSAGES FROM CHRIS'S AUDIO LOOP. Each goes to his own meter exactly as his editor handles it, and its values to our display.
     //At the end of each window his meter runs its scoring once (its paint, with drawing switched off): once per window, never per
     //screen redraw, so the grades do not depend on how often the screen is redrawn or how fast the host plays.
@@ -195,10 +223,11 @@ void PluginEditor::idle()
         const juce::String what((int)msg.what >= 0 && (int)msg.what < chris::kNumWhats ? chris::kWhatNames[(int)msg.what] : "");
         if (what == "INCREMENT") {
             chrisMeter.paint(noDraw); //his scoring for this window
-            chrisTunedMeter.mdDecay = meter.tune[6]; chrisTunedMeter.mdGate = meter.tune[7];
+            const bool gradeTick = meter.tune[12] > 0.5f;
+            chrisTunedMeter.mdDecay = gradeTick ? meter.tune[6] : 0.0f; chrisTunedMeter.mdGate = gradeTick ? meter.tune[7] : 0.0f; //the Detail settings only reach the grade when "grade" is ticked
             chrisTunedMeter.paint(noDraw);
             //"grade" ticked and a Detail setting above 0: the grade and tone colours come from the tuned copy. Otherwise they are exactly Chris's.
-            meter.gradeTuned = meter.tune[12] > 0.5f && (meter.tune[6] > 0.0f || meter.tune[7] > 0.0f);
+            meter.gradeTuned = (gradeTick && (meter.tune[6] > 0.0f || meter.tune[7] > 0.0f)) || gradeLabActive; //or gradeLAB's constants are in use
             if (meter.gradeTuned) takeScores(chrisTunedMeter); else takeScores(chrisMeter);
             meter.levelMode = meter.tune[14] > 0.75f ? 2 : (meter.tune[14] > 0.25f ? 1 : 0);
             meter.pushIncrement(); repaintTS = true;

@@ -90,6 +90,8 @@ void AirwindowsMeter::mouseDown(const juce::MouseEvent &event)
 {
     float vS = displayHeight/600.0f;
     if (onTuneToggle(event, displayWidth, displayHeight)) {tuneOpen = !tuneOpen; repaint(); return;}
+    if (hintLabRect.contains(event.getPosition())) {hintLabDisabled = !hintLabDisabled; labCheckCounter = 24; repaint(); return;} //switch the Analyser's hint constants off / on for this meter
+    if (gradeLabRect.contains(event.getPosition())) {gradeLabDisabled = !gradeLabDisabled; repaint(); return;}                //the same for its scoring constants (the editor picks it up)
     if (tuneOpen && displayWidth >= 700 && event.y >= displayHeight-28) {
         if (event.x >= displayWidth-190 && event.x < displayWidth-76) { //save the current tune values and trims as the default for new instances
             if (onSaveDefault) onSaveDefault();
@@ -200,7 +202,8 @@ float AirwindowsMeter::relativeQuiet(float p) const
 
 void AirwindowsMeter::scoreColumn(unsigned long col)
 {
-    if (++labCheckCounter >= 24) {labCheckCounter = 0; lab.reloadIfChanged();
+    if (++labCheckCounter >= 24) {labCheckCounter = 0; hintLabFile = LabTuning::file().existsAsFile();
+        if (hintLabDisabled) {if (lab.fromFile) lab = LabTuning();} else lab.reloadIfChanged(); //hintLAB switched off here: the factory constants
         if (lab.tuneFresh) {lab.tuneFresh = false; for (int i = 0; i < kTuneCount; ++i) if (lab.hasTune[i]) tune[i] = lab.tuneVal[i];} //the trigger settings from hintLAB apply to the open meter too
     } //about once a second: settings exported from the Analyser's Lab take effect live
     const ColumnMetrics m = columnMetrics(col);
@@ -310,6 +313,7 @@ void AirwindowsMeter::scoreColumn(unsigned long col)
 void AirwindowsMeter::paint(juce::Graphics &g)
 {
     float vS = displayHeight/600.0f; // short for vScale: everything * this
+    hintLabRect = {}; gradeLabRect = {}; //set again where the lab markers are drawn (nothing to click when they are not on screen)
     
     //The slew meter's display zoom (see slewTrimDb). The slew meter shows sqrt of the slew value, so a trim in dB scales the picture by dB/40.
     //0 dB = 1.0 = the original look. Only DRAWN positions use this: colours, dot sizes and every score use the full-level values.
@@ -779,9 +783,21 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             g.setColour(labelCol); g.setOpacity(0.35f); //which original Meter is underneath
             const juce::String underneath = juce::String("on Airwindows Meter ") + chris::kVersion;
             g.drawText(underneath, (int)scaleFont/2, displayHeight-24, 260, 20, juce::Justification::bottomLeft);
-            if (lab.fromFile) { //the hint constants came from the Analyser's hintLAB (they only change the hints, never the grade)
-                g.setColour(juce::Colour(255, 225, 40)); g.setOpacity(0.7f);
-                g.drawText("hintLAB", (int)scaleFont/2 + (int)g.getCurrentFont().getStringWidth(underneath) + 12, displayHeight-24, 70, 20, juce::Justification::bottomLeft);
+            //the lab markers: yellow = settings from the Analyser are in use, dim "off" = switched off here (click to switch back). hintLAB only changes the hints; gradeLAB changes the grade (and the * shows)
+            int mx = (int)scaleFont/2 + (int)g.getCurrentFont().getStringWidth(underneath) + 12;
+            if (lab.fromFile || (hintLabDisabled && hintLabFile)) {
+                const juce::String t = hintLabDisabled ? "hintLAB off" : "hintLAB";
+                const int w = (int)g.getCurrentFont().getStringWidth(t) + 6;
+                g.setColour(hintLabDisabled ? labelCol : juce::Colour(255, 225, 40)); g.setOpacity(hintLabDisabled ? 0.35f : 0.8f);
+                g.drawText(t, mx, displayHeight-24, w, 20, juce::Justification::bottomLeft);
+                hintLabRect = {mx, displayHeight-26, w, 24}; mx += w + 10;
+            }
+            if (gradeLabState != 0) {
+                const juce::String t = gradeLabState == 1 ? "gradeLAB" : gradeLabState == 2 ? "gradeLAB off" : "gradeLAB (other Meter version)";
+                const int w = (int)g.getCurrentFont().getStringWidth(t) + 6;
+                g.setColour(gradeLabState == 1 ? juce::Colour(255, 225, 40) : labelCol); g.setOpacity(gradeLabState == 1 ? 0.8f : 0.35f);
+                g.drawText(t, mx, displayHeight-24, w, 20, juce::Justification::bottomLeft);
+                if (gradeLabState != 3) gradeLabRect = {mx, displayHeight-26, w, 24};
             }
             g.setFont(scaleFont*1.618f);
         }

@@ -3,6 +3,7 @@
 #include "AirwindowsUI.h"
 #include "PluginProcessor.h"
 #include "BinaryData.h"
+#include "GradeTuning.h"
 
 
 //==============================================================================
@@ -45,6 +46,8 @@ private:
     AirwindowsMeter meter;
     chris::AirwindowsMeter chrisMeter;   //Chris's original meter, never on screen: it does the scoring
     chrisTuned::AirwindowsMeter chrisTunedMeter; //the same with meterDARK's Detail decay and fill gate: used for the grade when "grade" is ticked
+    GradeTuning gradeLab; int gradeLabCounter = 0; bool gradeLabDisabledSeen = false; bool gradeLabActive = false;
+    void applyGradeLab(); //puts the gradeLAB constants (or the originals) into chrisTunedMeter and sets the marker
     chris::juce::Graphics noDraw;        //where its drawing goes (nowhere)
     
     juce::Colour hostTrackColour = juce::Colours::lightgrey;

@@ -11,6 +11,7 @@ namespace chris_v0_5_6_40bb6cc {
 namespace juce = ::mdmix::juce;
 static constexpr const char* kVersion = "0.5.6";
 static constexpr const char* kCommit = "40bb6cc";
+static constexpr const char* kId = "0.5.6-40bb6cc"; //the version id the Analyser's gradeLAB uses
 
 //==== Chris's PluginProcessor: its audio thread, talking to meterDARK's real processor for the host
 struct PluginProcessor {
@@ -1505,6 +1506,11 @@ struct AirwindowsMeter : public juce::Component
         }
         repaint(); //and update the UI to immediately see the result
     }
+    //(tuned) gradeLAB: the original's constants as settings. Defaults = the original values exactly.
+    struct MdParams { double decayPeak = 0.1618033988749894, decaySlew = 0.1618033988749894, decayBass = 0.1618033988749894, binCap = 1.618033988749894,
+                      curvePS = 1.57079632679489661923, curveBass = 3.14159265358979323846, gradeExp = 1.618033988749894, gradeRise = 0.1,
+                      balanceExp = 1.618033988749894, letterExp = 1.618033988749894, clipLevel = 197.0, clipDecay = 0.99, clipDecayBoth = 0.975,
+                      clipWeight = 1.618033988749894, blackLine = 0.3, toneDecay = 0.125; } mdP;
     //(tuned) DETAIL DECAY: hot slew bins (high up the meter) empty faster, so a brief overslew fades quickly and a sustained one keeps refilling.
     //FILL GATE: a hot slew bin fills at full strength only if it was also hit in the window before; a lone hit counts for less, more so the hotter the bin.
     float mdDecay = 0.0f, mdGate = 0.0f;
@@ -1588,11 +1594,11 @@ inline void AirwindowsMeter::paint(juce::Graphics &g)
         float departureSlew = fmin(6.18033988749894f,fmax(0.0f,(5.0f-(dataDSL[count]+dataDSR[count])) * sqrt(fmax(dataBSL[count],dataBSR[count]))) * 6.18033988749894f);
         
         //begin draw dots on meters L
-        if (peakL > 197.0f) {
+        if (peakL > (float)mdP.clipLevel) {
             g.setColour(juce::Colour(255, 0, 0));
             g.fillRect((float)count, ((219.0f+(float)sustainedClip)*vS), 1.9f, (181.9f-(float)sustainedClip)*vS);
-            sustainedClip *= 0.99f; //peak is clipping!
-            if (peakR > 197.0f) sustainedClip *= 0.975f; //if both are clipping, escalate
+            sustainedClip *= (float)mdP.clipDecay; //peak is clipping!
+            if (peakR > (float)mdP.clipLevel) sustainedClip *= (float)mdP.clipDecayBoth; //if both are clipping, escalate
         } else sustainedClip = 180.0f;
         
         g.setColour(juce::Colour(0, 0, 0));
@@ -1615,11 +1621,11 @@ inline void AirwindowsMeter::paint(juce::Graphics &g)
         if (bassL < 199.0f-(bassDotSizeL+fmax(pow(peakL/140.0f,4.0f),0.0f))) g.fillRect((float)count, bassL*vS, bassDotSizeL+fmax(pow(peakL/140.0f,4.0f),0.0f), (bassDotSizeL+fmax(pow(peakL/140.0f,4.0f),0.0f))*vS); //zero cross subs
         //end draw dots on meters L
         //begin draw dots on meters R
-        if (peakR > 197.0f) {
+        if (peakR > (float)mdP.clipLevel) {
             g.setColour(juce::Colour(255, 0, 0));
             g.fillRect((float)count, ((219.0f+(float)sustainedClip)*vS), 1.9f, (181.9f-(float)sustainedClip)*vS);
-            sustainedClip *= 0.99f; //peak is clipping!
-            if (peakL > 197.0f) sustainedClip *= 0.975f; //if both are clipping, escalate
+            sustainedClip *= (float)mdP.clipDecay; //peak is clipping!
+            if (peakL > (float)mdP.clipLevel) sustainedClip *= (float)mdP.clipDecayBoth; //if both are clipping, escalate
         } else sustainedClip = 180.0f;
         
         psDotSizeR = (dataPR[count]*64.0f) / (fabs((peakR*0.945433426957143f)-slewR)+6.18033988749894f);
@@ -1646,12 +1652,12 @@ inline void AirwindowsMeter::paint(juce::Graphics &g)
         g.fillRect((float)(count)-0.25f, 0.0f, 1.5f, 19.5f*vS); //top bar
         
         unsigned long bintracker;
-        bintracker = (unsigned long)((peakL-((180.0f-sustainedClip)*1.618033988749894f)) * (0.005f*(float)totalBins));
+        bintracker = (unsigned long)((peakL-((180.0f-sustainedClip)*(float)mdP.clipWeight)) * (0.005f*(float)totalBins));
         //converts 0-200 to 0-bin number for textscore bins, and the peak measurement will also try to incorporate varying clip lengths
         //on the grounds that FOR loudenated stuff, variety in the length of total clip registers for our purposes.
         bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins))); //mirror around max value so it reflects
         if (bintracker > 0 && bintracker <= totalBins) peakTrack[bintracker] += psDotSizeL;
-        bintracker = (unsigned long)((peakR-((180.0f-sustainedClip)*1.618033988749894f)) * (0.005f*(float)totalBins));
+        bintracker = (unsigned long)((peakR-((180.0f-sustainedClip)*(float)mdP.clipWeight)) * (0.005f*(float)totalBins));
         bintracker = (unsigned long)(totalBins - (fabs((int)bintracker-(int)totalBins)));
         if (bintracker > 0 && bintracker <= totalBins) peakTrack[bintracker] += psDotSizeR;
         //peak textscore bins
@@ -1677,16 +1683,16 @@ inline void AirwindowsMeter::paint(juce::Graphics &g)
         float bassScore = 0.0;
         float sinScale = 0.0;
         for (unsigned long binscale = 0; binscale < totalBins; ++binscale) {
-            peakTrack[binscale] = fmax(fmin(peakTrack[binscale]-0.1618033988749894f, 1.618033988749894f),0.0f); //decrement speed
-            sinScale = fmax(sin(((float)binscale/(float)totalBins)*(float)M_PI_2),0.0f);
+            peakTrack[binscale] = fmax(fmin(peakTrack[binscale]-(float)mdP.decayPeak, (float)mdP.binCap),0.0f); //decrement speed
+            sinScale = fmax(sin(((float)binscale/(float)totalBins)*(float)mdP.curvePS),0.0f);
             //sin(1.57) weighting means big red dots in good places, ignore green slews at bottom
             peakScore += (float)sin(peakTrack[binscale]) * sinScale;
             
-            {const float u = (float)binscale/(float)totalBins; slewTrack[binscale] = fmax(fmin(slewTrack[binscale]-0.1618033988749894f*(1.0f+mdDecay*4.0f*u*u), 1.618033988749894f),0.0f);} //(tuned) hot bins empty faster //decrement speed
+            {const float u = (float)binscale/(float)totalBins; slewTrack[binscale] = fmax(fmin(slewTrack[binscale]-(float)mdP.decaySlew*(1.0f+mdDecay*4.0f*u*u), (float)mdP.binCap),0.0f);} //(tuned) hot bins empty faster; gradeLAB's slew decay and bin cap //decrement speed
             slewScore += (float)sin(slewTrack[binscale]) * sinScale;
             
-            bassTrack[binscale] = fmax(fmin(bassTrack[binscale]-0.1618033988749894f, 1.618033988749894f),0.0f); //decrement speed
-            sinScale = fmax(sin(((float)binscale/(float)totalBins)*(float)M_PI),0.0f);
+            bassTrack[binscale] = fmax(fmin(bassTrack[binscale]-(float)mdP.decayBass, (float)mdP.binCap),0.0f); //decrement speed
+            sinScale = fmax(sin(((float)binscale/(float)totalBins)*(float)mdP.curveBass),0.0f);
             //sin(3.1415) does a sine weighting on zero cross meter, but resists overweighting midrange sections
             bassScore += (float)sin(bassTrack[binscale]) * sinScale;
         }
@@ -1699,16 +1705,16 @@ inline void AirwindowsMeter::paint(juce::Graphics &g)
         }
         if (dataPosition == count) {
             float applyCurve = (float)fmin(fmin(outputR,outputG),outputB) / (float)fmax(fmax(outputR+0.000001f,outputG),outputB);
-            applyCurve = 1.0f-pow(1.0f-applyCurve,1.618033988749894f);
+            applyCurve = 1.0f-pow(1.0f-applyCurve,(float)mdP.balanceExp);
             cumulative += applyCurve * outputVol;
             duration += outputVol;
             //when loudness rises it will be paying proportionally more attention to the balance.
             //that means on varying tracks it'll care more about the main part than intros/outros.
         }
         if (count == (unsigned long)dataPosition-1) { //only update text score display more infrequently
-            if (pow(peakScore, 1.618033988749894f) > peakPrevGrade) peakPrevGrade = (peakPrevGrade*0.9)+(pow(peakScore, 1.618033988749894f)*0.1);
-            if (pow(slewScore, 1.618033988749894f) > slewPrevGrade) slewPrevGrade = (slewPrevGrade*0.9)+(pow(slewScore, 1.618033988749894f)*0.1);
-            if (pow(bassScore, 1.618033988749894f) > bassPrevGrade) bassPrevGrade = (bassPrevGrade*0.9)+(pow(bassScore, 1.618033988749894f)*0.1);
+            if (pow(peakScore, (float)mdP.gradeExp) > peakPrevGrade) peakPrevGrade = (peakPrevGrade*(1.0-mdP.gradeRise))+(pow(peakScore, (float)mdP.gradeExp)*mdP.gradeRise);
+            if (pow(slewScore, (float)mdP.gradeExp) > slewPrevGrade) slewPrevGrade = (slewPrevGrade*(1.0-mdP.gradeRise))+(pow(slewScore, (float)mdP.gradeExp)*mdP.gradeRise);
+            if (pow(bassScore, (float)mdP.gradeExp) > bassPrevGrade) bassPrevGrade = (bassPrevGrade*(1.0-mdP.gradeRise))+(pow(bassScore, (float)mdP.gradeExp)*mdP.gradeRise);
             peakGrade = (int)peakPrevGrade; //directly store the value so we can
             slewGrade = (int)slewPrevGrade; //always check to see if it's been higher
             bassGrade = (int)bassPrevGrade; //for two measurements in a row.
@@ -1911,7 +1917,7 @@ inline void AirwindowsMeter::paint(juce::Graphics &g)
             } //this is our letter score, incorporating all the measurements
             
             totalPackage = juce::String(" ");
-            double allMatch = (1.0-pow(1.0-(cumulative/duration),1.618033988749894))*27.618033988749894;
+            double allMatch = (1.0-pow(1.0-(cumulative/duration),mdP.letterExp))*27.618033988749894;
             if (allMatch < 0.0) allMatch = 0.0;
             if (allMatch > 27.0) allMatch = 27.0;
             switch ((int)allMatch) {
@@ -1974,7 +1980,7 @@ inline void AirwindowsMeter::paint(juce::Graphics &g)
             } //this is our letter score, incorporating all the measurements
             
             durationPlus += 1.0;
-            double blackLine = sqrt(departureZero * departureRMS * departureSlew)*0.3;
+            double blackLine = sqrt(departureZero * departureRMS * departureSlew)*mdP.blackLine;
             //for future reference, D is raw departure and B is raw beam, so this is all slew related here, could do with other influences
             double diffA = fabs(peakPrevGrade - (slewPrevGrade-3.0))+1.0; //bass a = 15
             double diffB = fabs(bassPrevGrade - (slewPrevGrade-4.0))+1.0; //peak a = 16
@@ -2199,6 +2205,7 @@ inline void AirwindowsMeter::paint(juce::Graphics &g)
 }
 
 
+static constexpr const char* kGradeLabKeys[] = {"decaySlew", "binCap", "decayPeak", "decayBass", "curvePS", "curveBass", "gradeExp", "gradeRise", "balanceExp", "letterExp", "clipLevel", "clipDecay", "clipDecayBoth", "clipWeight", "blackLine", "toneDecay"}; //the gradeLAB settings this version's tuned copy takes
 inline void dispatch(AirwindowsMeter& meter, const PluginProcessor::AudioToUIMessage& msg, bool& repaintTS) {
     switch (msg.what) {
             case PluginProcessor::AudioToUIMessage::NEW_VALUE: break; //no knobs on this plugin
@@ -2227,7 +2234,7 @@ inline void dispatch(AirwindowsMeter& meter, const PluginProcessor::AudioToUIMes
                 meter.outputMin = fmin(fmin(meter.outputR,meter.outputG),meter.outputB) / meter.outputMax;
                 meter.gradientMin = meter.outputMin*meter.outputMin*meter.outputMin;
                 //smallest number means brightest color, relative to highest number will be 1.0 meaning white
-                meter.outputMin = 1.0f-((1.0f-meter.outputMin)*0.125f*meter.outputVol*meter.outputVol);
+                meter.outputMin = 1.0f-((1.0f-meter.outputMin)*(float)meter.mdP.toneDecay*meter.outputVol*meter.outputVol);
                 //quiet parts converge on 1.0 also, to slow color activity in fades
                 meter.outputMin = fmax(fmin(meter.outputMin,1.0f),0.0f);
                 meter.storeR = pow(meter.outputR/meter.outputMax, 1.618033988749894f);
