@@ -83,6 +83,8 @@ public:
     std::map<juce::String, std::map<juce::String, juce::String>> userValues(); // id -> key -> value
     std::vector<CustomColumn> customColumns();
     void setUserValue(const juce::String& id, const juce::String& key, const juce::String& value);
+    struct UserEdit { juce::String id, key, value; };
+    void setUserValues(const std::vector<UserEdit>& edits); // many at once (one read and one write); an empty value removes the edit
     juce::String addCustomColumn(const juce::String& name, bool numeric);   // returns its key
     void renameCustomColumn(const juce::String& key, const juce::String& newName);
     void removeCustomColumn(const juce::String& key);

@@ -1,12 +1,13 @@
 // meterDARK Analyser, command-line version: meterDARKAnalyserCLI [--library <folder>] <files or folders...>
 #include "Engine.h"
+#include "TagFill.h"
 #include <iostream>
 
 int main(int argc, char* argv[])
 {
     juce::File library = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("meterDARK Library");
     juce::Array<juce::File> inputs;
-    bool rescan = false; int levels = 0; int lean = 0; juce::String exportPack, importPack; bool fullPack = false;
+    bool rescan = false; bool fillTags = false, foldersOnly = false, tagTest = false; juce::String discogsToken; int levels = 0; int lean = 0; juce::String exportPack, importPack; bool fullPack = false;
     for (int i = 1; i < argc; ++i) {
         const juce::String a(argv[i]);
         if ((a == "--library" || a == "-l") && i + 1 < argc) {library = juce::File::getCurrentWorkingDirectory().getChildFile(argv[++i]); continue;}
@@ -17,16 +18,44 @@ int main(int argc, char* argv[])
         if (a == "--full") {fullPack = true; continue;}
         if (a == "--import-pack" && i + 1 < argc) {importPack = argv[++i]; continue;}
         if (a == "--lean-check") {lean = 2; continue;}
+        if (a == "--fill-tags") {fillTags = true; continue;}
+        if (a == "--folders-only") {foldersOnly = true; continue;}
+        if (a == "--discogs-token" && i + 1 < argc) {discogsToken = argv[++i]; continue;}
+        if (a == "--tagfill-test") {tagTest = true; continue;}
         if (a == "--help" || a == "-h") {
             std::cout << "Usage: meterDARKAnalyserCLI [--library <folder>] [--rescan] <audio files or folders...>\n"
                          "--rescan scans every track captured by an older analyser again from its stored file path.\n"
                          "--lean builds the small shareable record of every track (lean folder) from the stored window data; --lean-check also rebuilds them all and proves each replay block regrades to the same grade.\n"
                          "--export-pack <file> [--full] writes a share pack of every lean record (display only, or with the replay blocks); --import-pack <file> adds a pack to lean-shared.\n"
+                         "--fill-tags [--folders-only] [--discogs-token <token>] fills EMPTY artist / album / year / genre from the folder names, then from MusicBrainz (and Discogs with a token). Your own edits only; tagfill-log.csv in the library lists every fill.\n"
                          "--levels grades every track in the normalised and the mix level mode (replayed from the stored windows) and prints how many grades came out.\n"
                          "Adds each track to the library (default: Documents/meterDARK Library). WAV, AIFF, FLAC, Ogg and MP3.\n";
             return 0;
         }
         mdark::Library::collectAudioFiles(juce::File::getCurrentWorkingDirectory().getChildFile(a), inputs);
+    }
+    if (tagTest) { //checks of the tag-filling rules and parsers on made-up paths and saved sample answers (no network)
+        using namespace mdark::tagfill; int bad = 0;
+        auto check = [&](bool ok, const char* what) { if (!ok) { ++bad; std::cout << "FAIL: " << what << "\n"; } };
+        { const auto f = fromPath("D:/Music/Rock/Foo Fighters/The Colour and the Shape (1997)/01 Monkey Wrench.wav"); check(f.genre == "Rock" && f.artist == "Foo Fighters" && f.album == "The Colour and the Shape" && f.year == "1997", "Rock/Artist/Album (1997)"); }
+        { const auto f = fromPath("/home/x/Hip-Hop/Run DMC/It's Tricky.flac"); check(f.genre == "Hip Hop" && f.artist == "Run DMC" && f.album.isEmpty(), "Genre/Artist/track"); }
+        { const auto f = fromPath("C:\\Music\\Jazz\\Miles Davis\\1959 - Kind of Blue\\So What.wav"); check(f.genre == "Jazz" && f.artist == "Miles Davis" && f.album == "Kind of Blue" && f.year == "1959", "windows path, year first"); }
+        { const auto f = fromPath("/music/loose/track.wav"); check(f.genre.isEmpty() && f.year.isEmpty(), "no genre or year invented"); }
+        check(genreFromFolderName("Drum & Bass") == "Drum & Bass" && genreFromFolderName("R'n'B").isEmpty() == false && genreFromFolderName("Holiday Mix").isEmpty(), "genre names");
+        check(cleanTitle("Wired for Sound (2001 Remaster)") == "Wired for Sound" && cleanTitle("Rehab - 2015 Remaster") == "Rehab" && cleanTitle("Song (feat. X)") == "Song" && cleanTitle("Heroes") == "Heroes", "cleanTitle");
+        { const auto m = parseMusicBrainz(R"({"recordings":[{"score":100,"first-release-date":"1997-05-20","releases":[{"date":"1998-01-01"},{"date":"1997-05-20"}],"tags":[{"count":3,"name":"rock"},{"count":9,"name":"alternative rock"}]},{"score":50,"first-release-date":"1960-01-01"}]})");
+          check(m.ok && m.year == "1997" && m.genre == "Alternative rock", "musicbrainz parse"); }
+        { const auto d = parseDiscogs(R"({"results":[{"year":"2003","genre":["Rock"]},{"year":"1999","genre":["Electronic"]}]})"); check(d.ok && d.year == "1999" && d.genre == "Rock", "discogs parse"); }
+        check(!parseMusicBrainz("not json").ok && !parseDiscogs("{}").ok, "bad answers");
+        std::cout << (bad == 0 ? "Tag-fill checks: all passed\n" : "Tag-fill checks: FAILED\n");
+        return bad == 0 ? 0 : 1;
+    }
+    if (fillTags) {
+        mdark::Library flib(library);
+        mdark::tagfill::Options o; o.musicBrainz = !foldersOnly; o.discogs = !foldersOnly && discogsToken.isNotEmpty(); o.discogsToken = discogsToken;
+        const auto sum = mdark::tagfill::fill(flib, o, [](int d, int t, const juce::String& m) { if (d % 50 == 0) std::cout << d << "/" << t << "  " << m << "\n"; }, {});
+        std::cout << "Tag fill: " << sum.genres << " genres, " << sum.years << " years, " << sum.artists << " artists, " << sum.albums << " albums filled (" << sum.lookups << " lookups, " << sum.failures << " failed). Nothing was overwritten.\n";
+        return 0;
     }
     if (inputs.isEmpty() && argc < 3 && !rescan && !levels && !lean && exportPack.isEmpty() && importPack.isEmpty()) {std::cout << "No audio files given. Try --help\n"; return 1;}
     mdark::Library lib(library);

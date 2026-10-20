@@ -8,6 +8,7 @@
 #include "LabHints.h"
 #include "LabScore.h"
 #include "GradeRank.h"
+#include "TagFill.h"
 #include <thread>
 #include <set>
 #include <map>
@@ -223,6 +224,72 @@ struct Column {
 
 #include "Filters.inc"
 
+//FILL MISSING TAGS: folder names, then MusicBrainz and Discogs. Only empty fields; your own edits only; everything is logged so it can be undone.
+class TagFillPanel : public juce::Component, private juce::Timer {
+public:
+    std::function<std::shared_ptr<mdark::Library>()> getLibrary;
+    TagFillPanel() {
+        setSize(520, 330);
+        for (auto* t : {&foldersTick, &mbTick, &dcTick}) { addAndMakeVisible(t); t->setColour(juce::ToggleButton::textColourId, kText); t->setColour(juce::ToggleButton::tickColourId, kAccent); }
+        foldersTick.setToggleState(true, juce::dontSendNotification); mbTick.setToggleState(true, juce::dontSendNotification);
+        foldersTick.setButtonText("Folder names  (Rock/Foo Fighters/Album (1997)/...: genre, artist, album, year; instant, offline)");
+        mbTick.setButtonText("MusicBrainz  (free, no account: release year and genre; about 1 track per second)");
+        dcTick.setButtonText("Discogs  (needs your free personal token: genre and year; about 1 track per second)");
+        addAndMakeVisible(tokenLabel); tokenLabel.setText("Discogs token:", juce::dontSendNotification); tokenLabel.setColour(juce::Label::textColourId, kDim);
+        addAndMakeVisible(token); token.setColour(juce::TextEditor::backgroundColourId, kPanel); token.setColour(juce::TextEditor::textColourId, kText); token.setColour(juce::TextEditor::outlineColourId, kPanel);
+        token.setTextToShowWhenEmpty("paste it here (discogs.com > Settings > Developers > Generate token)", kDim);
+        token.setText(tokenFile().existsAsFile() ? tokenFile().loadFileAsString().trim() : juce::String(), false);
+        for (auto* b : {&startButton, &stopButton, &undoButton, &closeButton}) { addAndMakeVisible(b); styleButton(*b); }
+        stopButton.setEnabled(false);
+        startButton.onClick = [this] { start(); };
+        stopButton.onClick = [this] { stopFlag = true; stopButton.setEnabled(false); };
+        undoButton.onClick = [this] { if (auto lib = getLibrary ? getLibrary() : nullptr) { const int n = mdark::tagfill::undoLast(*lib); status.setText("Undone: " + juce::String(n) + " values removed again.", juce::dontSendNotification); } };
+        closeButton.onClick = [this] { if (auto* w = findParentComponentOfClass<juce::DialogWindow>()) w->exitModalState(0); };
+        addAndMakeVisible(status); status.setColour(juce::Label::textColourId, kText); status.setJustificationType(juce::Justification::topLeft);
+        status.setText("Fills only EMPTY fields, into your own edits (the audio files are never touched). Folder names win over the online lookups. "
+                       "Online lookups take about a second per track and can be stopped and resumed; answers are kept, so a second run is quick.", juce::dontSendNotification);
+    }
+    ~TagFillPanel() override { stopTimer(); stopFlag = true; if (worker.joinable()) worker.join(); }
+    void resized() override {
+        auto r = getLocalBounds().reduced(14);
+        foldersTick.setBounds(r.removeFromTop(24)); mbTick.setBounds(r.removeFromTop(24)); dcTick.setBounds(r.removeFromTop(24));
+        auto t = r.removeFromTop(28); tokenLabel.setBounds(t.removeFromLeft(100)); token.setBounds(t);
+        r.removeFromTop(8);
+        auto b = r.removeFromBottom(30);
+        startButton.setBounds(b.removeFromLeft(110)); b.removeFromLeft(6); stopButton.setBounds(b.removeFromLeft(80)); b.removeFromLeft(6); undoButton.setBounds(b.removeFromLeft(130)); closeButton.setBounds(b.removeFromRight(90));
+        r.removeFromBottom(8);
+        status.setBounds(r);
+    }
+private:
+    static juce::File tokenFile() { return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("meterDARK Analyser").getChildFile("discogs-token.txt"); }
+    void start() {
+        auto lib = getLibrary ? getLibrary() : nullptr;
+        if (lib == nullptr || running) return;
+        mdark::tagfill::Options o; o.folders = foldersTick.getToggleState(); o.musicBrainz = mbTick.getToggleState(); o.discogs = dcTick.getToggleState() && token.getText().trim().isNotEmpty(); o.discogsToken = token.getText().trim();
+        if (dcTick.getToggleState() && o.discogsToken.isEmpty()) { status.setText("Paste your Discogs token first, or untick Discogs.", juce::dontSendNotification); return; }
+        if (o.discogsToken.isNotEmpty()) { tokenFile().getParentDirectory().createDirectory(); tokenFile().replaceWithText(o.discogsToken); }
+        running = true; stopFlag = false; doneFlag = false; startButton.setEnabled(false); stopButton.setEnabled(true); undoButton.setEnabled(false);
+        if (worker.joinable()) worker.join();
+        worker = std::thread([this, lib, o] {
+            const auto sum = mdark::tagfill::fill(*lib, o, [this](int d, int t, const juce::String& m) { const juce::ScopedLock sl(lock); progressText = juce::String(d) + " of " + juce::String(t) + "   " + m; },
+                                                  [this] { return stopFlag.load(); });
+            const juce::ScopedLock sl(lock);
+            result = "Filled: " + juce::String(sum.genres) + " genres, " + juce::String(sum.years) + " years, " + juce::String(sum.artists) + " artists, " + juce::String(sum.albums) + " albums."
+                     + (sum.lookups > 0 ? "  (" + juce::String(sum.lookups) + " online lookups, " + juce::String(sum.failures) + " failed)" : juce::String()) + (stopFlag ? "  Stopped: press Start to carry on." : "") + "\nNothing was overwritten. \"Undo last fill\" removes these values again.";
+            doneFlag = true;
+        });
+        startTimer(300);
+    }
+    void timerCallback() override {
+        const juce::ScopedLock sl(lock);
+        if (doneFlag) { stopTimer(); running = false; startButton.setEnabled(true); stopButton.setEnabled(false); undoButton.setEnabled(true); status.setText(result, juce::dontSendNotification); }
+        else status.setText(progressText, juce::dontSendNotification);
+    }
+    juce::ToggleButton foldersTick, mbTick, dcTick; juce::Label tokenLabel, status; juce::TextEditor token;
+    juce::TextButton startButton{"Start"}, stopButton{"Stop"}, undoButton{"Undo last fill"}, closeButton{"Close"};
+    std::thread worker; std::atomic<bool> stopFlag{false}; bool running = false, doneFlag = false; juce::CriticalSection lock; juce::String progressText, result;
+};
+
 class LibraryView : public juce::Component, public juce::TableListBoxModel, private juce::Timer {
 public:
     std::function<std::shared_ptr<mdark::Library>()> getLibrary;
@@ -268,6 +335,13 @@ public:
         compareBox.onChange = [this] { const int i = compareBox.getSelectedId() - 2; const auto v = mdark::Library::versionIds(); const juce::String nv = (i >= 0 && i < (int)v.size()) ? v[(size_t)i] : juce::String(); if (nv != compareVersion) {compareVersion = nv; saveVersions(); rebuildColumns(); applyFilter();} };
         addAndMakeVisible(filterButton); styleButton(filterButton);
         filterButton.onClick = [this] {openFilters();};
+        addAndMakeVisible(tagFillButton); styleButton(tagFillButton);
+        tagFillButton.setTooltip("Fills empty artist, album, year and genre from your folder names and, if you like, MusicBrainz / Discogs. Only your own edits are written; it can be undone.");
+        tagFillButton.onClick = [this] {
+            auto* p = new TagFillPanel(); p->getLibrary = getLibrary;
+            juce::DialogWindow::LaunchOptions o; o.content.setOwned(p); o.dialogTitle = "Fill missing tags"; o.dialogBackgroundColour = kBg; o.escapeKeyTriggersCloseButton = true;
+            o.useNativeTitleBar = true; o.resizable = false; o.componentToCentreAround = this; o.launchAsync();
+        };
         addAndMakeVisible(applyButton); styleButton(applyButton);
         applyButton.setClickingTogglesState(false);
         applyButton.setTooltip("On: this table shows the same tracks as the Overview and the LABs (your filters, the exclusions and one copy of each song). Off: every track.");
@@ -405,7 +479,8 @@ public:
         r.removeFromTop(6);
         auto row3 = r.removeFromTop(26);
         filterButton.setBounds(row3.removeFromLeft(220)); row3.removeFromLeft(6);
-        applyButton.setBounds(row3.removeFromLeft(150));
+        applyButton.setBounds(row3.removeFromLeft(150)); row3.removeFromLeft(6);
+        tagFillButton.setBounds(row3.removeFromLeft(180));
         r.removeFromTop(6);
         hint = r.removeFromBottom(34);
         table.setBounds(r);
@@ -994,7 +1069,7 @@ private:
     std::map<juce::String, juce::String> dupOf;                      //track id -> the file names it may duplicate
     bool dupOnly = false;
     juce::ComboBox gradeBox, compareBox;
-    juce::TextButton filterButton{"Filters..."}, applyButton{"Apply filters"};
+    juce::TextButton filterButton{"Filters..."}, applyButton{"Apply filters"}, tagFillButton{"Fill missing tags..."};
     bool tableUsesFilters = true; //the Full table shows the same tracks as the Overview and the LABs (the filters, the exclusions, one copy of each song)
     const mdark::LevelMode level;                                        //always original: the files are graded as they are
     FilterStore filters;

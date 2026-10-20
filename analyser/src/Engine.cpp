@@ -676,6 +676,23 @@ void Library::setUserValue(const juce::String& id, const juce::String& key, cons
     ++changes;
 }
 
+void Library::setUserValues(const std::vector<UserEdit>& edits)
+{
+    if (edits.empty()) return;
+    const juce::ScopedLock sl(lock);
+    Table t; t.load(userFile());
+    if (t.header.isEmpty()) t.header.add("id");
+    std::map<juce::String, int> rowOf;
+    for (size_t r = 0; r < t.rows.size(); ++r) rowOf[t.get(r, "id")] = (int)r;
+    for (auto& e : edits) {
+        auto it = rowOf.find(e.id); int r;
+        if (it == rowOf.end()) {t.rows.push_back(juce::StringArray()); r = (int)t.rows.size() - 1; t.set((size_t)r, "id", e.id); rowOf[e.id] = r;} else r = it->second;
+        t.set((size_t)r, e.key, e.value.trim());
+    }
+    t.save(userFile());
+    ++changes;
+}
+
 std::vector<CustomColumn> Library::customColumns()
 {
     const juce::ScopedLock sl(lock);
