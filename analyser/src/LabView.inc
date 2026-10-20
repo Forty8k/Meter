@@ -24,17 +24,19 @@ public:
         addAndMakeVisible(settingsView);
         settingsView.setViewedComponent(&settingsPanel, false);
         settingsView.setScrollBarsShown(true, false);
-        for (auto* b : {&fromLibrary, &resetButton, &exportButton, &rescoreButton, &saveButton, &levelTestButton, &lowEndButton}) {addAndMakeVisible(b); styleButton(*b);}
+        for (auto* b : {&fromLibrary, &resetButton, &exportButton, &rescoreButton, &saveButton, &levelTestButton, &lowEndButton, &previewButton}) {addAndMakeVisible(b); styleButton(*b);}
+        previewButton.setTooltip("On: a few seconds after you stop moving a slider, about 150 tracks covering the whole grade range are re-scored, so you see roughly what the change does without waiting for the whole library.");
+        previewButton.onClick = [this] { previewOn = !previewOn; updatePreviewButton(); if (previewOn) previewDue = juce::Time::getMillisecondCounter() + 200; };
         addAndMakeVisible(percentBox);
         percentBox.addItem("10% each side", 10); percentBox.addItem("15% each side", 15); percentBox.addItem("20% each side", 20); percentBox.addItem("25% each side", 25);
         percentBox.setSelectedId(15, juce::dontSendNotification);
         percentBox.setColour(juce::ComboBox::backgroundColourId, kPanel); percentBox.setColour(juce::ComboBox::textColourId, kText); percentBox.setColour(juce::ComboBox::outlineColourId, kPanel);
         fromLibrary.onClick = [this] { setFromLibrary(percentBox.getSelectedId()/100.0); };
-        resetButton.onClick = [this] { if (mode == 0) hints = mdark::HintSettings(); else score = mdark::ScoreParams(); paintEvery = 1; buildSettings(); recompute(); };
+        resetButton.onClick = [this] { if (mode == 0) hints = mdark::HintSettings(); else { score = mdark::ScoreParams(); if (previewOn) previewDue = juce::Time::getMillisecondCounter() + 300; } paintEvery = 1; buildSettings(); recompute(); };
         exportButton.onClick = [this] { exportToMeter(); };
         levelTestButton.onClick = [this] { runLevelTest(); };
         lowEndButton.onClick = [this] { measureLowEnd(); };
-        rescoreButton.onClick = [this] { rescore(); };
+        rescoreButton.onClick = [this] { previewDue = 0; rescore(false); };
         saveButton.onClick = [this] { saveScoreSettings(); };
         addAndMakeVisible(status);
         status.setColour(juce::Label::textColourId, kDim);
@@ -75,7 +77,7 @@ public:
             resetButton.setBounds(b2.removeFromLeft(196)); b2.removeFromLeft(8); exportButton.setBounds(b2);
         } else {
             rescoreButton.setBounds(b1.removeFromLeft(196)); b1.removeFromLeft(8); saveButton.setBounds(b1);
-            resetButton.setBounds(b2.removeFromLeft(196));
+            resetButton.setBounds(b2.removeFromLeft(196)); b2.removeFromLeft(8); previewButton.setBounds(b2);
         }
         left.removeFromBottom(6);
         settingsView.setBounds(left);
@@ -134,8 +136,9 @@ private:
         if (measuring) status.setText("Measuring the real low end: " + juce::String(lowDone.load()) + " of " + juce::String(lowTotal.load()) + " tracks (first time only, it is cached after) ...", juce::dontSendNotification);
         if (loading && loadTotal.load() > 0)
             status.setText("Grading the library in " + juce::String(loadedLevel.mode == 1 ? "normalised" : "mix") + " mode: " + juce::String(loadDone.load()) + " of " + juce::String(loadTotal.load()) + " tracks ...", juce::dontSendNotification);
+        if (mode == 1 && previewDue != 0 && !scoring && !loading && loaded && juce::Time::getMillisecondCounter() >= previewDue) { previewDue = 0; rescore(true); }
         if (scoring) {
-            status.setText("Re-scoring with the Lab settings: " + juce::String(scoreDone.load()) + " of " + juce::String(scoreTotal) + " tracks ...", juce::dontSendNotification);
+            status.setText(lastWasPreview ? "Previewing on a sample: " + juce::String(scoreDone.load()) + " of " + juce::String(scoreTotal) + " tracks ..." : "Re-scoring with the Lab settings: " + juce::String(scoreDone.load()) + " of " + juce::String(scoreTotal) + " tracks ...", juce::dontSendNotification);
             if (scoreDone.load() >= scoreTotal) {scoring = false; finishRescore();}
         }
     }
@@ -374,9 +377,9 @@ private:
     }
 
     //---------------------------------------------------------------- scoring
-    std::vector<int> ranks(bool lab) const { //Chris's order: numbered first (1 up), then by letter value
+    std::vector<int> ranks(bool lab, const std::vector<char>* only = nullptr) const { //Chris's order: numbered first (1 up), then by letter value
         std::vector<size_t> order;
-        for (size_t i = 0; i < tracks.size(); ++i) if (inUse(i) && (!lab || scoreResults[i].done)) order.push_back(i);
+        for (size_t i = 0; i < tracks.size(); ++i) if (inUse(i) && (!lab || scoreResults[i].done) && (!only || (*only)[i])) order.push_back(i);
         auto key = [&](size_t i) {
             const juce::String b = lab ? juce::String(scoreResults[i].bonus) : tracks[i].gradeBonus;
             const double lv = lab ? scoreResults[i].letterValue : tracks[i].letterValue;
@@ -387,16 +390,23 @@ private:
         for (size_t k = 0; k < order.size(); ++k) r[order[k]] = (int)k + 1;
         return r;
     }
-    void rescore() {
+    void rescore(bool preview = false) {
         if (scoring || tracks.empty()) return;
         refreshUse(); origRanks = ranks(false);
-        scoring = true; scoreDone = 0; scoreTotal = usedCount();
+        lastWasPreview = preview; sampleMask.assign(tracks.size(), preview ? 0 : 1);
+        if (preview) { //about 150 tracks spread over the whole grade range (every Nth in the Library's own order)
+            std::vector<size_t> ord; for (size_t i = 0; i < tracks.size(); ++i) if (inUse(i)) ord.push_back(i);
+            std::stable_sort(ord.begin(), ord.end(), [&](size_t a, size_t b) { return origRanks[a] < origRanks[b]; });
+            const size_t want = 150, step = ord.size() <= want ? 1 : ord.size()/want;
+            for (size_t k = 0; k < ord.size(); k += step) sampleMask[ord[k]] = 1;
+        }
+        scoring = true; scoreDone = 0; scoreTotal = 0; for (size_t i = 0; i < tracks.size(); ++i) scoreTotal += (inUse(i) && sampleMask[i]) ? 1 : 0;
         scoreResults.assign(tracks.size(), {});
         if (scoreTotal == 0) {scoring = false; status.setText("No track passes the Library's filters.", juce::dontSendNotification); return;}
         const mdark::ScoreParams s = score; const int pe = paintEvery;
         const mdark::LevelMode lv = getLevel ? getLevel() : mdark::LevelMode();
         for (size_t i = 0; i < tracks.size(); ++i) {
-            if (!inUse(i)) continue;
+            if (!inUse(i) || !sampleMask[i]) continue;
             pool.addJob([this, i, s, pe, lv] {
                 mdark::scoreParams() = s; //this thread's settings
                 ScoreRow row;
@@ -419,6 +429,16 @@ private:
         }
     }
     void finishRescore() {
+        if (lastWasPreview) { //a sample only: say how much it changed and whether the order held, leave the rank columns empty
+            labRanks.clear();
+            const auto o = ranks(false, &sampleMask), l = ranks(true, &sampleMask);
+            int n = 0, changed = 0; double sumD2 = 0;
+            for (size_t i = 0; i < tracks.size(); ++i) if (inUse(i) && sampleMask[i] && scoreResults[i].done) { ++n; changed += scoreResults[i].grade != tracks[i].grade; const double d = o[i] - l[i]; sumD2 += d*d; }
+            const double rho = n > 2 ? 1.0 - 6.0*sumD2/((double)n*((double)n*(double)n - 1.0)) : 1.0;
+            status.setText("Preview on " + juce::String(n) + " tracks: " + juce::String(changed) + " grades changed, ranking order kept (r = " + juce::String(rho, 2) + "). Press Re-score library for the full result.", juce::dontSendNotification);
+            model.refresh();
+            return;
+        }
         labRanks = ranks(true);
         int changed = 0, moved = 0;
         for (size_t i = 0; i < tracks.size(); ++i) if (inUse(i)) {changed += scoreResults[i].grade != tracks[i].grade; moved += labRanks[i] != origRanks[i];}
@@ -467,7 +487,7 @@ private:
             r->slider.setTooltip(help + "   (double-click: back to " + juce::String(def, dec) + unit + ")");
             r->slider.setColour(juce::Slider::textBoxTextColourId, kText); r->slider.setColour(juce::Slider::textBoxOutlineColourId, kPanel);
             r->slider.setColour(juce::Slider::trackColourId, kAccent.withAlpha(0.6f)); r->slider.setColour(juce::Slider::backgroundColourId, kPanel);
-            r->slider.onValueChange = [this, set, s = &r->slider] { set(s->getValue()); if (mode == 0) startTimer(120), pendingRecompute = true; };
+            r->slider.onValueChange = [this, set, s = &r->slider] { set(s->getValue()); if (mode == 0) startTimer(120), pendingRecompute = true; else if (previewOn) previewDue = juce::Time::getMillisecondCounter() + 450; };
             settingsPanel.addAndMakeVisible(r->name); settingsPanel.addAndMakeVisible(r->slider);
         };
         if (mode == 0) {
@@ -523,13 +543,14 @@ private:
         mode = m;
         for (auto* b : {&fromLibrary, &exportButton, &levelTestButton, &lowEndButton}) b->setVisible(m == 0);
         percentBox.setVisible(m == 0);
-        for (auto* b : {&rescoreButton, &saveButton}) b->setVisible(m == 1);
+        for (auto* b : {&rescoreButton, &saveButton, &previewButton}) b->setVisible(m == 1);
         resetButton.setButtonText(m == 0 ? "Back to meterDARK's values" : "Back to the original");
+        updatePreviewButton();
         buildSettings();
         model.setColumns(m);
         resized();
         if (m == 0) recompute();
-        else status.setText(scoreResults.empty() || !scoreResults[0].done ? juce::String("Move the settings, then press Re-score library (it takes a minute or so). The Library tab's real grades never change.")
+        else status.setText(scoreResults.empty() || !scoreResults[0].done ? juce::String("Move the settings: a preview on about 150 tracks follows within seconds. Press Re-score library for the full, exact result (a minute or so). The Library tab's real grades never change.")
                                                                            : status.getText(), juce::dontSendNotification);
     }
 
@@ -710,6 +731,9 @@ private:
     juce::TextButton hintsMode{"meterDARK hints"}, scoreMode{"Original scoring (experiment)"};
     juce::TextButton lowEndButton{"Measure low end"};
     juce::TextButton fromLibrary{"Set triggers from the library"}, resetButton{"Back to meterDARK's values"}, exportButton{"Export to meterDARK"};
+    bool previewOn = true; juce::uint32 previewDue = 0; bool lastWasPreview = false; std::vector<char> sampleMask;
+    juce::TextButton previewButton{"Preview: on"};
+    void updatePreviewButton() { previewButton.setButtonText(previewOn ? "Preview: on" : "Preview: off"); previewButton.setColour(juce::TextButton::buttonColourId, previewOn ? kSelect : kPanel); }
     juce::TextButton rescoreButton{"Re-score library"}, saveButton{"Save settings..."}, levelTestButton{"Level test"};
     juce::ComboBox percentBox;
     juce::Label status;
