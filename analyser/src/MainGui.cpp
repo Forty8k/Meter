@@ -268,6 +268,14 @@ public:
         compareBox.onChange = [this] { const int i = compareBox.getSelectedId() - 2; const auto v = mdark::Library::versionIds(); const juce::String nv = (i >= 0 && i < (int)v.size()) ? v[(size_t)i] : juce::String(); if (nv != compareVersion) {compareVersion = nv; saveVersions(); rebuildColumns(); applyFilter();} };
         addAndMakeVisible(filterButton); styleButton(filterButton);
         filterButton.onClick = [this] {openFilters();};
+        addAndMakeVisible(applyButton); styleButton(applyButton);
+        applyButton.setClickingTogglesState(false);
+        applyButton.setTooltip("On: this table shows the same tracks as the Overview and the LABs (your filters, the exclusions and one copy of each song). Off: every track.");
+        applyButton.onClick = [this] {
+            tableUsesFilters = !tableUsesFilters;
+            if (auto lib = getLibrary ? getLibrary() : nullptr) lib->folder.getChildFile("fulltable-filters.txt").replaceWithText(tableUsesFilters ? "1" : "0");
+            applyFilter();
+        };
         for (auto* b : {&dupButton, &howButton}) {addAndMakeVisible(b); styleButton(*b);}
         dupButton.onClick = [this] { dupOnly = !dupOnly; applyFilter(); };
         howButton.onClick = [this] { showHowToRead(); };
@@ -290,6 +298,8 @@ public:
         if (rateLoadedFor != lib.get()) { //a different library: its filters
             rateLoadedFor = lib.get();
             filters.load(lib->folder);
+            const auto tf = lib->folder.getChildFile("fulltable-filters.txt");
+            tableUsesFilters = !tf.existsAsFile() || tf.loadFileAsString().trim() != "0";
         }
         refreshVersionBoxes();
         grades.clear(); gradeRow.clear();
@@ -394,7 +404,8 @@ public:
         howButton.setBounds(row2.removeFromLeft(150));
         r.removeFromTop(6);
         auto row3 = r.removeFromTop(26);
-        filterButton.setBounds(row3.removeFromLeft(220));
+        filterButton.setBounds(row3.removeFromLeft(220)); row3.removeFromLeft(6);
+        applyButton.setBounds(row3.removeFromLeft(150));
         r.removeFromTop(6);
         hint = r.removeFromBottom(34);
         table.setBounds(r);
@@ -612,6 +623,8 @@ private:
         const juce::String q = search.getText().trim();
         shown.clear();
         juce::StringArray words; words.addTokens(q, " ", "\"");
+        std::set<juce::String> allowed; const bool restrictToLab = tableUsesFilters && filters.labUses;
+        if (restrictToLab) allowed = labSet();
         for (auto& r : all) {
             bool ok = true;
             if (words.size()) {
@@ -621,7 +634,8 @@ private:
                 for (auto& w : words) if (w.isNotEmpty() && !hay.containsIgnoreCase(w)) ok = false;
             }
             if (ok && dupOnly && !dupOf.count(r.id)) ok = false;
-            if (ok && !passesFilters(r)) ok = false;
+            if (ok && tableUsesFilters && !passesFilters(r)) ok = false;
+            if (ok && restrictToLab && !allowed.count(r.id)) ok = false;
             if (ok) shown.push_back(r);
         }
         sortShown();
@@ -630,7 +644,10 @@ private:
         const size_t nf = filters.current.conditions.size();
         filterButton.setButtonText(nf == 0 ? juce::String("Filters...") : "Filters (" + juce::String((int)nf) + " on)...");
         filterButton.setColour(juce::TextButton::buttonColourId, nf == 0 && !filters.labUses ? kPanel : kSelect);
-        countLabel.setText(juce::String((int)shown.size()) + (shown.size() == all.size() ? juce::String(" tracks") : " of " + juce::String((int)all.size()) + " tracks"), juce::dontSendNotification);
+        applyButton.setButtonText(tableUsesFilters ? "Apply filters: on" : "Apply filters: off");
+        applyButton.setColour(juce::TextButton::buttonColourId, tableUsesFilters ? kSelect : kPanel);
+        countLabel.setText(juce::String((int)shown.size()) + (shown.size() == all.size() ? juce::String(" tracks") : " of " + juce::String((int)all.size()) + " tracks")
+                           + (tableUsesFilters && (nf > 0 || filters.labUses) ? juce::String("  (filters on)") : juce::String()), juce::dontSendNotification);
         selectedRowsChanged(table.getSelectedRow());
         const int nd = (int)dupOf.size();
         dupButton.setVisible(nd > 0 || dupOnly);
@@ -977,7 +994,8 @@ private:
     std::map<juce::String, juce::String> dupOf;                      //track id -> the file names it may duplicate
     bool dupOnly = false;
     juce::ComboBox gradeBox, compareBox;
-    juce::TextButton filterButton{"Filters..."};
+    juce::TextButton filterButton{"Filters..."}, applyButton{"Apply filters"};
+    bool tableUsesFilters = true; //the Full table shows the same tracks as the Overview and the LABs (the filters, the exclusions, one copy of each song)
     const mdark::LevelMode level;                                        //always original: the files are graded as they are
     FilterStore filters;
     int filterGen = 0;
