@@ -24,7 +24,11 @@ public:
         addAndMakeVisible(settingsView);
         settingsView.setViewedComponent(&settingsPanel, false);
         settingsView.setScrollBarsShown(true, false);
-        for (auto* b : {&fromLibrary, &resetButton, &exportButton, &rescoreButton, &saveButton, &levelTestButton, &lowEndButton, &previewButton}) {addAndMakeVisible(b); styleButton(*b);}
+        for (auto* b : {&fromLibrary, &resetButton, &exportButton, &rescoreButton, &saveButton, &levelTestButton, &lowEndButton, &previewButton, &gradeExportButton}) {addAndMakeVisible(b); styleButton(*b);}
+        gradeExportButton.onClick = [this] { exportGradeToMeter(); };
+        stockGradeButton.onClick = [this] { const bool had = gradeTuningFile().deleteFile() && !gradeTuningFile().existsAsFile(); juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon, "meterDARK back to stock", had ? "The gradeLAB settings file was removed: every meterDARK goes back to Chris's own scoring within a second." : "There was no gradeLAB file: meterDARK already uses Chris's own scoring.", "OK", this); };
+        stockGradeButton.setTooltip("Removes the exported gradeLAB settings, so every meterDARK scores exactly as Chris's Meter again.");
+        gradeExportButton.setTooltip("Sends these scoring settings to meterDARK (live, within a second). meterDARK then shows gradeLAB in yellow and a * after the grade; click gradeLAB there to switch it off.");
         previewButton.setTooltip("On: a few seconds after you stop moving a slider, about 150 tracks covering the whole grade range are re-scored, so you see roughly what the change does without waiting for the whole library.");
         previewButton.onClick = [this] { previewOn = !previewOn; updatePreviewButton(); if (previewOn) previewDue = juce::Time::getMillisecondCounter() + 200; };
         addAndMakeVisible(percentBox);
@@ -69,7 +73,7 @@ public:
         status.setBounds(top);
         r.removeFromTop(8);
         auto left = r.removeFromLeft(400);
-        auto buttons = left.removeFromBottom(mode == 0 ? 100 : 66);
+        auto buttons = left.removeFromBottom(100);
         auto b1 = buttons.removeFromTop(30), b2 = buttons.removeFromBottom(30);
         if (mode == 0) {
             auto b3 = buttons.removeFromTop(34).withTrimmedTop(4); levelTestButton.setBounds(b3.removeFromLeft(150)); b3.removeFromLeft(6); lowEndButton.setBounds(b3);
@@ -77,7 +81,8 @@ public:
             resetButton.setBounds(b2.removeFromLeft(196)); b2.removeFromLeft(8); exportButton.setBounds(b2);
         } else {
             rescoreButton.setBounds(b1.removeFromLeft(196)); b1.removeFromLeft(8); saveButton.setBounds(b1);
-            resetButton.setBounds(b2.removeFromLeft(196)); b2.removeFromLeft(8); previewButton.setBounds(b2);
+            auto b3 = buttons.removeFromTop(34).withTrimmedTop(4); resetButton.setBounds(b3.removeFromLeft(196)); b3.removeFromLeft(8); previewButton.setBounds(b3);
+            gradeExportButton.setBounds(b2.removeFromLeft(196)); b2.removeFromLeft(8); stockGradeButton.setBounds(b2);
         }
         left.removeFromBottom(6);
         settingsView.setBounds(left);
@@ -446,6 +451,42 @@ private:
                        + juce::String(usedCount()) + " grades changed,  " + juce::String(moved) + " tracks moved in the ranking.", juce::dontSendNotification);
         model.refresh();
     }
+    static juce::File gradeTuningFile() { return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("meterDARK").getChildFile("grade-tuning.xml"); }
+    //GRADELAB -> meterDARK: the scoring constants into grade-tuning.xml, which meterDARK reads live into its tuned copy of Chris's meter (never into Chris's own).
+    //Only applies when meterDARK is built on the same original Meter version these settings were tuned on.
+    void exportGradeToMeter() {
+        const mdark::ScoreParams defaults;
+        juce::XmlElement x("metergradetuning");
+        x.setAttribute("ver", 1);
+        x.setAttribute("meterVersion", juce::String(mdark::tunableVersionId()));
+        juce::StringArray changed, notInPlugin;
+        const auto& used = mdark::tunableSettingsUsed();
+        for (auto& p : mdark::scoreParamInfo()) {
+            const juce::String key(p.key);
+            if (std::find(used.begin(), used.end(), std::string(p.key)) == used.end() && key != "width") continue;
+            const double v = score.*(p.member), d = defaults.*(p.member);
+            const bool differs = std::fabs(v - d) > 1.0e-12;
+            if (key == "width" || key == "detailDecay" || key == "fillGate") { if (differs) notInPlugin.add(juce::String(p.label)); continue; } //meterDARK has its own for these
+            x.setAttribute(key, v);
+            if (differs) changed.add(juce::String(p.label) + " = " + juce::String(v, p.decimals) + "   (original " + juce::String(d, p.decimals) + ")");
+        }
+        x.setAttribute("exported", juce::Time::getCurrentTime().toISO8601(true));
+        gradeTuningFile().getParentDirectory().createDirectory();
+        const bool ok = x.writeTo(gradeTuningFile());
+        juce::String msg;
+        if (!ok) msg = "Could not write " + gradeTuningFile().getFullPathName();
+        else {
+            const juce::String ver(mdark::findMeterVersion(mdark::tunableVersionId())->version);
+            if (changed.isEmpty()) msg << "Every setting is Chris's original value, so meterDARK scores exactly as before (no gradeLAB marker).\n";
+            else { msg << juce::String(changed.size()) << " setting" << (changed.size() == 1 ? "" : "s") << " differ from Chris's Meter " << ver << ":\n"; for (auto& c : changed) msg << "   " << c << "\n"; }
+            msg << "\nEvery meterDARK built on Meter " << ver << " picks this up within a second, even while open: the grade and tone colours come from these settings, "
+                   "\"gradeLAB\" shows in yellow on its bottom row and the grade gets a *. Click \"gradeLAB\" there to switch it off for that meter; "
+                   "\"meterDARK back to stock\" here switches it off for all of them.\n"
+                   "A meterDARK built on another Meter version ignores the file (it shows \"gradeLAB (other Meter version)\").\n";
+            if (!notInPlugin.isEmpty()) msg << "\nNot sent (meterDARK has its own): " << notInPlugin.joinIntoString(", ") << ". Detail decay and fill gate are set in meterDARK's tune panel (\"grade\" ticked); the width is meterDARK's window width.\n";
+        }
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon, "Export gradeLAB to meterDARK", msg, "OK", this);
+    }
     void saveScoreSettings() {
         chooser = std::make_unique<juce::FileChooser>("Save the Lab scoring settings", juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("meter-lab-scoring.json"), "*.json");
         chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting, [this](const juce::FileChooser& fc) {
@@ -543,7 +584,7 @@ private:
         mode = m;
         for (auto* b : {&fromLibrary, &exportButton, &levelTestButton, &lowEndButton}) b->setVisible(m == 0);
         percentBox.setVisible(m == 0);
-        for (auto* b : {&rescoreButton, &saveButton, &previewButton}) b->setVisible(m == 1);
+        for (auto* b : {&rescoreButton, &saveButton, &previewButton, &gradeExportButton, &stockGradeButton}) b->setVisible(m == 1);
         resetButton.setButtonText(m == 0 ? "Back to meterDARK's values" : "Back to the original");
         updatePreviewButton();
         buildSettings();
@@ -732,7 +773,7 @@ private:
     juce::TextButton lowEndButton{"Measure low end"};
     juce::TextButton fromLibrary{"Set triggers from the library"}, resetButton{"Back to meterDARK's values"}, exportButton{"Export to meterDARK"};
     bool previewOn = true; juce::uint32 previewDue = 0; bool lastWasPreview = false; std::vector<char> sampleMask;
-    juce::TextButton previewButton{"Preview: on"};
+    juce::TextButton previewButton{"Preview: on"}, gradeExportButton{"Export to meterDARK"}, stockGradeButton{"meterDARK back to stock"};
     void updatePreviewButton() { previewButton.setButtonText(previewOn ? "Preview: on" : "Preview: off"); previewButton.setColour(juce::TextButton::buttonColourId, previewOn ? kSelect : kPanel); }
     juce::TextButton rescoreButton{"Re-score library"}, saveButton{"Save settings..."}, levelTestButton{"Level test"};
     juce::ComboBox percentBox;

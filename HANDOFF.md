@@ -11,7 +11,16 @@ All on branch `analyser` (app). The plugin was not touched in this round. Nothin
    VERIFIED: the rules and both parsers on made-up paths / hand-written sample JSON (`--tagfill-test`, run in CI). NOT VERIFIED: any real call to musicbrainz.org or api.discogs.com (this workspace cannot reach them), the exact JSON field names against the live APIs (check `parseMusicBrainz` / `parseDiscogs` first if lookups return nothing), whether WinINet honours the custom User-Agent header, and the dialog's look.
 5. hintLAB/earlier rounds are unchanged (see the sections below).
 
-## FOR OPUS: STEP 6 (gradeLAB settings to meterDARK)
+## STEP 6 BUILT (Opus, 20 Oct): gradeLAB settings to meterDARK
+- Plugin (meterdark): tools/make_chris_layer.py now turns the same 16 constants the analyser's gradeLAB tunes into `mdP.<key>` in the TUNED copy only (defaults = Chris's exact values;
+  replacement counts checked equal to the analyser's tunable copy for 0.5.6), writes `kGradeLabKeys` and `kId`. source/GradeTuning.h reads <app data>/meterDARK/grade-tuning.xml;
+  PluginEditor::applyGradeLab() puts the values into chrisTunedMeter.mdP when the file's meterVersion == chris::kId and the user has not clicked it off. gradeTuned (the *) =
+  (grade tick && Detail decay/fill gate) || gradeLAB values differ from stock. The Detail settings only reach the tuned copy when "grade" is ticked (before: always set, but only used then).
+  Bottom-row markers: "hintLAB" / "gradeLAB" yellow when active, click = "... off" for this instance (not saved), click again = back on; "gradeLAB (other Meter version)" when ignored.
+- Analyser (analyser): gradeLAB buttons "Export to meterDARK" (writes the file; not width / detailDecay / fillGate) and "meterDARK back to stock" (deletes it).
+- NOT hand-checked: the plugin reading the file live on his machine, the marker clicks, the layout of the extra gradeLAB buttons.
+
+## (original brief) FOR OPUS: STEP 6 (gradeLAB settings to meterDARK)
 Goal (from the user): link gradeLAB to meterDARK like hintLAB. No gradeLAB controls in meterDARK. "Export to meterDARK" on the gradeLAB tab pushes the constants; meterDARK shows "gradeLAB" in YELLOW on its bottom row (like the "hintLAB" text, AirwindowsUI.cpp ~line 782), clickable to switch it off and return to stock for that instance; the grade then shows `*`.
 Where things are:
 - Analyser: `mdark::ScoreParams` (OriginalScorer.h) = the constants gradeLAB edits (decayPeak/Slew/Bass, binCap, curvePS/Bass, gradeExp, gradeRise, balanceExp, letterExp, clipLevel, clipDecay, clipDecayBoth, clipWeight, blackLine, toneDecay, width, detailDecay, fillGate) plus `paintEvery`; they apply to ONE Meter version `mdark::tunableVersionId()` (newest original, 0.5.6). `scoreParamInfo()` lists keys/labels. gradeLAB is mode 1 of LabView.inc; `saveScoreSettings()` already writes these as JSON; add `exportToMeterGrade()` writing `<app data>/meterDARK/grade-tuning.xml` (root `metergradetuning`, attributes = the keys, plus `meterVersion`, `exported` time).

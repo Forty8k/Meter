@@ -200,3 +200,11 @@ Full table additions
 gradeLAB Preview
   "Preview: on" (default): a moment after you stop moving a slider, about 150 tracks spread over the whole grade range are re-scored and the status says how many
     grades changed and how well the ranking order held (r = 1.00 means the same order). Only the sample shows new grades. "Re-score library" is still the full, exact run.
+
+gradeLAB -> meterDARK
+  "Export to meterDARK" (gradeLAB tab) writes the scoring settings to meterDARK's settings folder (grade-tuning.xml). Every meterDARK built on the same original
+    Meter version picks them up within a second, even while open: its grade and tone colours then come from its own tuned copy of Chris's meter with these settings
+    (Chris's code itself is never changed), "gradeLAB" shows in yellow on its bottom row and the grade gets a *.
+  In meterDARK: click "gradeLAB" to switch it off for that meter ("gradeLAB off", click again to switch back). "hintLAB" works the same way for the hint settings.
+  "meterDARK back to stock" (gradeLAB tab) removes the file, so every meterDARK scores exactly as Chris's Meter again.
+  Not sent: Detail decay and fill gate (meterDARK has its own, in its tune panel with "grade" ticked) and the width (meterDARK uses its window width).
