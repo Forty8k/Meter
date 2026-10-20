@@ -97,6 +97,9 @@ The Library tab (overview)
     ("2:41 punch leads", "punch + detail lead", "balanced").
     "Overlay lines" (off by default) draws, inside each small bar, a line: tone = bass position, punch = peak, detail = slew.
     Play / Stop plays the file from where it was when you added it. Click anywhere on the bars to start playing from that point (or drag to seek while playing); the playhead shows on the big bar.
+    The yellow time + who-leads readout sits in the top row between the name and the grade (large; it follows playback live, or your mouse when nothing plays).
+    When the window is tall (maximised) everything scales up and a details block appears under the legend: artist, album, year, genre, BPM / key (with confidence),
+    format, added date, and each Meter version's grade, values and directions (what the Full table's double-click shows).
   Bottom: the list. Default columns: track name, a small tone strip, grade. Right-click the column header to add more columns (artist, album, year,
     BPM, key, LUFS, peak, true peak, length, sample rate, bits, source, format); your choice is remembered. Click a header to sort.
   "Build / update records" makes the small lean record of every track from the window data already stored (no audio is read) and keeps tags and
@@ -180,3 +183,20 @@ Command line (optional)
 
 For analysis scripts
   mdark_library.py (Python 3 + numpy) reads a library and rebuilds windows of any length from the fine blocks.
+
+
+Full table additions
+  "Apply filters: on/off": on = the table shows the same tracks as the Overview and the LABs (your Filters, the exclusions, one copy of each song,
+    e.g. "prefer the highest quality version"); off = every track. The count says "(filters on)" when it is filtering. The choice is remembered per library.
+  "Fill missing tags...": fills EMPTY artist / album / year / genre. Three sources, tick the ones you want:
+    Folder names (offline, instant): a genre folder above the file (Rock, Hip-Hop, Jazz, Drum & Bass ...) gives the genre; under it Genre/Artist/Album/track gives
+      artist and album; a year in an album folder name ("(1997)", "1997 - Album") gives the year. Without a genre folder only the year is taken.
+    MusicBrainz (free, no account): looks up artist + title (remaster / feat. notes removed) for the earliest release year and the most-voted genre.
+    Discogs (needs your free personal token, pasted once; it is kept in the app's settings, not in the library): genre and year. Discogs genre is preferred over MusicBrainz's.
+    Folder values win over online ones. Online lookups take about 1 second per track, can be stopped and resumed, and answers are cached (tagfill-cache.json).
+    Only your own edits are written, never the audio files. tagfill-log.csv lists every value; "Undo last fill" removes exactly those values again.
+    Command line: --fill-tags [--folders-only] [--discogs-token T]; --tagfill-test checks the rules and parsers on sample data.
+
+gradeLAB Preview
+  "Preview: on" (default): a moment after you stop moving a slider, about 150 tracks spread over the whole grade range are re-scored and the status says how many
+    grades changed and how well the ranking order held (r = 1.00 means the same order). Only the sample shows new grades. "Re-score library" is still the full, exact run.
