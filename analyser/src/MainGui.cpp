@@ -9,6 +9,7 @@
 #include "LabScore.h"
 #include "GradeRank.h"
 #include "TagFill.h"
+#include "TrackStore.h"
 #include <thread>
 #include <set>
 #include <map>
@@ -301,6 +302,7 @@ private:
 class LibraryView : public juce::Component, public juce::TableListBoxModel, private juce::Timer {
 public:
     std::function<std::shared_ptr<mdark::Library>()> getLibrary;
+    std::function<std::shared_ptr<mdark::TrackStore>()> getStore;   //where every tab reads the library from (in memory); writes still go through getLibrary
 
     //For the Lab: the level mode chosen here, and the ids of the tracks the Lab should use (null = all of them).
     std::shared_ptr<const std::set<juce::String>> labIds() const {
@@ -373,10 +375,12 @@ public:
     void reload() {
         auto lib = getLibrary ? getLibrary() : nullptr;
         if (lib == nullptr) return;
-        lastChange = lib->changeCount();
+        auto store = getStore ? getStore() : nullptr;
+        if (store == nullptr) return;
+        lastStore = store.get(); lastSeq = store->seq(); lastReloadMs = juce::Time::getMillisecondCounter(); //the number is taken BEFORE reading, so a change during the read is seen next time
         const juce::String selectedId = selectedRow() ? selectedRow()->id : juce::String();
-        idx = lib->index();
-        user = lib->userValues();
+        idx = store->index();
+        user = store->userValues();
         if (rateLoadedFor != lib.get()) { //a different library: its filters
             rateLoadedFor = lib.get();
             filters.load(lib->folder);
@@ -386,12 +390,12 @@ public:
         refreshVersionBoxes();
         grades.clear(); gradeRow.clear();
         for (auto& v : mdark::Library::versionIds()) {
-            grades[v] = readingsAt96k(*lib, v);
+            grades[v] = store->readings(v);
             auto& m = gradeRow[v];
             for (size_t r = 0; r < grades[v].rows.size(); ++r) m[grades[v].get(r, "id")] = r;
         }
         findDuplicates();
-        custom = lib->customColumns();
+        custom = store->customColumns();
         rebuildColumns();
         all.clear();
         for (size_t r = 0; r < idx.rows.size(); ++r) all.push_back({idx.get(r, "id"), r});
@@ -526,9 +530,23 @@ private:
 
     juce::Rectangle<int> hintArea() const { return hint; }
 
+    //What changed in the library is told by the store, one track at a time. A change to your values only re-reads those values and re-filters; anything else
+    //refreshes from the store's memory (no file is read). While tracks are being added the table refreshes at most about twice a second.
     void timerCallback() override {
-        auto lib = getLibrary ? getLibrary() : nullptr;
-        if (lib != nullptr && (lib.get() != lastLib || lib->changeCount() != lastChange)) {lastLib = lib.get(); reload();}
+        auto store = getStore ? getStore() : nullptr;
+        if (store == nullptr) return;
+        if (store.get() != lastStore) { reload(); return; }
+        if (store->seq() == lastSeq) return;
+        if (juce::Time::getMillisecondCounter() - lastReloadMs < 450) return;
+        std::vector<mdark::StoreChange> ch; uint64_t now = 0;
+        if (!store->changesSince(lastSeq, ch, now)) { reload(); return; }
+        bool onlyValues = !ch.empty(), onlyLean = true;
+        for (auto& c : ch) { if (c.kind != mdark::StoreChange::Values || c.id.isEmpty()) onlyValues = false; if (c.kind != mdark::StoreChange::Lean && c.kind != mdark::StoreChange::Shared) onlyLean = false; }
+        if (onlyLean) { lastSeq = now; return; } //the Full table does not show lean records
+        if (!onlyValues) { reload(); return; }
+        lastSeq = now; lastReloadMs = juce::Time::getMillisecondCounter();
+        for (auto& c : ch) { auto u = store->userValuesOf(c.id); if (u.empty()) user.erase(c.id); else user[c.id] = std::move(u); }
+        applyFilter();   //a changed value can move a row (sorting) or in / out of a search; nothing else is touched
     }
 
     void rebuildColumns() {
@@ -585,22 +603,6 @@ private:
             h.setSortColumnId(sortCol, sortForwards);
         }
         restoringLayout = false;
-    }
-
-    //a Meter version's grades with the audio converted to 96 kHz; a track not rescanned yet (no 96 kHz reading) shows its own readings
-    static mdark::Table readingsAt96k(mdark::Library& lib, const juce::String& vid) {
-        mdark::Table t = lib.grades(vid, gradeRate);
-        if (t.header.isEmpty()) return lib.grades(vid);
-        const mdark::Table nat = lib.grades(vid);
-        std::set<juce::String> have;
-        for (size_t i = 0; i < t.rows.size(); ++i) have.insert(t.get(i, "id"));
-        for (size_t i = 0; i < nat.rows.size(); ++i) {
-            const juce::String id = nat.get(i, "id");
-            if (have.count(id)) continue;
-            juce::StringArray cells; for (auto& h : t.header) cells.add(nat.get(i, h));
-            t.rows.push_back(cells);
-        }
-        return t;
     }
 
     //a value for a row: "g:x" = column x of the chosen Meter version's grades, "c:x" = of the compared version, else index.csv
@@ -1083,7 +1085,7 @@ private:
     juce::StringArray colKeys;
     std::vector<RowRef> all, shown;
     int sortCol = 0; bool sortForwards = true;
-    int lastChange = -1; const void* lastLib = nullptr;
+    uint64_t lastSeq = 0; const void* lastStore = nullptr; juce::uint32 lastReloadMs = 0;
     bool restoringLayout = false;
     struct HeaderWatcher : public juce::TableHeaderComponent::Listener {
         LibraryView& v; explicit HeaderWatcher(LibraryView& o) : v(o) {}
@@ -1120,6 +1122,7 @@ public:
                 juce::ModalCallbackFunction::create([this](int r) { if (r == 1) worker.startRescan(); }));
         };
         libraryView.getLibrary = [this] { return library; };
+        libraryView.getStore = [this] { return store; };
         labView.getLibrary = [this] { return library; };
         labView.getAllowed = [this] { return libraryView.labIds(); };
         labView.getFilterGen = [this] { return libraryView.filterGeneration(); };
@@ -1197,7 +1200,10 @@ public:
 private:
     void setFolder(const juce::File& f) {
         folder = f;
+        worker.setLibrary(nullptr);
+        store.reset();
         library = std::make_shared<mdark::Library>(folder);
+        store = std::make_shared<mdark::TrackStore>(library);   //filled from the folder once; the worker only starts writing after this
         worker.setLibrary(library);
         addPanel.log("Library: " + folder.getFullPathName());
     }
@@ -1213,6 +1219,7 @@ private:
     std::unique_ptr<juce::PropertiesFile> settings;
     juce::File folder;
     std::shared_ptr<mdark::Library> library;
+    std::shared_ptr<mdark::TrackStore> store;   //declared after the library: the store is created (and loaded) first, then the worker starts writing
     AddPanel addPanel;
     LibraryView libraryView;
     LibraryTab libraryTab{libraryView};
