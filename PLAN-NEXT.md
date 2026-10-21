@@ -20,5 +20,8 @@ Selected row: keep it by track id if it is still listed (as GlanceView::resort d
   so typing a search never starts a recompute. Tooltip: "Narrows the list below. The LAB still works from the Library's filters; searching changes nothing it calculates."
 - hintLAB's distribution chart (`dist`) is unchanged (the whole filtered set).
 
+## 2b. Overview: "Overlay lines" on by default
+GlanceView.inc constructor: `linesButton.setToggleState(false, ...)` -> true (the lines now sit inside the small tone/punch/detail bars, not over the big bar). One line.
+
 ## 3. Done
 HOW-TO.txt (LAB lists only filtered tracks; search box = view only), HANDOFF.md LATEST, push, notify.
