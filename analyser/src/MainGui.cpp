@@ -656,24 +656,10 @@ private:
         //grades read best-first when sorted "forwards" (A before B, high authority before low, bonus 1 before 80)
         const bool higherFirst = c.kind == Kind::Grade || c.kind == Kind::Letter || c.kind == Kind::SubGrade;
         std::stable_sort(shown.begin(), shown.end(), [&](const RowRef& a, const RowRef& b) {
-            if (c.kind == Kind::Grade) { //Chris's order: the numbered tracks (his "double top 40") first, 1 before 80, then the rest by letter, A first.
-                //Ties (the letter value is rarely exactly equal, but many tracks share a bonus number's neighbours) are settled by the bonus number
-                //behind the hidden ones, then by authority + power + detail, then by name, so the order never depends on how the list was sorted before.
+            if (c.kind == Kind::Grade) { //by the grade TEXT, like Chris's Finder column (GradeRank.h compareGradeText); ungraded always last; ties by name
                 const juce::String pa = c.base.substring(0, 2);
-                auto key = [&](const RowRef& r, double k[4]) {
-                    const bool numbered = field(r, pa + "bonus").isNotEmpty();
-                    k[0] = numbered ? 0 : 1;
-                    k[1] = numbered ? field(r, pa + "bonus").getDoubleValue() : -field(r, pa + "letter_value").getDoubleValue();
-                    const juce::String bv = field(r, pa + "bonus_value");
-                    k[2] = bv.isNotEmpty() ? bv.getDoubleValue() : 1.0e9;
-                    k[3] = -(field(r, pa + "authority_value").getDoubleValue() + field(r, pa + "power_value").getDoubleValue() + field(r, pa + "detail_value").getDoubleValue());
-                };
-                const bool gradeA = field(a, pa + "grade").isNotEmpty(), gradeB = field(b, pa + "grade").isNotEmpty();
-                if (gradeA != gradeB) return gradeA; //no grade (not scored by this version) always last
-                if (!gradeA) return field(a, "file").compareNatural(field(b, "file")) < 0;
-                double ka[4], kb[4];
-                key(a, ka); key(b, kb);
-                for (int i = 0; i < 4; ++i) if (ka[i] != kb[i]) return sortForwards ? ka[i] < kb[i] : ka[i] > kb[i];
+                const int cmp = mdark::compareGradeTextDir(field(a, pa + "grade").toStdString(), field(b, pa + "grade").toStdString(), sortForwards);
+                if (cmp != 0) return cmp < 0;
                 return field(a, "file").compareNatural(field(b, "file")) < 0;
             }
             if (numeric) {

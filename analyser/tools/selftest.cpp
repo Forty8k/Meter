@@ -195,6 +195,15 @@ static bool gradeRankTest()
     check(legacySubGradeLetter("authority", 0) == "p" && legacySubGradeLetter("authority", 15) == "a" && legacySubGradeLetter("authority", 16) == "A", "legacy authority");
     check(legacySubGradeLetter("power", 0) == "q" && legacySubGradeLetter("detail", 0) == "t" && legacySubGradeLetter("detail", 32) == "M", "legacy power / detail");
     check(legacySubGradeLetter("detail", 33).empty() && legacySubGradeLetter("power", -1).empty(), "legacy out of range");
+    // sorting grades by their text, like a Finder column (best first)
+    check(compareGradeText("1-AAAA", "1-AABA") < 0 && compareGradeText("1-AABA", "1-BDDD") < 0, "1-AAAA above 1-AABA above 1-BDDD");
+    check(compareGradeText("2-AAAA", "10-AAAA") < 0, "2- above 10- (numbers as numbers)");
+    check(compareGradeText("1-BDDD", "AAAA") < 0, "numbered above unnumbered");
+    check(compareGradeText("1-AAAA", "1-AAAa") < 0 && compareGradeText("1-AAAa", "1-AAAA") > 0, "capital above lowercase when letters are equal");
+    check(compareGradeText("35-BaaB", "1-AAAA") > 0, "35- below 1-");
+    check(compareGradeText("BaaB", "BaaB") == 0, "equal");
+    check(compareGradeTextDir("", "AAAA", true) > 0 && compareGradeTextDir("", "AAAA", false) > 0 && compareGradeTextDir("AAAA", "", false) < 0, "ungraded last both ways");
+    check(compareGradeTextDir("1-AAAA", "1-AABA", false) > 0, "reverse is backwards");
     printf("grade rank test: %s\n", ok ? "ok" : "FAILED");
     return ok;
 }

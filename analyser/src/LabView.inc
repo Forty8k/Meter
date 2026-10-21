@@ -650,10 +650,10 @@ private:
             for (int i = 0; i < n; ++i) order[(size_t)i] = i;
             const bool textCol = sortCol == 1 || sortCol == 2 || (mode == 1 && sortCol == 3);
             std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
-                if (mode == 1 && (sortCol == 2 || sortCol == 3)) { //grades in Chris's order
-                    const double ka = sortCol == 2 ? owner->origRank((size_t)a) : (owner->labRanks.empty() ? 0 : owner->labRanks[(size_t)a]);
-                    const double kb = sortCol == 2 ? owner->origRank((size_t)b) : (owner->labRanks.empty() ? 0 : owner->labRanks[(size_t)b]);
-                    return fwd ? ka < kb : ka > kb;
+                if (sortCol == 2 || (mode == 1 && sortCol == 3)) { //grades by their TEXT (like Finder), ungraded / not yet scored last; ties by name
+                    const int c = mdark::compareGradeTextDir(text(a, sortCol).toStdString(), text(b, sortCol).toStdString(), fwd);
+                    if (c != 0) return c < 0;
+                    return owner->tracks[(size_t)a].file.compareNatural(owner->tracks[(size_t)b].file) < 0;
                 }
                 if (textCol) {const int c = text(a, sortCol).compareNatural(text(b, sortCol)); return fwd ? c < 0 : c > 0;}
                 const double va = num(a, sortCol), vb = num(b, sortCol);

@@ -459,7 +459,9 @@ private:
                 if (isNumericCol(sortCol)) { const double x = cellNumber(items[a], sortCol), y = cellNumber(items[b], sortCol); return sortFwd ? x < y : x > y; }
                 const int c = cellText(items[a], sortCol).compareNatural(cellText(items[b], sortCol)); return sortFwd ? c < 0 : c > 0;
             }
-            return sortFwd ? items[a].key < items[b].key : items[a].key > items[b].key; //grade: Chris's order (numbered bonus first, then by letter value)
+            const int c = mdark::compareGradeTextDir(items[a].grade.toStdString(), items[b].grade.toStdString(), sortFwd); //grade TEXT, like Finder; ungraded last
+            if (c != 0) return c < 0;
+            return items[a].name.compareNatural(items[b].name) < 0;
         });
         table.updateContent(); table.repaint();
         for (size_t i = 0; i < order.size(); ++i) if (items[order[i]].id == selectedId) {table.selectRow((int)i, true, false); return;}
@@ -488,7 +490,7 @@ private:
                 if (cl.size() < 2) continue;
                 size_t best = cl.front();
                 for (size_t i : cl) { items[i].group = g; items[i].groupSize = (int)cl.size();
-                    if (items[i].key < items[best].key || (items[i].key == items[best].key && items[i].sr > items[best].sr)) best = i; }
+                    {const int c = mdark::compareGradeTextDir(items[i].grade.toStdString(), items[best].grade.toStdString(), true); if (c < 0 || (c == 0 && items[i].sr > items[best].sr)) best = i;} }
                 items[best].best = true; ++g;
             }
         }
