@@ -1,42 +1,46 @@
-# Next build (21 Oct 2026, round 3): the LABs never finish loading. Built by Sonnet, plan by Opus.
-Read HANDOFF.md first. Branch `analyser` only. About 200-300 changed lines, mostly LabView.inc, a little MainGui.cpp / Engine.cpp.
-Commit + push after each step, CI green before the next. When done: HOW-TO.txt + HANDOFF.md LATEST, push, SendUserMessage + PushNotification "LAB loading fixed and pushed", stop.
+# Next build (21 Oct 2026, round 3, replaces the earlier round-3 plan): ONE in-memory track store for every tab. Built by Sonnet, plan by Opus.
+Read HANDOFF.md first. Branch `analyser` only. Commit + push after each step, CI green before the next. Each step leaves the app working.
+Size: about 700-900 changed lines in total, but the views lose most of their own loading code (net smaller). Engine.cpp/.h (store + change notes), MainGui.cpp
+(Full table), GlanceView.inc (Overview), LabView.inc (both LABs).
+When done: HOW-TO.txt + HANDOFF.md LATEST, push, SendUserMessage + PushNotification "Track store done and pushed", stop.
 
-## What is going on (Opus, from the code)
-- On every launch EACH LAB (hintLAB and gradeLAB separately) reads every track's stored window data, one file per track (`readCoreAt` also parses the track's meta.json
-  each time). Nothing is cached between launches, and the two LABs do the same work twice and hold two copies in memory.
-- LabView::timerCallback starts the whole load again whenever `lib->changeCount()` differs from the value taken when the load STARTED. Anything that changes the library
-  while it loads (adding tracks: one bump per new file; the start-up update `upgradeOldRows`: one bump per track it updates, and it rewrites index.csv each time;
-  building lean records; tag fill) makes it start over as soon as it finishes. On a 5000-track library that can go on for as long as the library keeps changing.
-- Since the last fix, `rescore()` refuses while `loading` (correctly: before, scoring during a reload could crash), so the user now sees the endless reload as
-  "The tracks are still loading" forever.
+## Why (the user's point, 21 Oct)
+Today every tab reads the library from disk on its own (Full table: index + user values + grade tables; Overview: every lean record; hintLAB and gradeLAB: every track's
+window data, each separately) and throws it all away and starts again whenever ANYTHING in the library changes (one counter, `changeCount`). Renaming one track's genre
+makes both LABs re-read thousands of window files. Adding tracks restarts them once per file.
 
-## 1. Never block on a RE-load; never restart a load because of a change
-- First load only blocks scoring. After that, the loaded data stays usable: Re-score library / selected / preview / Set triggers / hints all work on it.
-- A reload builds a NEW vector in the background; its callAsync swaps it in only if nothing is scoring (else keep it in `pendingTracks` and swap in the timer right
-  after `finishRescore`). Swapping clears lab results as now.
-- Debounce: when changeCount moves, note the time; start a reload only when the count has been unchanged for 5 s AND the tab is showing AND no load is running.
-  `loadedChange` = the count when the reload STARTED (unchanged) - so a change during a load just leads to one more quiet-period reload later, not a loop.
-- Status line while loading: "Loading tracks: N of M ..." (count in the job like loadDone/loadTotal, also when level mode is 0). Background reload: "Library changed;
-  refreshing in the background (you can keep working) N of M". When done: "Loaded M tracks in X s" (so we learn the real time on his machine).
-- Keep the existing guard that a version switch / replay-block switch (full replacement of what is loaded) blocks scoring until that load is done; say so in the status.
+## The design
+- The library FOLDER stays the only real record (nothing about its files changes, packs are unchanged).
+- `mdark::TrackStore` (new, Engine.h/.cpp or TrackStore.h/.cpp in MDARK_ENGINE_SOURCES): what is in the library, in memory, filled ONCE per launch and kept up to date
+  track by track. One per open library, owned by MainComponent next to `library`, handed to every tab (shared_ptr). Thread safe (a lock; readers take a snapshot of
+  the rows they need or hold a `std::shared_ptr<const Track>`).
+  Per track (by id): the index row, your values, each Meter version's grade row (native, @44100, @96000), the lean record (bars, tags), and a `WindowsSlot` per
+  (version, rate) that is EMPTY until a LAB first asks for it, then filled once and kept. Shared records (lean-shared) are tracks too, marked shared.
+  Text and grades for 5000 tracks are a few MB; window data is the big part and is only loaded for what a LAB actually uses.
+- Change notes instead of one counter: the Library reports WHAT changed - `added(id)`, `regraded(id)` (new grades / rescan), `valuesChanged(id)` (your values, tags filled),
+  `removed(id)`, `columnsChanged()`, `sharedImported(ids)`, `leanBuilt(ids)`. Library calls a listener (set by the store) at each of the places that today do `++changes`;
+  `changeCount` stays for anything not converted yet. The store applies the note to that one track only (re-reads just that track's files), then tells the tabs
+  (juce::ChangeBroadcaster-style, on the message thread) with the list of ids and the kind.
+- Tabs react to the kind, never by reloading everything:
+  values changed  -> repaint/re-filter in memory (Full table row, Overview name/columns, LAB search text); no window data touched.
+  added           -> the new track is appended: a new row in the Full table and Overview; the LABs load ITS windows only and add it (its lab result is empty until scored).
+  regraded        -> that track's grade text/ranks update; LAB windows for that track re-read.
+  removed         -> drop that row everywhere.
+  filters changed -> (already in memory) re-filter only.
+- Results in the LABs are kept per track id (std::map or vector indexed by store position that only grows), so adding a track never clears anyone's results.
+- Word: "cache" is only right for a copy on disk that can be thrown away. The in-memory thing is the "track store" (or library model); the disk copy (step 5, if needed)
+  is the "start-up cache".
 
-## 2. One load shared by hintLAB and gradeLAB
-- A small `LabData` (tracks vector + key: library ptr, version id, rate, fromBlocks, level key, changeCount at start) held by MainComponent in a shared_ptr cache:
-  `std::shared_ptr<const LabData> getLabData(key, progress)` - if the cached key matches, return it; else load once (one job) and both LABs get the same object.
-  gradeLAB on the newest version without replay blocks uses the same data as hintLAB. LabView keeps `std::shared_ptr<const LabData> data` instead of owning `tracks`
-  (or copies the pointer; Track is read-only after load, results stay per view).
-- Memory: half of today.
-
-## 3. Faster reading (measure first with the "Loaded M tracks in X s" line; do 3a always, 3b only if a 1000-track test library takes > 10 s)
-3a. `readCoreAt`: take the track's sample rate from the index row (already in `load()`) instead of parsing meta.json; read meta.json only when the rate differs (for
-    `rate_runs`). Pass the index rate in (new overload) so the common case (the file IS at 96 kHz, or rate 0) opens one file.
-3b. A lab cache file per (version, rate): `labcache/<version>@<rate>.bin`, float32, one record per track (id, core file size + mtime, names, values), written after a full
-    load, read first next launch; a track whose core file size/mtime differs (or is missing from the cache) is read from its own file. Not shared in packs; safe to delete.
-
-## 4. CI
-- tools test or CLI `--lab-load-test`: build a library of the 5 test tracks, time two loads (second must use the cache / shared data), and check a load started while
-  `changeCount` keeps moving still finishes (simulate by bumping in a loop for 2 s).
-
-## 5. Done
-HOW-TO.txt: the LABs load once per launch (shared), keep working while the library changes, refresh in the background; HANDOFF.md LATEST; push; notify.
+## Steps
+1. TrackStore + change notes in the engine; fill it once at library open (index, user values, grades, lean records; several cores); CLI `--store-test`
+   (open the test library, check counts; add a track and check only that id was read; set a user value and check no window slot was touched). No tab uses it yet.
+2. Full table (LibraryView) reads rows from the store; its own index/grades/user loading goes; edits go through Library as now and arrive back as valuesChanged(id).
+3. Overview (GlanceView) reads Items from the store (built from the lean record + values); `gather()` goes; added/removed/values update the list in place.
+4. LABs: `store->windows(version, rate, fromBlocks)` returns the slot, loading only missing tracks (progress "Loading tracks: N of M", then "Loaded M tracks in X s"),
+   shared by hintLAB and gradeLAB (gradeLAB on 0.5.5 gets its own slot). LabView no longer owns or reloads `tracks`; it keeps the
+   slot pointer + its own results by id. No reload on changes: added -> append; regraded -> re-read that one. Scoring takes a snapshot of the shared_ptrs it uses, so
+   a track appended mid-scoring is simply not part of that run (no more "still loading" block except the very first load).
+   The level mode (normalised/mix) grades: kept per slot like today's levelGrades, computed for missing ids only.
+5. Only if step 4's "Loaded M tracks in X s" is slow on his library (> ~20 s): a start-up cache file per window slot (`labcache/<version>@<rate>.bin`, float32,
+   per track: id, core file size+mtime, names, values), read first, appended when tracks are added, a track re-read only when its core file changed. Safe to delete.
+6. Remove the dead code (per-tab loaders, changeCount polling in the tabs), docs, push, notify.
