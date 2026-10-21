@@ -1124,6 +1124,7 @@ public:
         libraryView.getLibrary = [this] { return library; };
         libraryView.getStore = [this] { return store; };
         labView.getLibrary = [this] { return library; };
+        labView.getStore = [this] { return store; };
         labView.getAllowed = [this] { return libraryView.labIds(); };
         labView.getFilterGen = [this] { return libraryView.filterGeneration(); };
         tabs.addTab("Add tracks", kBg, &addPanel, false);
@@ -1134,6 +1135,7 @@ public:
         tabs.addTab("Library", kBg, &libraryTab, false);
         tabs.addTab("hintLAB", kBg, &labView, false);
         gradeLabView.getLibrary = [this] { return library; };
+        gradeLabView.getStore = [this] { return store; };
         gradeLabView.getAllowed = [this] { return libraryView.labIds(); };
         gradeLabView.getFilterGen = [this] { return libraryView.filterGeneration(); };
         tabs.addTab("gradeLAB", kBg, &gradeLabView, false);

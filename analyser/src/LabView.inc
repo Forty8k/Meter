@@ -8,6 +8,7 @@
 class LabView : public juce::Component, private juce::Timer {
 public:
     std::function<std::shared_ptr<mdark::Library>()> getLibrary;
+    std::function<std::shared_ptr<mdark::TrackStore>()> getStore;                  //the library in memory: window data is read once and kept there, shared by both LABs
     std::function<mdark::LevelMode()> getLevel;                                      //the Library tab's level mode (original / normalised / mix)
     std::function<std::shared_ptr<const std::set<juce::String>>()> getAllowed;      //the tracks to use (null = all of them)
     std::function<int()> getFilterGen;                                             //goes up when the filters or the level mode change
@@ -119,11 +120,21 @@ public:
 
 private:
     //---------------------------------------------------------------- data
-    struct Track { juce::String id, file, grade, gradeBonus; double letterValue = 0; std::vector<std::string> names; std::vector<float> core; std::vector<std::string> names2; std::vector<float> core2; double sr = 44100; juce::String hay; };
-    std::vector<Track> tracks;          //loaded once per library (both the 0.5.5 data for the hints and the newest version's data for scoring)
+    //the window data belongs to the track store (shared, never copied): w = what the hints read, w2 = what the scoring reads (usually the same)
+    struct Track {
+        juce::String id, file, grade, gradeBonus; double letterValue = 0; std::shared_ptr<const mdark::WindowData> w, w2; double sr = 44100; juce::String hay;
+        static const mdark::WindowData& none() { static const mdark::WindowData d; return d; }
+        const std::vector<std::string>& names() const { return (w ? *w : none()).names; }
+        const std::vector<float>& core() const { return (w ? *w : none()).values; }
+        const std::vector<std::string>& names2() const { return (w2 ? *w2 : none()).names; }
+        const std::vector<float>& core2() const { return (w2 ? *w2 : none()).values; }
+    };
+    std::vector<Track> tracks;          //built once per launch from the track store; a new or changed track is added / replaced one at a time
     const int kind; bool useBlocks = false; juce::TextButton blocksToggle{"Use replay blocks"};
     bool testing = false;
-    bool loading = false, loaded = false; const void* loadedFor = nullptr; int loadedChange = -1;
+    bool loading = false, loaded = false; const void* loadedFor = nullptr; uint64_t loadedSeq = 0;
+    std::vector<juce::String> pendingIds; std::set<juce::String> pendingRegrade;   //tracks the store reported as new / changed, waiting to be put in (a few per tick)
+    std::atomic<int> loadPhase{0}; juce::String loadNote;
     std::vector<mdark::HintTrackResult> hintResults;
     bool lowEndTried = false; //the low-end chart only shows after a measurement was asked for
     std::map<juce::String, double> lowEnd; bool measuring = false; std::atomic<int> lowDone{0}, lowTotal{0}; //real low-end share per track id (-1 = no fine data)
@@ -165,17 +176,19 @@ private:
 
     void timerCallback() override {
         handlePending();
-        auto lib = getLibrary ? getLibrary() : nullptr;
-        if (lib == nullptr) return;
+        auto store = getStore ? getStore() : nullptr;
+        if (store == nullptr) return;
         const mdark::LevelMode lvNow = getLevel ? getLevel() : mdark::LevelMode();
-        if (!loading && !scoring && (!loaded || lib.get() != loadedFor || (isShowing() && (lib->changeCount() != loadedChange || lvNow.key() != loadedLevel.key())))) load(lib);
+        if (!loading && !scoring && (!loaded || store.get() != loadedFor || (isShowing() && lvNow.key() != loadedLevel.key()))) load(store);
+        else if (loaded && !loading && !scoring && isShowing() && (store->seq() != loadedSeq || !pendingIds.empty())) applyChanges(store); //a new or changed track: just that track
         else if (loaded && !loading && !scoring && getFilterGen && getFilterGen() != seenGen) { //the Library's filters changed
             seenGen = getFilterGen();
             refreshUse(); origRanks = ranks(false); labRanks.clear(); scoreResults.assign(tracks.size(), {});
             recompute(); model.refresh();
         }
         if (measuring) status.setText("Measuring the real low end: " + juce::String(lowDone.load()) + " of " + juce::String(lowTotal.load()) + " tracks (first time only, it is cached after) ...", juce::dontSendNotification);
-        if (loading && loadTotal.load() > 0)
+        if (loading && loadPhase.load() == 1) status.setText("Loading tracks: " + juce::String(loadDone.load()) + " of " + juce::String(loadTotal.load()) + " ...", juce::dontSendNotification);
+        else if (loading && loadTotal.load() > 0)
             status.setText("Grading the library in " + juce::String(loadedLevel.mode == 1 ? "normalised" : "mix") + " mode: " + juce::String(loadDone.load()) + " of " + juce::String(loadTotal.load()) + " tracks ...", juce::dontSendNotification);
         if (mode == 1 && previewDue != 0 && !scoring && !loading && loaded && juce::Time::getMillisecondCounter() >= previewDue) { previewDue = 0; rescore(true); }
         if (scoring) {
@@ -185,74 +198,143 @@ private:
         }
     }
 
-    void load(std::shared_ptr<mdark::Library> lib) {
-        loading = true;
-        loadedFor = lib.get(); loadedChange = lib->changeCount();
+    //---------------------------------------------------------------- tracks come from the track store
+    juce::String labNewest() const { return kind == 1 ? labVersion : juce::String(mdark::tunableVersionId()); } //hintLAB reads the newest version; gradeLAB the one picked in its version box
+    int labRate() const { return labNewest() == juce::String(mdark::tunableVersionId()) ? 96000 : 0; }         //only the newest version is also stored at the converted 96 kHz; an older one is read as each file has it
+    mdark::TrackStore::WindowKey labKey(bool blocks) const { return {labNewest(), labRate(), blocks}; }
+    mdark::Table labGrades(mdark::TrackStore& store) const { return labRate() == 96000 ? store.readings(labNewest()) : store.nativeGrades(labNewest()); }
+
+    //Tracks for these ids from the store's memory (window data is read from disk only the first time anybody asks, and then kept in the store).
+    static std::vector<Track> makeTracks(mdark::TrackStore& store, const mdark::TrackStore::WindowKey& key, const mdark::Table& g, const std::vector<juce::String>& ids) {
+        std::map<juce::String, size_t> gRow; for (size_t r = 0; r < g.rows.size(); ++r) gRow[g.get(r, "id")] = r;
+        const mdark::TrackStore::WindowKey hintKey{mdark::Library::versionIds().front(), 0, false};   //the hints fall back to the oldest version's windows
+        std::vector<Track> out;
+        for (auto& id : ids) {
+            Track tr; tr.id = id;
+            juce::StringArray row, head;
+            if (store.indexRow(id, row, &head)) {
+                auto f = [&](const char* k) { const int c = head.indexOf(k); return (c >= 0 && c < row.size()) ? row[c] : juce::String(); };
+                tr.file = f("file"); tr.sr = f("sample_rate").getDoubleValue();
+                { //what the search box looks in (the same fields as the Full table and the Overview), plus any value of yours
+                    juce::String h = tr.file;
+                    for (const char* k : {"artist", "title", "album", "year", "genre", "bpm_est", "key_est", "source"}) h << " " << f(k);
+                    for (auto& kv : store.userValuesOf(id)) h << " " << kv.second;
+                    tr.hay = h.toLowerCase();
+                }
+                auto gr = gRow.find(id);
+                if (gr != gRow.end()) {tr.grade = g.get(gr->second, "grade"); tr.gradeBonus = g.get(gr->second, "bonus"); tr.letterValue = g.get(gr->second, "letter_value").getDoubleValue();}
+                tr.w2 = store.windows(key, id);
+                if (tr.w2) tr.sr = tr.w2->sr;
+                tr.w = tr.w2 ? tr.w2 : store.windows(hintKey, id);
+            } else if (key.fromBlocks) { //records shared with you (lean-shared) that carry a replay block are regraded too
+                auto rec = store.shared(id);
+                if (rec == nullptr || rec->replay.empty()) continue;
+                const auto& lr = *rec;
+                tr.w2 = tr.w = store.windows(key, id); if (!tr.w) continue;
+                tr.file = juce::String(lr.get("title")).isNotEmpty() ? juce::String(lr.get("artist")) + " - " + juce::String(lr.get("title")) + " (shared)" : id + " (shared)";
+                tr.grade = juce::String(lr.get("grade")); tr.letterValue = juce::String(lr.get("letter_value")).getDoubleValue();
+                const int b = juce::String(lr.get("bonus_value")).getIntValue(); tr.gradeBonus = (b >= 1 && b <= 80) ? juce::String(b) : juce::String();
+                tr.sr = tr.w->sr;
+                tr.hay = (tr.file + " " + juce::String(lr.get("artist")) + " " + juce::String(lr.get("title")) + " " + juce::String(lr.get("album")) + " " + juce::String(lr.get("year")) + " " + juce::String(lr.get("genre")) + " " + juce::String(lr.get("source"))).toLowerCase();
+            } else continue;
+            if (tr.w || tr.w2) out.push_back(std::move(tr));
+        }
+        return out;
+    }
+
+    //The first load of a library (and after the Meter version, replay blocks or level mode change). The window data goes into the store, so doing this again is quick.
+    void load(std::shared_ptr<mdark::TrackStore> store) {
+        loading = true; loadPhase = 0;
+        loadedFor = store.get(); loadedSeq = store->seq(); pendingIds.clear(); pendingRegrade.clear(); //changes after this moment are put in one by one afterwards
         const mdark::LevelMode lm = getLevel ? getLevel() : mdark::LevelMode();
         loadedLevel = lm; loadDone = 0; loadTotal = 0;
-        status.setText("Loading the library's window data ...", juce::dontSendNotification);
+        status.setText("Loading tracks ...", juce::dontSendNotification);
         juce::Component::SafePointer<LabView> sp(this);
         const bool fromBlocks = useBlocks;
-        pool.addJob([this, sp, lib, lm, fromBlocks] {
-            std::vector<Track> t;
-            const auto idx = lib->index();
-            const auto users = lib->userValues();
-            const auto vids = mdark::Library::versionIds();
-            const juce::String newest = kind == 1 ? labVersion : juce::String(mdark::tunableVersionId()); //hintLAB reads the newest version; gradeLAB the one picked in its version box
-            //everything the Lab reads is at 96 kHz (as the Library shows it); a track not rescanned yet is read as the file has it
-            //only the newest version is also stored at the converted 96 kHz; an older one is read and graded as each file has it
-            const int rate = newest == juce::String(mdark::tunableVersionId()) ? 96000 : 0;
-            auto g = lm.mode == 0 ? lib->grades(newest, rate)
-                                  : lib->levelGrades(newest, rate, lm, true, [&] {return sp == nullptr;}, [&](int d, int n) {loadDone = d; loadTotal = n;});
-            {
+        const auto key = labKey(fromBlocks); const juce::String newest = labNewest(); const int rate = labRate();
+        const juce::uint32 t0 = juce::Time::getMillisecondCounter();
+        pool.addJob([this, sp, store, lm, fromBlocks, key, newest, rate, t0] {
+            mdark::Table g;
+            if (lm.mode == 0) g = labGrades(*store);
+            else {
+                auto lib = store->library();
+                g = lib->levelGrades(newest, rate, lm, true, [&] {return sp == nullptr;}, [&](int d, int n) {loadDone = d; loadTotal = n;});
                 const auto nat = lib->grades(newest);
                 if (g.header.isEmpty()) g = nat;
                 else for (size_t i = 0; i < nat.rows.size(); ++i) if (g.findRow("id", nat.get(i, "id")) < 0) {juce::StringArray c; for (auto& h : g.header) c.add(nat.get(i, h)); g.rows.push_back(c);}
             }
-            for (size_t r = 0; r < idx.rows.size(); ++r) {
-                Track tr; tr.id = idx.get(r, "id"); tr.file = idx.get(r, "file"); tr.sr = idx.get(r, "sample_rate").getDoubleValue();
-                { //what the search box looks in (the same fields as the Full table and the Overview), plus any value of yours
-                    juce::String h = tr.file;
-                    for (const char* k : {"artist", "title", "album", "year", "genre", "bpm_est", "key_est", "source"}) h << " " << idx.get(r, k);
-                    auto uv = users.find(tr.id); if (uv != users.end()) for (auto& kv : uv->second) h << " " << kv.second;
-                    tr.hay = h.toLowerCase();
-                }
-                const int gr = g.findRow("id", tr.id);
-                if (gr >= 0) {tr.grade = g.get((size_t)gr, "grade"); tr.gradeBonus = g.get((size_t)gr, "bonus"); tr.letterValue = g.get((size_t)gr, "letter_value").getDoubleValue();}
-                bool gotBlock = false;
-                if (fromBlocks) { //the lean record's replay block (what a shared pack contains): no stored window data needed
-                    mdark::LeanRecord lr;
-                    if (lib->readLean(tr.id, lr) && mdark::unpackWindows(lr.replay, tr.names2, tr.core2)) {gotBlock = true; tr.sr = juce::String(lr.get("window_rate")).getDoubleValue(); if (tr.sr <= 0) tr.sr = 96000.0;}
-                }
-                if (gotBlock) {}
-                else if (!lib->readCoreAt(tr.id, newest, rate, tr.names2, tr.core2)) lib->readCore(tr.id, newest, tr.names2, tr.core2); //the chosen version's windows (the newest at 96 kHz)
-                else if (rate > 0) tr.sr = (double)rate;
-                tr.names = tr.names2; tr.core = tr.core2; //the hints read the same windows (they only need peak, slew and zero)
-                if (tr.core.empty()) lib->readCore(tr.id, vids.front(), tr.names, tr.core);
-                if (!tr.core.empty() || !tr.core2.empty()) t.push_back(std::move(tr));
-            }
-            if (fromBlocks) { //records shared with you (lean-shared) that carry a replay block are regraded too
-                for (auto& sid : lib->sharedIds()) {
-                    mdark::LeanRecord lr; Track tr;
-                    if (!lib->readShared(sid, lr) || lr.replay.empty() || !mdark::unpackWindows(lr.replay, tr.names2, tr.core2)) continue;
-                    tr.id = sid; tr.file = juce::String(lr.get("title")).isNotEmpty() ? juce::String(lr.get("artist")) + " - " + juce::String(lr.get("title")) + " (shared)" : sid + " (shared)";
-                    tr.grade = juce::String(lr.get("grade")); tr.letterValue = juce::String(lr.get("letter_value")).getDoubleValue();
-                    const int b = juce::String(lr.get("bonus_value")).getIntValue(); tr.gradeBonus = (b >= 1 && b <= 80) ? juce::String(b) : juce::String();
-                    tr.sr = juce::String(lr.get("window_rate")).getDoubleValue(); if (tr.sr <= 0) tr.sr = 96000.0;
-                    tr.hay = (tr.file + " " + juce::String(lr.get("artist")) + " " + juce::String(lr.get("title")) + " " + juce::String(lr.get("album")) + " " + juce::String(lr.get("year")) + " " + juce::String(lr.get("genre")) + " " + juce::String(lr.get("source"))).toLowerCase();
-                    tr.names = tr.names2; tr.core = tr.core2; t.push_back(std::move(tr));
-                }
-            }
-            juce::MessageManager::callAsync([this, sp, t = std::move(t)]() mutable {
+            std::vector<juce::String> ids;
+            { const auto idx = store->index(); for (size_t r = 0; r < idx.rows.size(); ++r) ids.push_back(idx.get(r, "id")); }
+            if (fromBlocks) for (auto& sid : store->sharedIds()) ids.push_back(sid);
+            loadPhase = 1; loadDone = 0; loadTotal = (int)ids.size();
+            store->loadWindows(key, ids, [&](int d, int n) {loadDone = d; loadTotal = n;}, [&] {return sp == nullptr;});   //several cores; what the store already has is not read again
+            std::vector<Track> t = makeTracks(*store, key, g, ids);
+            const double secs = (juce::Time::getMillisecondCounter() - t0) / 1000.0;
+            juce::MessageManager::callAsync([this, sp, t = std::move(t), secs]() mutable {
                 if (sp == nullptr) return;
+                ++generation; //a hint calculation still running on the old list stops
                 {const juce::ScopedLock sl(dataLock); tracks = std::move(t);}
-                loading = false; loaded = true;
+                loading = false; loaded = true; loadPhase = 0;
+                loadNote = "Loaded " + juce::String((int)tracks.size()) + " tracks in " + juce::String(secs, 1) + " s";
                 seenGen = getFilterGen ? getFilterGen() : 0;
                 refreshUse();
-                scoreResults.assign(tracks.size(), {}); origRanks = ranks(false);
+                scoreResults.assign(tracks.size(), {}); origRanks = ranks(false); labRanks.clear();
                 recompute();
+                if (mode == 1) status.setText(loadNote, juce::dontSendNotification);
             });
         });
+    }
+
+    //The store reported new / changed / removed tracks: only those tracks are touched (a changed value of yours re-reads nothing but that track's text).
+    void applyChanges(const std::shared_ptr<mdark::TrackStore>& store) {
+        using K = mdark::StoreChange;
+        if (store->seq() != loadedSeq) {
+            std::vector<K> ch; uint64_t now = 0;
+            if (!store->changesSince(loadedSeq, ch, now)) { loaded = false; return; } //the log is too old: start again (quick, the data is in the store)
+            loadedSeq = now;
+            for (auto& c : ch) {
+                if (c.kind == K::Reset || (c.kind == K::Shared && useBlocks)) { loaded = false; return; }
+                if (c.id.isEmpty()) continue; //columns, or lean records of many tracks: nothing the LAB shows depends on them
+                if (c.kind == K::Removed) { removeTrack(c.id); continue; }
+                if (c.kind == K::Added || c.kind == K::Regraded || c.kind == K::Values || (c.kind == K::Lean && useBlocks)) {
+                    if (std::find(pendingIds.begin(), pendingIds.end(), c.id) == pendingIds.end()) pendingIds.push_back(c.id);
+                    if (c.kind == K::Regraded || c.kind == K::Added || c.kind == K::Lean) pendingRegrade.insert(c.id);
+                }
+            }
+        }
+        if (pendingIds.empty()) return;
+        const size_t n = juce::jmin<size_t>(pendingIds.size(), 25);
+        std::vector<juce::String> batch(pendingIds.begin(), pendingIds.begin() + (long)n);
+        pendingIds.erase(pendingIds.begin(), pendingIds.begin() + (long)n);
+        auto nt = makeTracks(*store, labKey(useBlocks), labGrades(*store), batch);
+        ++generation; //a hint calculation still running stops, so the list can be changed at once
+        const auto allowed = getAllowed ? getAllowed() : nullptr;
+        {
+            const juce::ScopedLock sl(dataLock);
+            std::map<juce::String, size_t> at; for (size_t i = 0; i < tracks.size(); ++i) at[tracks[i].id] = i;
+            for (auto& t : nt) {
+                auto f = at.find(t.id);
+                if (f != at.end()) { const bool reg = pendingRegrade.count(t.id) > 0; tracks[f->second] = std::move(t); if (reg && f->second < scoreResults.size()) scoreResults[f->second] = {}; }
+                else {
+                    at[t.id] = tracks.size(); use.resize(tracks.size(), 1); scoreResults.resize(tracks.size());
+                    use.push_back(allowed ? (allowed->count(t.id) ? 1 : 0) : 1); scoreResults.push_back({}); tracks.push_back(std::move(t));
+                }
+            }
+        }
+        for (auto& id : batch) pendingRegrade.erase(id);
+        origRanks = ranks(false);
+        if (!labRanks.empty()) labRanks = ranks(true);
+        recompute(); model.refresh();
+    }
+    void removeTrack(const juce::String& id) {
+        pendingIds.erase(std::remove(pendingIds.begin(), pendingIds.end(), id), pendingIds.end());
+        size_t i = 0; while (i < tracks.size() && tracks[i].id != id) ++i;
+        if (i >= tracks.size()) return;
+        ++generation;
+        {const juce::ScopedLock sl(dataLock); tracks.erase(tracks.begin() + (long)i); if (i < use.size()) use.erase(use.begin() + (long)i); if (i < scoreResults.size()) scoreResults.erase(scoreResults.begin() + (long)i);}
+        hintResults.clear();
+        origRanks = ranks(false); if (!labRanks.empty()) labRanks = ranks(true);
+        recompute(); model.refresh();
     }
 
     //---------------------------------------------------------------- hints
@@ -270,7 +352,7 @@ private:
                     const auto& t = tracks[i];
                     if (generation.load() != gen) return; //a newer change is coming
                     const bool used = i >= useCopy.size() || useCopy[i];
-                    res.push_back(t.core.empty() || !used ? mdark::HintTrackResult() : mdark::simulateHints(t.names, t.core, s));
+                    res.push_back(t.core().empty() || !used ? mdark::HintTrackResult() : mdark::simulateHints(t.names(), t.core(), s));
                 }
             }
             juce::MessageManager::callAsync([this, sp, gen, res = std::move(res)]() mutable {
@@ -312,7 +394,7 @@ private:
             {
                 const juce::ScopedLock sl(dataLock);
                 std::vector<mdark::LevelTestTrack> tr;
-                for (size_t i = 0; i < tracks.size(); ++i) if (!tracks[i].core.empty() && inUse(i)) tr.push_back({&tracks[i].names, &tracks[i].core});
+                for (size_t i = 0; i < tracks.size(); ++i) if (!tracks[i].core().empty() && inUse(i)) tr.push_back({&tracks[i].names(), &tracks[i].core()});
                 rows = mdark::levelTest(tr, s, {0.0, -6.0, -12.0, -18.0, -24.0}, [&] { return sp == nullptr; });
             }
             const juce::String text = juce::String(mdark::levelTestReport(rows)) +
@@ -342,7 +424,7 @@ private:
             thin += r.thin > 0.5; full += r.full > 0.5; head += r.headroom > 0.5; squash += r.squashed > 0.5; dark += r.dark > 0.5; bright += r.bright > 0.5;
         }
         status.setText(juce::String(n) + " tracks" + (usedCount() < (int)tracks.size() ? " (filtered from " + juce::String((int)tracks.size()) + ")" : juce::String()) + ".  Hint showing most of the time:  thin " + juce::String(thin) + ", full " + juce::String(full)
-                       + "   |   headroom " + juce::String(head) + ", squashed " + juce::String(squash) + "   |   dark " + juce::String(dark) + ", bright " + juce::String(bright),
+                       + "   |   headroom " + juce::String(head) + ", squashed " + juce::String(squash) + "   |   dark " + juce::String(dark) + ", bright " + juce::String(bright) + (loadNote.isNotEmpty() ? "      (" + loadNote + ")" : juce::String()),
                        juce::dontSendNotification);
     }
     static double percentile(std::vector<double> v, double p) {
@@ -482,13 +564,13 @@ private:
                 ScoreRow row;
                 {
                     const Track& t = tracks[i];
-                    if (!t.core2.empty()) {
-                        std::vector<float> scaled; const std::vector<float>* src = &t.core2; //the level mode's gain on the stored windows
-                        if (lv.mode == 1) {scaled = mdark::scaleWindows(t.names2, t.core2, lv.asLufs - lv.inLufs); src = &scaled;}
-                        else if (lv.mode == 2) {scaled = mdark::scaleWindowsEach(t.names2, t.core2, mdark::mixWindowGains(t.names2, t.core2, t.sr)); src = &scaled;}
+                    if (!t.core2().empty()) {
+                        std::vector<float> scaled; const std::vector<float>* src = &t.core2(); //the level mode's gain on the stored windows
+                        if (lv.mode == 1) {scaled = mdark::scaleWindows(t.names2(), t.core2(), lv.asLufs - lv.inLufs); src = &scaled;}
+                        else if (lv.mode == 2) {scaled = mdark::scaleWindowsEach(t.names2(), t.core2(), mdark::mixWindowGains(t.names2(), t.core2(), t.sr)); src = &scaled;}
                         try { //one odd track (a damaged replay block, say) must never take the app down
                             auto run = mdark::createTunableRun(ver, t.sr > 1000.0 ? t.sr : 96000.0, pe);
-                            for (size_t w = 0; w + t.names2.size() <= src->size(); w += t.names2.size()) run->feedWindow(t.names2, &(*src)[w]);
+                            for (size_t w = 0; w + t.names2().size() <= src->size(); w += t.names2().size()) run->feedWindow(t.names2(), &(*src)[w]);
                             const auto res = run->result();
                             row.grade = juce::String(res.grade) + lv.suffix(); row.bonus = juce::String(res.bonus); row.letterValue = res.letterValue;
                         } catch (...) { row.grade = {}; }
