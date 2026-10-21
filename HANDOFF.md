@@ -1,5 +1,15 @@
-# meterDARK + meterDARK Analyser: handoff (19 Oct 2026, stages 1-10 BUILT, waiting for his hand check)
+# meterDARK + meterDARK Analyser: handoff
 
+## LATEST: 21 Oct 2026, the fix round of PLAN-NEXT.md built by Sonnet (branch `analyser`, plugin untouched, nothing merged into main)
+1. Grades sort by TEXT everywhere: `mdark::compareGradeText/compareGradeTextDir` in GradeRank.h (bonus as number, numbered first, letters L-to-R case-insensitive, capital before lowercase on a tie, ungraded last both ways, ties by name). Used by LibraryView::sortShown, GlanceView::resort + groupVersions (best of a song), LabView::Model::refresh (hintLAB and gradeLAB grade columns). Cases in tools/selftest.cpp.
+2. Overview (GlanceView.inc paint): `ui` (bars/spacing, up to 1.7), `uT` (text, capped 1.25), `lg` (legend, capped 1.1); the big bar shrinks to leave room for ~7 lines of facts; facts shown when >= 3 lines fit; topH 0.58 of the height when > 900 px. The CI snapshot now also writes `tab-library-big.png` (2000x1125) to the ci-shots branch. Search box (`search`, `Item::hay`, filter inside `resort()`).
+3. LibraryView::reserveRight keeps the count label clear of the "Back to overview" button.
+4. Fast skip: `Library::analyse` first checks known-files.csv (path,size,mtime,id; appended, newest line wins) against an in-memory DoneCache (index + grade ids, rebuilt only when changeCount changes); `analyseHashed` is the old path using the same cache. Worker logs skipped files as one summary line. CI adds the same files twice and expects "0 added, 4 already there".
+5. hintLAB: buttons Set triggers / Export / Back (workflow order); Level test + Measure low end are Row::ctl rows under ADVANCED > CHECKS; scatter has title, caption and `why()`; `lowEndTried` shows it only after Measure low end; lowend.csv entries of -1 are retried. NOTE: the chart reads tracks/<id>.fine.f32.gz (stored fine data), not the audio files.
+6. gradeLAB version box: make_original_scorer.py now makes a `_tunable` copy of EVERY version; API `createTunableRun(versionId, sr, pe)`, `tunableSettingsUsed(versionId)`. LabView: `labVersion`, `versionBox`, `chooseVersion`; only the newest version has 96 kHz data, an older one is read and graded as each file has it (`rate` in load()). Export writes that version's id.
+Not hand-checked on a real screen: Overview layout (look at tab-library-big.png on ci-shots), hintLAB CHECKS rows layout, gradeLAB switching to 0.5.5 (check its Original grades match the Library's grades for Meter 0.5.5).
+
+## EARLIER (19-20 Oct)
 ## LATEST: 20 Oct 2026, steps 1-5 of PLAN-NEXT.md built by Sonnet (read this, then do STEP 6 below)
 All on branch `analyser` (app). The plugin was not touched in this round. Nothing merged into main. CI was used for compile/test; nothing has been run on his Windows machine.
 1. Overview (GlanceView.inc): everything scales with the window height (`ui` factor, 1.0 at ~780 px, up to 1.7); the yellow time + who-leads readout moved to the head row (centre, large);

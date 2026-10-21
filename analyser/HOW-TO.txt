@@ -15,7 +15,10 @@ Using it
   4. "Open library folder" shows the results. The default library is Documents\meterDARK Library (an existing "meterDARK Library" folder keeps being used).
      "Change library folder..." picks another (for example on a bigger drive).
 
-  Adding the same file again is skipped (it is recognised by its content, not its name).
+  Adding the same file again is skipped (it is recognised by its content, not its name). A file that is already in the library, with the same
+  path, size and modification time as when it was added, is skipped without even being opened (known-files.csv in the library folder
+  remembers this; the first time you add files from an older library they are read once to fill it). The log counts the skipped
+  files in one line instead of listing each.
   A file scanned by an older version of the analyser is scanned again and updated in place; your own values are kept.
   You can keep adding tracks whenever you like; the library just grows.
 
@@ -23,8 +26,10 @@ The Library tab
   Every track in the library, one row each.
   - Click a column title to sort, click again to reverse. Drag titles to reorder, drag their edges to resize
     (remembered for this library).
-  - Grades sort by the value behind them, best first: authority, power and detail from the top of the original's scale
-    (... C, B, A, a, b ... s), letter from A, bonus from 1 (tracks without a bonus number go last).
+  - Grades sort by their TEXT, like a file-name column in Finder (this is how Chris sorts): the bonus number counts as a number
+    (1, 2, 10, 80), numbered grades come before the rest, then the letters left to right, A before B. If the letters are the same
+    ignoring case, a capital comes before a lowercase letter. Tracks with no grade are always last. The Full table, the Overview,
+    hintLAB and gradeLAB all use this one order; ties are settled by track name.
   - The search box keeps only tracks matching every word you type (in any column).
   - Double-click artist, title, album, year, genre, BPM, key or one of your own columns to type a value. Your values
     show in blue. Clear a value to go back to the file's own tag or the estimate. Nothing is written into the audio files.
@@ -43,7 +48,7 @@ HOW TO READ A GRADE  (also behind the "How to read a grade" button)
   bbd   authority, power, detail: HOW MUCH of each (lows, peaks, highs). Lowercase s ... a = little to plenty, then capitals
         A, B, C ... = exceptionally strong (up to J, or K for detail). Capitals are not a warning.
   What pulls the letter down is one of the three lagging behind the other two. Best possible: 1-AJJK. Worst: Zssv.
-  Sorting by Grade follows Chris's order: numbered tracks first (1 to 80), then the rest by letter, A first.
+  Sorting by Grade follows the grade text, like Finder: numbered tracks first (1 to 80), then the rest, letters left to right, A first.
 
 Filters  (Library tab, "Filters...")
   A list of conditions; a track stays in the list only if it passes every line. The grade is filtered part by part, each as its own ranked field:
@@ -208,3 +213,17 @@ gradeLAB -> meterDARK
   In meterDARK: click "gradeLAB" to switch it off for that meter ("gradeLAB off", click again to switch back). "hintLAB" works the same way for the hint settings.
   "meterDARK back to stock" (gradeLAB tab) removes the file, so every meterDARK scores exactly as Chris's Meter again.
   Not sent: Detail decay and fill gate (meterDARK has its own, in its tune panel with "grade" ticked) and the width (meterDARK uses its window width).
+
+
+21 Oct 2026 additions
+  Overview: in a big (maximised) window the bars grow but the text is capped, and the legend stays small, so the details block (what double-clicking a track in the Full table shows)
+    has room under the legend. It needs room for at least 3 lines and shows as many as fit. The Overview has the same search box as the Full table (every word must appear in the name, artist, title, album,
+    year, genre, BPM, key, source or any column of yours, on top of the Library's filters); the count then reads "N of M tracks".
+  Full table: the count text is no longer hidden by the "Back to overview" button.
+  hintLAB buttons, in order: "Set triggers from the library" (with the share box: how much of the library lights up each hint), "Export to meterDARK" (sends the settings live), "Back to meterDARK's values".
+    Under ADVANCED > CHECKS: "Level test" (the readings should not change when a track is played quieter) and "Measure low end" (does the tone reading follow the real low end?).
+    The chart after "Measure low end" reads each track's stored fine data (not the audio files, so it works with the files moved; tracks from a shared pack have none). Each dot is a track:
+    across = measured low-end share, up = tone reading; dots rising left to right = it follows; r near 1 = closely. If it cannot be drawn, it says why.
+  gradeLAB: a Meter version box at the top (0.5.5 / 0.5.6). Every version has its own window data, original grades and settings, and starts from its own original values when you switch.
+    Export to meterDARK writes that version's id; a meterDARK built on another version ignores the file. "Use replay blocks" scores from each track's compact replay copy (the 16-bit window data
+    inside its lean record) instead of the full stored data; needed for tracks shared with you in packs, the same grades for your own.
