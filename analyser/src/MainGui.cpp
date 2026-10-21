@@ -1128,6 +1128,7 @@ public:
         labView.getFilterGen = [this] { return libraryView.filterGeneration(); };
         tabs.addTab("Add tracks", kBg, &addPanel, false);
         libraryTab.glance.getLibrary = [this] { return library; };
+        libraryTab.glance.getStore = [this] { return store; };
         libraryTab.glance.getAllowed = [this] { return libraryView.labIds(); };
         libraryTab.glance.getFilterGen = [this] { return libraryView.filterGeneration(); };
         tabs.addTab("Library", kBg, &libraryTab, false);

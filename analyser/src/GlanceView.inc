@@ -8,6 +8,7 @@ class GlanceView : public juce::Component, public juce::TableListBoxModel, priva
 public:
     struct Item { juce::String id, name, grade, path, song, source, hay; juce::String bpm, musicalKey; double key = 0, dur = 0, sr = 0; int group = -1, groupSize = 1; bool best = false, shared = false; mdark::LeanRecord rec; };
     std::function<std::shared_ptr<mdark::Library>()> getLibrary;
+    std::function<std::shared_ptr<mdark::TrackStore>()> getStore;   //the library in memory: every list here comes from it, a changed track updates just its own row
     std::function<std::shared_ptr<const std::set<juce::String>>()> getAllowed;
     std::function<int()> getFilterGen;
 
@@ -63,10 +64,10 @@ public:
     }
 
     void reloadNow() { //synchronous (for the automated picture)
-        auto lib = getLibrary ? getLibrary() : nullptr;
-        if (lib == nullptr) return;
-        loadedFor = lib.get(); loadedChange = lib->changeCount();
-        items = gather(lib, getAllowed ? getAllowed() : nullptr); loaded = true; restoreColumns();
+        auto store = getStore ? getStore() : nullptr;
+        if (store == nullptr) return;
+        loadedFor = store.get(); loadedSeq = store->seq();
+        items = gather(store, getAllowed ? getAllowed() : nullptr); loaded = true; restoreColumns();
         status.setText(juce::String((int)items.size()) + " tracks", juce::dontSendNotification);
         resort(); repaint();
     }
@@ -178,25 +179,25 @@ public:
     }
 
     //---------------------------------------------------------------- the details block (what the Full table's double-click shows), cached per track
-    std::vector<std::pair<juce::String, juce::String>> facts; juce::String factsFor; int factsChange = -1; const void* factsLib = nullptr;
+    std::vector<std::pair<juce::String, juce::String>> facts; juce::String factsFor; uint64_t factsSeq = ~0ull; const void* factsStore = nullptr;
     std::map<juce::String, mdark::Table> factsGrades; std::map<juce::String, std::map<juce::String, size_t>> factsGradeRow;
     std::map<juce::String, std::map<juce::String, juce::String>> factsUser;
     void buildFacts(const Item& it) {
-        auto lib = getLibrary ? getLibrary() : nullptr;
+        auto store = getStore ? getStore() : nullptr;
         facts.clear(); factsFor = it.id;
-        if (lib == nullptr) return;
-        if (factsLib != lib.get() || factsChange != lib->changeCount()) {
-            factsLib = lib.get(); factsChange = lib->changeCount();
+        if (store == nullptr) return;
+        if (factsStore != store.get() || factsSeq != store->seq()) {
+            factsStore = store.get(); factsSeq = store->seq();
             factsGrades.clear(); factsGradeRow.clear();
             for (auto& v : mdark::Library::versionIds()) {
-                mdark::Table t = lib->grades(v, 96000); if (t.header.isEmpty()) t = lib->grades(v);
+                mdark::Table t = store->readings(v);
                 auto& m = factsGradeRow[v]; for (size_t r = 0; r < t.rows.size(); ++r) m[t.get(r, "id")] = r;
                 factsGrades[v] = std::move(t);
             }
-            factsUser = lib->userValues();
+            factsUser = store->userValues();
         }
-        const auto idx = lib->index();
-        const int row = idx.findRow("id", it.id);
+        mdark::Table idx; { juce::StringArray r; if (store->indexRow(it.id, r, &idx.header)) idx.rows.push_back(r); }
+        const int row = idx.rows.empty() ? -1 : 0;
         auto fromIndex = [&](const char* k) { return row >= 0 ? idx.get((size_t)row, k) : juce::String(); };
         auto field = [&](const char* k) { auto u = factsUser.find(it.id); if (u != factsUser.end()) { auto v = u->second.find(k); if (v != u->second.end() && v->second.isNotEmpty()) return v->second; } juce::String x = fromIndex(k); return x.isNotEmpty() ? x : juce::String(it.rec.get(k)); };
         auto add = [&](const juce::String& label, const juce::String& v) { if (v.isNotEmpty()) facts.emplace_back(label, v); };
@@ -377,7 +378,7 @@ public:
 
 private:
     std::vector<Item> items; std::vector<size_t> order;
-    bool loaded = false, loading = false, building = false; const void* loadedFor = nullptr; int loadedChange = -1, seenGen = -1;
+    bool loaded = false, loading = false, building = false; const void* loadedFor = nullptr; uint64_t loadedSeq = 0; int seenGen = -1; juce::uint32 lastApplyMs = 0;
     juce::String selectedId; int sortCol = 3; bool sortFwd = true; bool restoredColumns = false;
     juce::Rectangle<int> topArea, bigBar, legendArea, smallBars[3]; double hoverFrac = -1;
     juce::TableListBox table;
@@ -498,6 +499,7 @@ private:
     }
     //groups the versions of a song and marks the best one (the best grade; on a tie the higher sample rate, then the louder-headroom peak)
     static void groupVersions(std::vector<Item>& items) {
+        for (auto& i : items) { i.group = -1; i.groupSize = 1; i.best = false; }
         std::map<juce::String, std::vector<size_t>> bySong;
         for (size_t i = 0; i < items.size(); ++i) if (items[i].song != "|") bySong[items[i].song].push_back(i);
         int g = 0;
@@ -514,65 +516,102 @@ private:
             }
         }
     }
-    static std::vector<Item> gather(const std::shared_ptr<mdark::Library>& lib, const std::shared_ptr<const std::set<juce::String>>& allowed) {
+    //one row of the Overview from the store's memory (the index row, your values and the track's lean record); false = the track has no lean record yet
+    static bool makeItem(mdark::TrackStore& store, const mdark::Table& idx, size_t r, const std::map<juce::String, juce::String>* uv, Item& it) {
+        const juce::String id = idx.get(r, "id");
+        auto rec = store.lean(id);
+        if (rec == nullptr) return false;
+        it = Item(); it.id = id; it.rec = *rec;
+        const juce::String artist = juce::String(it.rec.get("artist")), title = juce::String(it.rec.get("title"));
+        it.name = title.isNotEmpty() ? (artist.isNotEmpty() ? artist + " - " + title : title) : juce::File(idx.get(r, "file")).getFileNameWithoutExtension();
+        it.grade = juce::String(it.rec.get("grade"));
+        const int bonus = juce::String(it.rec.get("bonus_value")).getIntValue();
+        const double lv = juce::String(it.rec.get("letter_value")).getDoubleValue();
+        it.key = (bonus >= 1 && bonus <= 80) ? (double)bonus : 1000.0 - lv;
+        it.path = idx.get(r, "source_path");
+        it.bpm = idx.get(r, "bpm_est"); it.musicalKey = idx.get(r, "key_est");
+        if (uv) { auto b = uv->find("bpm"); if (b != uv->end() && b->second.isNotEmpty()) it.bpm = b->second; auto k = uv->find("key"); if (k != uv->end() && k->second.isNotEmpty()) it.musicalKey = k->second; }
+        it.source = juce::String(it.rec.get("source"));
+        it.dur = juce::String(it.rec.get("length_s")).getDoubleValue(); it.sr = juce::String(it.rec.get("sample_rate")).getDoubleValue();
+        it.song = songKey(artist, title, idx.get(r, "file"));
+        { //what the search box looks in: name, file, artist, title, album, year, genre, BPM, key, source, and any value of yours
+            juce::String h = it.name + " " + idx.get(r, "file");
+            for (const char* k : {"artist", "title", "album", "year", "genre"}) h << " " << juce::String(it.rec.get(k)) << " " << idx.get(r, k);
+            h << " " << it.bpm << " " << it.musicalKey << " " << it.source;
+            if (uv) for (auto& kv : *uv) h << " " << kv.second;
+            it.hay = h.toLowerCase();
+        }
+        return true;
+    }
+    static Item makeSharedItem(const juce::String& id, const mdark::LeanRecord& rec) {
+        Item it; it.id = id; it.shared = true; it.rec = rec;
+        const juce::String artist = juce::String(it.rec.get("artist")), title = juce::String(it.rec.get("title"));
+        it.name = (title.isNotEmpty() ? (artist.isNotEmpty() ? artist + " - " + title : title) : id) + "  (shared)";
+        it.grade = juce::String(it.rec.get("grade"));
+        const int bonus = juce::String(it.rec.get("bonus_value")).getIntValue();
+        it.key = (bonus >= 1 && bonus <= 80) ? (double)bonus : 1000.0 - juce::String(it.rec.get("letter_value")).getDoubleValue();
+        it.source = juce::String(it.rec.get("source"));
+        it.dur = juce::String(it.rec.get("length_s")).getDoubleValue(); it.sr = juce::String(it.rec.get("sample_rate")).getDoubleValue();
+        it.song = songKey(artist, title, {});
+        it.hay = (it.name + " " + juce::String(it.rec.get("artist")) + " " + juce::String(it.rec.get("title")) + " " + juce::String(it.rec.get("album")) + " " + juce::String(it.rec.get("year")) + " " + juce::String(it.rec.get("genre")) + " " + it.source).toLowerCase();
+        return it;
+    }
+    static std::vector<Item> gather(const std::shared_ptr<mdark::TrackStore>& store, const std::shared_ptr<const std::set<juce::String>>& allowed) {
         std::vector<Item> out;
-        const auto idx = lib->index();
-        const auto users = lib->userValues();
+        const auto idx = store->index();
+        const auto users = store->userValues();
         for (size_t r = 0; r < idx.rows.size(); ++r) {
             const juce::String id = idx.get(r, "id");
             if (allowed && !allowed->count(id)) continue;
-            Item it; it.id = id;
-            if (!lib->readLean(id, it.rec)) continue;
-            const juce::String artist = juce::String(it.rec.get("artist")), title = juce::String(it.rec.get("title"));
-            it.name = title.isNotEmpty() ? (artist.isNotEmpty() ? artist + " - " + title : title) : juce::File(idx.get(r, "file")).getFileNameWithoutExtension();
-            it.grade = juce::String(it.rec.get("grade"));
-            const int bonus = juce::String(it.rec.get("bonus_value")).getIntValue();
-            const double lv = juce::String(it.rec.get("letter_value")).getDoubleValue();
-            it.key = (bonus >= 1 && bonus <= 80) ? (double)bonus : 1000.0 - lv;
-            it.path = idx.get(r, "source_path");
-            it.bpm = idx.get(r, "bpm_est"); it.musicalKey = idx.get(r, "key_est");
-            { auto uv = users.find(id); if (uv != users.end()) { auto b = uv->second.find("bpm"); if (b != uv->second.end() && b->second.isNotEmpty()) it.bpm = b->second; auto k = uv->second.find("key"); if (k != uv->second.end() && k->second.isNotEmpty()) it.musicalKey = k->second; } }
-            it.source = juce::String(it.rec.get("source"));
-            it.dur = juce::String(it.rec.get("length_s")).getDoubleValue(); it.sr = juce::String(it.rec.get("sample_rate")).getDoubleValue();
-            it.song = songKey(artist, title, idx.get(r, "file"));
-            { //what the search box looks in: name, file, artist, title, album, year, genre, BPM, key, source, and any value of yours
-                juce::String h = it.name + " " + idx.get(r, "file");
-                for (const char* k : {"artist", "title", "album", "year", "genre"}) h << " " << juce::String(it.rec.get(k)) << " " << idx.get(r, k);
-                h << " " << it.bpm << " " << it.musicalKey << " " << it.source;
-                auto uv = users.find(id); if (uv != users.end()) for (auto& kv : uv->second) h << " " << kv.second;
-                it.hay = h.toLowerCase();
-            }
-            out.push_back(std::move(it));
+            auto u = users.find(id);
+            Item it;
+            if (makeItem(*store, idx, r, u != users.end() ? &u->second : nullptr, it)) out.push_back(std::move(it));
         }
         if (!allowed) { //records other people shared with you (lean-shared): shown too, marked as shared. Not when the Library's filters are in use, since they can only judge your own tracks.
             std::set<juce::String> have; for (auto& i : out) have.insert(i.id);
-            for (auto& id : lib->sharedIds()) {
+            for (auto& id : store->sharedIds()) {
                 if (have.count(id)) continue;
-                Item it; it.id = id; it.shared = true;
-                if (!lib->readShared(id, it.rec)) continue;
-                const juce::String artist = juce::String(it.rec.get("artist")), title = juce::String(it.rec.get("title"));
-                it.name = (title.isNotEmpty() ? (artist.isNotEmpty() ? artist + " - " + title : title) : id) + "  (shared)";
-                it.grade = juce::String(it.rec.get("grade"));
-                const int bonus = juce::String(it.rec.get("bonus_value")).getIntValue();
-                it.key = (bonus >= 1 && bonus <= 80) ? (double)bonus : 1000.0 - juce::String(it.rec.get("letter_value")).getDoubleValue();
-                it.source = juce::String(it.rec.get("source"));
-                it.dur = juce::String(it.rec.get("length_s")).getDoubleValue(); it.sr = juce::String(it.rec.get("sample_rate")).getDoubleValue();
-                it.song = songKey(artist, title, {});
-                it.hay = (it.name + " " + juce::String(it.rec.get("artist")) + " " + juce::String(it.rec.get("title")) + " " + juce::String(it.rec.get("album")) + " " + juce::String(it.rec.get("year")) + " " + juce::String(it.rec.get("genre")) + " " + it.source).toLowerCase();
-                out.push_back(std::move(it));
+                auto rec = store->shared(id);
+                if (rec != nullptr) out.push_back(makeSharedItem(id, *rec));
             }
         }
         groupVersions(out);
         return out;
     }
+    //One track changed: only its row is made again (or added / dropped); everything else stays as it is. Anything bigger loads the list again (from memory).
+    void applyChanges(const std::shared_ptr<mdark::TrackStore>& store) {
+        std::vector<mdark::StoreChange> ch; uint64_t now = 0;
+        if (!store->changesSince(loadedSeq, ch, now)) { loaded = false; return; }
+        const auto allowed = getAllowed ? getAllowed() : nullptr;
+        bool any = false;
+        for (auto& c : ch) if (c.id.isEmpty() && c.kind != mdark::StoreChange::Lean && c.kind != mdark::StoreChange::Shared) { loaded = false; return; } //columns / reset / a whole-library change
+        for (auto& c : ch) {
+            if (c.id.isEmpty()) { loaded = false; return; } //lean records for many tracks, or shared records
+            auto at = std::find_if(items.begin(), items.end(), [&](const Item& i) { return i.id == c.id; });
+            if (c.kind == mdark::StoreChange::Removed) { if (at != items.end()) { items.erase(at); any = true; } continue; }
+            if (allowed && !allowed->count(c.id)) { if (at != items.end()) { items.erase(at); any = true; } continue; }
+            mdark::Table one; juce::StringArray row;
+            if (!store->indexRow(c.id, row, &one.header)) continue;
+            one.rows.push_back(row);
+            auto uv = store->userValuesOf(c.id);
+            Item it;
+            if (makeItem(*store, one, 0, uv.empty() ? nullptr : &uv, it)) { if (at != items.end()) *at = std::move(it); else items.push_back(std::move(it)); any = true; }
+            else if (at != items.end()) { items.erase(at); any = true; }
+        }
+        loadedSeq = now; lastApplyMs = juce::Time::getMillisecondCounter();
+        if (!any) return;
+        groupVersions(items);
+        status.setText(juce::String((int)items.size()) + " tracks", juce::dontSendNotification);
+        resort(); repaint();
+    }
     void load() {
-        auto lib = getLibrary ? getLibrary() : nullptr;
-        if (lib == nullptr || loading) return;
-        loading = true; loadedFor = lib.get(); loadedChange = lib->changeCount(); seenGen = getFilterGen ? getFilterGen() : 0;
+        auto store = getStore ? getStore() : nullptr;
+        if (store == nullptr || loading) return;
+        loading = true; loadedFor = store.get(); loadedSeq = store->seq(); seenGen = getFilterGen ? getFilterGen() : 0;
         const auto allowed = getAllowed ? getAllowed() : nullptr;
         juce::Component::SafePointer<GlanceView> sp(this);
-        pool.addJob([this, sp, lib, allowed] {
-            std::vector<Item> out = gather(lib, allowed);
+        pool.addJob([this, sp, store, allowed] {
+            std::vector<Item> out = gather(store, allowed);
             juce::MessageManager::callAsync([this, sp, out = std::move(out)]() mutable {
                 if (sp == nullptr) return;
                 items = std::move(out); loading = false; loaded = true; restoreColumns();
@@ -596,9 +635,12 @@ private:
         });
     }
     void timerCallback() override {
-        auto lib = getLibrary ? getLibrary() : nullptr;
+        auto store = getStore ? getStore() : nullptr;
         if (building) status.setText("Building records: " + juce::String(buildDone.load()) + " of " + juce::String(buildTotal.load()) + " ...", juce::dontSendNotification);
-        else if (lib != nullptr && !loading && isShowing() && (!loaded || lib.get() != loadedFor || lib->changeCount() != loadedChange || (getFilterGen && getFilterGen() != seenGen))) load();
+        else if (store != nullptr && !loading && isShowing()) {
+            if (!loaded || store.get() != loadedFor || (getFilterGen && getFilterGen() != seenGen)) load();
+            else if (store->seq() != loadedSeq && juce::Time::getMillisecondCounter() - lastApplyMs > 400) applyChanges(store);
+        }
         if (transportReady) {
             if (!transport.isPlaying() && playButton.getButtonText() == "Stop") playButton.setButtonText("Play");
             repaint(topArea); //the playhead and the yellow time / who-leads line follow playback live
