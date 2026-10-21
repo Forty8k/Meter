@@ -6,15 +6,19 @@ When all steps are done: update HOW-TO.txt and the LATEST section of HANDOFF.md,
 Cause: the Full table sorts by number, hidden bonus value, then the SUM of authority+power+detail values (so 1-AABA beats 1-AAAA); the Overview (GlanceView `resort`, key = bonus
 or 1000-letterValue) and gradeLAB (`ranks()` + `refresh()`, origRank 0 for tracks not in use / before load) have no tie-breaks, so the many tracks that share "1-" keep load order
 (looks alphabetical); hintLAB sorts the grade TEXT.
-Fix: add to GradeRank.h one pure function (no JUCE) used by all four:
-  struct GradeKey { bool graded; bool numbered; double bonus; double bonusValue; double letterValue; double apd; };   // apd = authority_value+power_value+detail_value
-  bool betterGrade(const GradeKey& a, const GradeKey& b)  // true if a ranks above b
-  order: graded first; numbered (has a bonus number) first; lower bonus number; lower hidden bonus value; HIGHER letter value (better balance); higher apd; (caller breaks the last tie by name)
-  Unnumbered tracks: by higher letter value, then higher apd.
-Use it in: MainGui.cpp sortShown (Kind::Grade), GlanceView resort (store the key in Item from the lean record meta: bonus, bonus_value, letter_value, authority/power/detail_value),
-LabView hintLAB grade column and gradeLAB "Original grade"/"Lab grade" and `ranks()` (add bonusValue + apd to Track and ScoreRow; OriginalResult has bonusValue; for apd use the
-same values the grades CSV writes as authority/power/detail_value - find where Engine fills them and use the same fields of OriginalResult). Tracks without a grade / not in use / not
-scored always sort LAST in both directions. Add a few cases to tools/selftest.cpp (1-AAAA with higher letter value above 1-AABA; numbered above unnumbered; ungraded last).
+Fix (the user's decision, 21 Oct): sort grades the way Chris does, by the grade TEXT, like a file-name column in Finder (hintLAB already behaves like this and the user
+likes it). Add to GradeRank.h one pure function (no JUCE) used by all four views:
+  int compareGradeText(const std::string& a, const std::string& b)   // <0 if a sorts above b (best first)
+  rules: an empty grade (not graded / not scored) always goes LAST, in both sort directions;
+         the bonus number is compared as a NUMBER (1- before 2- before 10- before 80-), like Finder's natural sort; a grade with a number comes before one without
+         (digits sort before letters in Finder anyway);
+         then the letters left to right, case-insensitive (A before B ... like Finder);
+         only if the letters are equal ignoring case: capital before lowercase at the first difference (A is stronger than a on Chris's scale), so the order never depends on load order;
+         the caller breaks a full tie by track name.
+  Reverse sort = the same order backwards, except ungraded stays last.
+Use it in: MainGui.cpp sortShown (Kind::Grade; replace the bonus/letter-value/values key), GlanceView resort (col 3), LabView hintLAB grade column, gradeLAB "Original grade" and
+"Lab grade" columns (sort on the grade text, not on origRank/labRanks; rank columns keep their numbers). The gradeLAB rank numbers (`ranks()`) stay Chris's internal order.
+Add cases to tools/selftest.cpp: "1-AAAA" above "1-AABA" above "1-BDDD"; "2-AAAA" above "10-AAAA"; "1-BDDD" above "AAAA" (numbered first); "1-AAAA" above "1-AAAa"; "" last.
 
 ## 2. Overview when maximised: the details block never shows; text too big
 Cause: the legend and fonts scale up to 1.7x and eat the space, and the block needs >= 70*ui px.
@@ -53,4 +57,4 @@ Test in CI: add the same test files twice and check the second run says they wer
   tracks shared with you in packs; for your own tracks it gives the same grades." 
 
 ## 7. Done
-HOW-TO.txt (grade order rule, details block, fast skip, hintLAB checks, gradeLAB version box, replay blocks), HANDOFF.md LATEST section, push, notify.
+HOW-TO.txt (grade sort = by grade text like Finder, numbers as numbers, details block, fast skip, hintLAB checks, gradeLAB version box, replay blocks), HANDOFF.md LATEST section, push, notify.
