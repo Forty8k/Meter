@@ -1,74 +1,56 @@
-# Next build: Analyser steps 1-5 (Sonnet), then step 6 (Opus)
+# Next build (21 Oct 2026): fixes from the user's notes. Built by Sonnet, plan by Opus.
+Read HANDOFF.md first (rules, local compile check, CI). Branch `analyser` only (no plugin change in this round). Commit + push after each step, CI green before the next.
+When all steps are done: update HOW-TO.txt and the LATEST section of HANDOFF.md, push, then SendUserMessage + PushNotification "Fixes done and pushed", and stop.
 
-Written 20 Oct 2026 for the model that builds it. Read HANDOFF.md first for the rules and the local compile check.
+## 1. One grade order everywhere (bug: four views sort grades differently)
+Cause: the Full table sorts by number, hidden bonus value, then the SUM of authority+power+detail values (so 1-AABA beats 1-AAAA); the Overview (GlanceView `resort`, key = bonus
+or 1000-letterValue) and gradeLAB (`ranks()` + `refresh()`, origRank 0 for tracks not in use / before load) have no tie-breaks, so the many tracks that share "1-" keep load order
+(looks alphabetical); hintLAB sorts the grade TEXT.
+Fix: add to GradeRank.h one pure function (no JUCE) used by all four:
+  struct GradeKey { bool graded; bool numbered; double bonus; double bonusValue; double letterValue; double apd; };   // apd = authority_value+power_value+detail_value
+  bool betterGrade(const GradeKey& a, const GradeKey& b)  // true if a ranks above b
+  order: graded first; numbered (has a bonus number) first; lower bonus number; lower hidden bonus value; HIGHER letter value (better balance); higher apd; (caller breaks the last tie by name)
+  Unnumbered tracks: by higher letter value, then higher apd.
+Use it in: MainGui.cpp sortShown (Kind::Grade), GlanceView resort (store the key in Item from the lean record meta: bonus, bonus_value, letter_value, authority/power/detail_value),
+LabView hintLAB grade column and gradeLAB "Original grade"/"Lab grade" and `ranks()` (add bonusValue + apd to Track and ScoreRow; OriginalResult has bonusValue; for apd use the
+same values the grades CSV writes as authority/power/detail_value - find where Engine fills them and use the same fields of OriginalResult). Tracks without a grade / not in use / not
+scored always sort LAST in both directions. Add a few cases to tools/selftest.cpp (1-AAAA with higher letter value above 1-AABA; numbered above unnumbered; ungraded last).
 
-## Rules (unchanged)
-- Explain plainly to the user. Never merge into `main`. Never hand-edit generated files (`source/chris/*`, `analyser/src/gen/*`). Chris's code is never edited.
-- Every new setting at 0/off = stock behaviour. No "f8k" naming. No public releases (release job stays `if: false`). No macOS build.
-- Analyser work is on branch `analyser` in `/root/Meter` (folder `analyser/`). Plugin is branch `meterdark` in `/root/Meter-plugin`.
-- Local syntax check (from `/root/Meter/analyser`):
-  `g++ -std=c++17 -fsyntax-only -DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 -DJUCE_USE_XRANDR=0 -DJUCE_USE_XINERAMA=0 -DJUCE_USE_XRENDER=0 -DJUCE_USE_XCURSOR=0 -DJUCE_USE_XSHM=0 -DJUCE_USE_CURL=0 -I ../JUCE/modules src/MainGui.cpp`
-  (same without the X flags for Engine.cpp / MainCli.cpp). Then push and watch CI: `gh run list --branch analyser --limit 1` (run gh from inside /root/Meter).
-- Commit after each step (message ends with the Co-Authored-By / Claude-Session lines from the system reminder). Push; CI must be green before moving on.
-- `.inc` files are included inside MainGui.cpp's anonymous namespace: put any new JUCE module includes at the top of MainGui.cpp.
+## 2. Overview when maximised: the details block never shows; text too big
+Cause: the legend and fonts scale up to 1.7x and eat the space, and the block needs >= 70*ui px.
+Fix in GlanceView.inc: cap the scale for text at 1.25 (`uiText`), keep the legend at 12.5-13.5 px, size bars with the full `ui`; work out the block's needed height first
+(rows x line height) and give the top panel enough share (topH) when the window is tall; show the block whenever >= 3 lines fit, as many lines as fit. Make sure buildFacts really
+returns data (log if empty; check lib->grades(v, 96000) returns the table and the per-version lines appear). Content = what the Full table's double-click dialog shows (MainGui.cpp
+showDetails): every column's value (artist, album, year, genre, BPM, key, LUFS, peaks, length, format, directions, added ...), each Meter version's grade + values + directions,
+BPM/key estimates with confidence, sample rate / bits / channels, possible duplicate. Two or three neat columns for the short facts, full-width lines for the per-version ones.
+Verify with the app's snapshot (the CI GUI step screenshots views; make it also screenshot the Overview at 2000x1125 with a selected track and attach it to the artifact) and look at it.
 
-## Build order: 2, 1, 4, 5, 3 (numbers are the user's)
+## 3. Full table: "Back to overview" button covers the count text
+LibraryTab places its toggle button over LibraryView's top-right; trim the count label's bounds by the button's width (or move the button into LibraryView's top row).
 
-### Step 2 - bigger time / "who leads" readout, in the header row
-File: `analyser/src/GlanceView.inc` (top-panel paint, the block commented "what leads where the playhead is").
-- Move the readout (e.g. "1:02   detail leads") out of its own line under the small bars into the head row, between the track name (left) and the grade (right), centred, bold, about the title's size (scale with step 1).
-- Keep: yellow (kAccent), live during playback (timer already repaints `topArea` every 80 ms), follows the mouse when not playing, "balanced" when nothing leads.
-- When nothing is playing and the mouse is not over the bars, show nothing there (drop the grey "Hover over the bars..." hint, or put it small under the bars).
-- The freed line under the small bars goes back to the layout.
+## 4. Add tracks: skipping files already in the library is slow
+Cause (Engine.cpp Library::analyse): every file is fully read for its SHA256 id, and index() and grades(v) for every version are re-read from CSV for EACH file.
+Fix: (a) a known-files cache in the library folder (`known-files.csv`: full path, size, modification time, id), written whenever a file is analysed or found already there;
+before hashing, if path+size+mtime match a row whose id is complete (capture_version current and graded by every version) report AlreadyThere without opening the file.
+(b) load index() and each grades(v) once per batch (cache in Library keyed by changeCount, or pass them in) instead of per file. Count and report "skipped (already in the library)".
+Test in CI: add the same test files twice and check the second run says they were all skipped and is fast.
 
-### Step 1 - overview scales with the window, plus a details block
-File: `GlanceView.inc`.
-- One scale factor, e.g. `const float ui = jlimit(1.0f, 1.6f, getHeight() / 800.0f)` (tune so the user's ~1350x800 window looks exactly as now = 1.0, a maximised 2000x1125 window ~1.4). Apply it to: title font, grade font, technical details line, the readout from step 2, bar label text and chips, legend text and spacing, small bar height (24 -> 24*ui). Big bar height rule stays (it was approved).
-- `topH` (the top panel share) may grow a little with height so the new block fits; the list keeps at least ~45% of the height.
-- DETAILS BLOCK under the legend (only when there is room; hide it when the space left is under ~90 px): the information the Full table's double-click dialog shows (`showDetails` in MainGui.cpp ~line 870), laid out neatly in two or three columns, label dim / value bright:
-  artist, album, year, genre, BPM (+ estimate confidence), key (+ confidence), format, lossy, sample rate / bits / channels, LUFS, peak, true peak, length, source, added date;
-  per Meter version: grade, authority / power / detail values, letter value, bonus value, directions ("more calm (75%) most of the loud parts, 'allow fullness' at the end").
-  Data: the lean record meta (`it.rec.get(...)`) has most of it; for the per-version grades and the index fields use the library (`lib->index()`, the grade tables). If those are not easy to reach from GlanceView, add a small helper on `mdark::Library` (Engine.h/.cpp) that returns the per-version grade rows for an id, and cache the result per selected id (do not re-read files in paint).
-- Must look the same as now at the user's normal size (screenshot 1 of 20 Oct) and fill the space when maximised (screenshot 2).
+## 5. hintLAB: clearer bottom buttons and the low-end chart
+- Main workflow buttons (bottom, in this order): "Set triggers from the library" + share box, "Export to meterDARK", "Back to meterDARK's values".
+- Move "Level test" and "Measure low end" into the ADVANCED area (under the advanced constants, a sub-heading "CHECKS") with one-line captions:
+  Level test: "checks the readings do not change when the same track is played quieter (they should not)";
+  Measure low end: "checks the tone reading follows the real amount of low end in each track (needs the audio files; first run is slow, then cached)".
+- The scatter area: only shown after a measurement; a title "Does the tone reading follow the real low end?" and a caption "each dot is a track: across = measured low-end
+  share, up = tone reading. Dots rising left to right = it follows; r near 1 = closely, near 0 = not at all." When it cannot run (audio moved / no tracks with fine data) say
+  why in that space instead of showing nothing.
 
-### Step 4 - Full table: "Apply filters" toggle
-File: `analyser/src/MainGui.cpp` (LibraryView: `rebuild` around lines 600-635 builds `shown`; `labSet()` ~757 is the set the Overview and LABs use; `Filters.inc` holds the filter state).
-- Add a toggle button "Apply filters" in the Full table's toolbar, ON by default, remembered (store in the library folder, e.g. `fulltable-filters.txt`, or wherever the other view settings live).
-- ON: the Full table shows exactly the tracks the Overview / LABs use (`labSet()`; including "hide duplicates, prefer the highest quality version"). OFF: everything, as now.
-- The count label reads e.g. "2,467 of 3,694 tracks (filters on)" when filtering.
-- Check that the duplicate highlight, sorting, editing and the right-click menu still work in both modes.
+## 6. gradeLAB: pick the Meter version
+- analyser/tools/make_original_scorer.py: generate a `_tunable` copy for EVERY version (not only the newest); Versions.inc / OriginalScorer.cpp: `createTunableRun(versionId, ...)`,
+  `tunableSettingsUsed(versionId)`, keep `tunableVersionId()` as the default (newest). Regenerate, never hand-edit src/gen.
+- gradeLAB: a version box at the top ("Meter 0.5.5 / 0.5.6"); switching reloads that version's window data and original grades, rebuilds the sliders (only the settings that
+  version's code has), clears lab results. Export to meterDARK writes that version's id (meterDARK only applies it when built on the same version; say so in the message).
+- Tooltip on "Use replay blocks": "Score from each track's compact replay copy (the 16-bit window data inside its lean record) instead of the full stored window data. Needed for
+  tracks shared with you in packs; for your own tracks it gives the same grades." 
 
-### Step 5 - gradeLAB quick preview
-File: `analyser/src/LabView.inc` (mode 1 = gradeLAB; `rescore()` ~line 390 uses the ThreadPool `pool`; `finishRescore()`).
-- Add a "Preview" tick (on by default) next to "Re-score library".
-- Preview ON: about 400 ms after a slider stops moving, regrade a fixed SAMPLE of tracks: ~150 (or all if fewer), chosen once per library load to cover the grade range (sort the in-use tracks by their real grade key and take every Nth). Cancel/ignore a running preview when a new one starts (generation counter; jobs check it and skip).
-- Status line after a preview: "Preview on 150 tracks: 37 grades changed, ranking kept 92% (Spearman r = 0.96). Press Re-score library for the full result."
-- Table: preview rows show their new grade; rows not in the sample show "-" in the lab-grade column (or keep the previous full result greyed). "Re-score library" stays the exact full run and replaces the preview.
-- Do NOT change the scoring code itself.
-
-### Step 3 - "Fill missing tags..." (folders, then MusicBrainz + Discogs)
-New file suggested: `analyser/src/TagFill.h/.cpp` (engine side, no GUI) + a dialog in MainGui.cpp (Full table toolbar button "Fill missing tags...").
-Writes ONLY to the user's edits (`Library::setUserValue(id, key, value)`, keys `artist`, `album`, `year`, `genre`), never to audio files, never overwrites a non-empty field (tag or user value).
-Every value it writes is also listed in `tagfill-log.csv` in the library folder (id, field, value, source = folder / musicbrainz / discogs, time) so "Undo last fill" can remove exactly those user values.
-1. FROM FOLDERS (instant, offline): use `source_path` from the index. Rules:
-   - a folder named like a known genre (Rock, Pop, Jazz, Hip Hop / Hip-Hop / Rap, Electronic, Dance, House, Techno, Drum and Bass / DnB, Reggae, Soul, Funk, R&B / RnB, Blues, Country, Folk, Metal, Punk, Indie, Classical, Soundtrack / OST, Disco, Ambient, Latin, World, Gospel, Alternative ...; case-insensitive, compare on letters only) -> genre (nearest such folder above the file wins).
-   - "Artist/Album/track" layouts: if artist is empty and the parent-of-album folder is not a genre name, use it as artist; album folder -> album when empty.
-   - a 4-digit year 1900-2030 in an album folder name like "(1997)" / "[1997]" / "1997 - Album" -> year when empty.
-2. MUSICBRAINZ (online, no account): for tracks still missing year or genre and that have artist + title. `https://musicbrainz.org/ws/2/recording/?query=recording:"<title>" AND artist:"<artist>"&fmt=json&inc=genres+tags+releases` (check the current API docs; use `inc` only where allowed, or a second lookup on the release group). Year = earliest `first-release-date` among matching releases (score >= 90). Genre = highest-count genre (fall back to tags). Strip "(Remastered 2009)", "- 2015 Remaster", "(feat. ...)" from titles before searching.
-   - REQUIRED: a User-Agent header like `meterDARKAnalyser/1.1 ( hiddenfeatures@gmail.com )` is NOT allowed to contain the email in code we publish - use `meterDARKAnalyser/1.1 ( https://github.com/Forty8k/Meter )`. Max 1 request per second (sleep between requests). Retry once on 503.
-3. DISCOGS (online, optional): only when the user has pasted a personal token (a text box in the dialog, saved to `discogs-token.txt` in the app's settings folder, not the library folder, since libraries can be shared). `https://api.discogs.com/database/search?artist=...&track=...&type=release&token=...` with the same User-Agent; max ~1 request per second. Genre: Discogs `genre[0]` (and offer its first `style` as a "style" user column only if trivially easy; otherwise skip). Year: the earliest `year` among results. Discogs genre is preferred over MusicBrainz genre when both exist; folder genre beats both.
-- Runs on a background thread with a progress line and a Stop button; can be stopped and resumed (skip ids already in the log). Make the network calls with `juce::URL::createInputStream` (Windows has WinINet; nothing to add). Cache raw answers per artist+title in `tagfill-cache.json` so a re-run is free.
-- Dialog: three ticks (Folders / MusicBrainz / Discogs), the token box, Start, Stop, "Undo last fill", and a summary at the end ("Filled: 812 genres, 640 years, 95 artists. Nothing was overwritten.").
-- This workspace cannot reach musicbrainz.org or api.discogs.com: test the parsing with saved sample JSON (write a couple by hand from the API docs into `analyser/tools/tagfill-samples/`) and a small CLI self-test, and test the folder rules on made-up paths. Say clearly in the handover that the online part was not run against the live services.
-- Optional CLI: `--fill-tags [--folders-only]` for scripted use.
-
-## When steps 1-5 are done
-1. Update `analyser/HOW-TO.txt` for every change.
-2. Update `HANDOFF.md`: replace the "LATEST" section with what was built (per step: files, how it works, what was verified, what was NOT verified and needs the user's hand check, known limits). Add a section "FOR OPUS: STEP 6" (copy the step 6 text below and add anything you learned, e.g. where the plugin's tuned scoring copy lives).
-3. Commit and push (CI green), then tell the user with SendUserMessage AND a PushNotification: "Steps 1-5 are done and pushed. Switch the model back to Opus and say go for step 6." Then stop.
-
-## Step 6 (OPUS, not Sonnet) - gradeLAB settings to meterDARK
-- Analyser: gradeLAB gets "Export to meterDARK" writing `<app data>/meterDARK/grade-tuning.xml` (the ScoreParams, the Meter version id they were tuned for, an export time).
-- Plugin: its own tuned copy of Chris's scoring (the one the "grade" tick uses; PluginEditor.cpp `gradeTuned`, AirwindowsUI tune[12]) reads those constants live (same reload pattern as `LabTuning` in AirwindowsUI.h). Chris's code is never edited. Only applies when meterDARK's Meter version equals the exported version id; otherwise stock and a dim note.
-- When active: "gradeLAB" shows yellow on the bottom row next to "hintLAB", the grade shows `*`. Clicking "gradeLAB" switches it off (back to stock) for this instance; clicking "hintLAB" likewise switches the exported hint constants off.
-- At 0/off = stock behaviour.
+## 7. Done
+HOW-TO.txt (grade order rule, details block, fast skip, hintLAB checks, gradeLAB version box, replay blocks), HANDOFF.md LATEST section, push, notify.
