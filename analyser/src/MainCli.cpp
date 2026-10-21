@@ -1,13 +1,14 @@
 // meterDARK Analyser, command-line version: meterDARKAnalyserCLI [--library <folder>] <files or folders...>
 #include "Engine.h"
 #include "TagFill.h"
+#include "TrackStore.h"
 #include <iostream>
 
 int main(int argc, char* argv[])
 {
     juce::File library = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("meterDARK Library");
     juce::Array<juce::File> inputs;
-    bool rescan = false; bool fillTags = false, foldersOnly = false, tagTest = false; juce::String discogsToken; int levels = 0; int lean = 0; juce::String exportPack, importPack; bool fullPack = false;
+    bool rescan = false; bool fillTags = false, foldersOnly = false, tagTest = false, storeTest = false; juce::String discogsToken; int levels = 0; int lean = 0; juce::String exportPack, importPack; bool fullPack = false;
     for (int i = 1; i < argc; ++i) {
         const juce::String a(argv[i]);
         if ((a == "--library" || a == "-l") && i + 1 < argc) {library = juce::File::getCurrentWorkingDirectory().getChildFile(argv[++i]); continue;}
@@ -22,6 +23,7 @@ int main(int argc, char* argv[])
         if (a == "--folders-only") {foldersOnly = true; continue;}
         if (a == "--discogs-token" && i + 1 < argc) {discogsToken = argv[++i]; continue;}
         if (a == "--tagfill-test") {tagTest = true; continue;}
+        if (a == "--store-test") {storeTest = true; continue;}
         if (a == "--help" || a == "-h") {
             std::cout << "Usage: meterDARKAnalyserCLI [--library <folder>] [--rescan] <audio files or folders...>\n"
                          "--rescan scans every track captured by an older analyser again from its stored file path.\n"
@@ -48,6 +50,79 @@ int main(int argc, char* argv[])
         { const auto d = parseDiscogs(R"({"results":[{"year":"2003","genre":["Rock"]},{"year":"1999","genre":["Electronic"]}]})"); check(d.ok && d.year == "1999" && d.genre == "Rock", "discogs parse"); }
         check(!parseMusicBrainz("not json").ok && !parseDiscogs("{}").ok, "bad answers");
         std::cout << (bad == 0 ? "Tag-fill checks: all passed\n" : "Tag-fill checks: FAILED\n");
+        return bad == 0 ? 0 : 1;
+    }
+    if (storeTest) { //the track store: filled once, then changed one track at a time (no disk re-reading), in a temporary library
+        int bad = 0;
+        auto check = [&](bool ok, const char* what) { if (!ok) { ++bad; std::cout << "FAIL: " << what << "\n"; } };
+        const juce::File tmp = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("mdark-store-test-" + juce::String(juce::Time::currentTimeMillis()));
+        tmp.createDirectory();
+        auto makeWav = [&](const juce::String& name, double hz) {
+            const juce::File f = tmp.getChildFile(name);
+            juce::WavAudioFormat wav; std::unique_ptr<juce::FileOutputStream> os(f.createOutputStream());
+            std::unique_ptr<juce::AudioFormatWriter> w(wav.createWriterFor(os.get(), 48000.0, 2, 16, {}, 0));
+            if (w == nullptr) return f;
+            os.release();
+            juce::AudioBuffer<float> b(2, 48000 * 3);
+            for (int i = 0; i < b.getNumSamples(); ++i) { const float v = 0.4f*(float)std::sin(6.2831853*hz*i/48000.0); b.setSample(0, i, v); b.setSample(1, i, v); }
+            w->writeFromAudioSampleBuffer(b, 0, b.getNumSamples());
+            return f;
+        };
+        auto lib = std::make_shared<mdark::Library>(tmp.getChildFile("lib"));
+        mdark::TrackStore store(lib);                       // created BEFORE anything is written, as the header says
+        const auto vids = mdark::Library::versionIds();
+        const mdark::TrackStore::WindowKey key{vids.back(), 96000, false};
+        const juce::File a = makeWav("a.wav", 110.0), b = makeWav("b.wav", 440.0), c = makeWav("c.wav", 1760.0);
+        check(store.trackCount() == 0, "empty library");
+        uint64_t s0 = store.seq();
+        const auto ra = lib->analyse(a), rb = lib->analyse(b);
+        check(ra.status == mdark::AnalyseOutcome::Added && rb.status == mdark::AnalyseOutcome::Added, "two tracks added");
+        check(store.trackCount() == 2 && lib->index().rows.size() == 2, "store has the two tracks without a reload");
+        { std::vector<mdark::StoreChange> ch; uint64_t now = 0; const bool ok = store.changesSince(s0, ch, now);
+          int added = 0; for (auto& x : ch) if (x.kind == mdark::StoreChange::Added) ++added;
+          check(ok && added == 2 && now == store.seq(), "the log says two tracks were added"); }
+        for (auto& v : vids) check(store.readings(v).rows.size() == 2 && store.nativeGrades(v).rows.size() == 2, "grades of every version are in the store");
+        // what the store holds is what the files hold
+        { const auto fromDisk = lib->index(); const auto mem = store.index(); check(fromDisk.header == mem.header && fromDisk.rows.size() == mem.rows.size(), "store index == index.csv");
+          for (size_t r = 0; r < fromDisk.rows.size(); ++r) if (fromDisk.rows[r] != mem.rows[(size_t)mem.findRow("id", fromDisk.get(r, "id"))]) check(false, "an index row differs"); }
+        { const auto d = lib->grades(vids.back(), 96000), m = store.readings(vids.back()); check(d.rows.size() == m.rows.size(), "readings == grades at 96 kHz"); }
+        // window data: read once, kept
+        const std::vector<juce::String> ids{ra.id, rb.id};
+        check(store.loadWindows(key, ids) == 2 && store.windowsKept(key) == 2, "window data read for the two tracks");
+        check(store.loadWindows(key, ids) == 0, "second ask reads nothing");
+        const auto w1 = store.windows(key, ra.id);
+        check(w1 != nullptr && !w1->values.empty() && !w1->names.empty() && w1->sr > 1000.0, "window data usable");
+        // your values change: only values, no window data touched
+        s0 = store.seq();
+        lib->setUserValue(ra.id, "genre", "Test genre");
+        check(store.userValuesOf(ra.id)["genre"] == "Test genre", "your value is in the store at once");
+        { std::vector<mdark::StoreChange> ch; uint64_t now = 0; store.changesSince(s0, ch, now); check(ch.size() == 1 && ch[0].kind == mdark::StoreChange::Values && ch[0].id == ra.id, "one Values change for one track"); }
+        check(store.windows(key, ra.id) == w1 && store.windowsKept(key) == 2, "window data untouched by a value change");
+        lib->setUserValue(ra.id, "genre", "");
+        check(store.userValuesOf(ra.id).count("genre") == 0, "an emptied value is gone");
+        // a third track tags on the end; the other two keep their data
+        s0 = store.seq();
+        const auto rc = lib->analyse(c);
+        check(store.trackCount() == 3, "third track appended");
+        check(store.windows(key, ra.id) == w1, "the first track's window data is the very same object (nothing rebuilt)");
+        check(store.loadWindows(key, {ra.id, rb.id, rc.id}) == 1 && store.windowsKept(key) == 3, "only the new track's window data was read");
+        { std::vector<mdark::StoreChange> ch; uint64_t now = 0; store.changesSince(s0, ch, now); int added = 0; for (auto& x : ch) if (x.kind == mdark::StoreChange::Added && x.id == rc.id) ++added; check(added == 1, "one Added change for the new track"); }
+        // adding the same file again changes nothing
+        s0 = store.seq();
+        check(lib->analyse(c).status == mdark::AnalyseOutcome::AlreadyThere && store.seq() == s0, "an already-known file changes nothing");
+        // lean records are read once and kept
+        lib->buildLeanRecords(false, false);
+        const auto l1 = store.lean(ra.id);
+        check(l1 != nullptr && store.lean(ra.id) == l1, "lean record read once, then kept");
+        // removing a track
+        s0 = store.seq();
+        lib->removeTrack(rb.id);
+        check(store.trackCount() == 2 && store.readings(vids.back()).rows.size() == 2 && store.windowsKept(key) == 2, "removed track gone everywhere");
+        { std::vector<mdark::StoreChange> ch; uint64_t now = 0; store.changesSince(s0, ch, now); int rem = 0; for (auto& x : ch) if (x.kind == mdark::StoreChange::Removed && x.id == rb.id) ++rem; check(rem == 1, "one Removed change"); }
+        // too far behind the log
+        { std::vector<mdark::StoreChange> ch; uint64_t now = 0; check(!store.changesSince(store.seq() + 5, ch, now), "a number from the future is refused"); }
+        tmp.deleteRecursively();
+        std::cout << (bad == 0 ? "Track store checks: all passed\n" : "Track store checks: FAILED\n");
         return bad == 0 ? 0 : 1;
     }
     if (fillTags) {

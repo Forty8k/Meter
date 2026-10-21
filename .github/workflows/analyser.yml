@@ -152,6 +152,8 @@ jobs:
           # Tag filling: folder rules, title cleaning and the MusicBrainz / Discogs answer parsers (sample answers, no network)
           "$CLI" --tagfill-test | tee -a cli.txt
           grep -q "Tag-fill checks: all passed" cli.txt
+          "$CLI" --store-test | tee -a cli.txt
+          grep -q "Track store checks: all passed" cli.txt
           "$CLI" --library testlib --fill-tags --folders-only | tee -a cli.txt
           trap 'echo "::error title=lean/pack check failed::$(tail -n 12 cli.txt | tr "\n" "|")"' ERR
           "$CLI" --library testlib --lean-check | tee -a cli.txt

@@ -49,10 +49,26 @@ struct LevelMode {
     bool operator!=(const LevelMode& o) const { return !(*this == o); }
 };
 
+// What changed in the library, told to whoever listens (the TrackStore) at the moment it is written, with the data itself, so nothing has to be read back from disk.
+struct ChangeNote {
+    enum Kind { IndexRow,      // a track's row in index.csv was added or replaced: id, header, cells
+                GradeRow,      // a track's grade row of one Meter version (and rate, 0 = as the file has it) was written: id, version, rate, header, cells
+                UserValue,     // one of YOUR values: id, key, value ("" = removed)
+                Removed,       // a track was removed: id
+                Columns,       // your custom columns changed
+                LeanOne,       // one lean record was written: id
+                SharedAll,     // records from a pack were imported
+                ReloadUser,    // user.csv was rewritten in bulk
+                ReloadAll } kind = ReloadAll;
+    juce::String id, version, key, value; int rate = 0;
+    juce::StringArray header, cells;
+};
+
 class Library {
 public:
     explicit Library(const juce::File& folder);
     juce::File folder;
+    std::function<void(const ChangeNote&)> onChange; // set by the TrackStore; called on whatever thread wrote the change, with the library's lock held (keep it short, never call back into Library from a different thread while holding your own lock)
 
     // scanning (any thread)
     // A file already in the library (same path, size and modification time as when it was added, and complete) is skipped without being opened:
@@ -77,6 +93,7 @@ public:
     // A copy of grades-<version>.csv: one Meter version's verdict on every track. rate = 0: the audio as the file has it.
     // rate = 44100 or 96000: the same audio converted to that rate first (tracks that already are at that rate answer from their own grades).
     Table grades(const juce::String& versionId, int rate = 0);
+    Table gradeFile(const juce::String& versionId, int rate = 0); // exactly what grades-<version>[@rate].csv holds (no merging); the TrackStore reads this once
     // The same, graded in a level mode by replaying the stored windows with the mode's gain (no audio needed). Results are kept in levelgrades-*.csv and only
     // missing or out-of-date tracks are worked out (several cores). compute = false returns what is already kept and counts the rest in *missing.
     Table levelGrades(const juce::String& versionId, int rate, const LevelMode& lm, bool compute, std::function<bool()> shouldStop = {},
@@ -104,6 +121,7 @@ private:
     juce::AudioFormatManager formats;
     juce::CriticalSection lock;
     std::atomic<int> changes{0};
+    void notify(const ChangeNote& n) { ++changes; if (onChange) onChange(n); }
     juce::File indexFile() const { return folder.getChildFile("index.csv"); }
     juce::File userFile() const { return folder.getChildFile("user.csv"); }
     juce::File columnsFile() const { return folder.getChildFile("columns.json"); }

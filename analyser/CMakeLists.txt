@@ -9,7 +9,7 @@ set(MDARK_BUILD_NUMBER 0 CACHE STRING "build number (set by GitHub; the app comp
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../JUCE ${CMAKE_BINARY_DIR}/JUCE)
 
-set(MDARK_ENGINE_SOURCES src/Capture.cpp src/Estimates.cpp src/OriginalScorer.cpp src/Engine.cpp src/LabHints.cpp src/LeanRecord.cpp src/TagFill.cpp)
+set(MDARK_ENGINE_SOURCES src/Capture.cpp src/Estimates.cpp src/OriginalScorer.cpp src/Engine.cpp src/LabHints.cpp src/LeanRecord.cpp src/TagFill.cpp src/TrackStore.cpp)
 set(MDARK_DEFS JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_USE_MP3AUDIOFORMAT=1 JUCE_USE_FLAC=1 JUCE_USE_OGGVORBIS=1
     JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_MODAL_LOOPS_PERMITTED=1 MDARK_BUILD_NUMBER=${MDARK_BUILD_NUMBER})
 

@@ -157,7 +157,7 @@ void Library::putIndexRow(const juce::StringArray& cells)
     const int existing = t.findRow("id", cells[0]);
     if (existing >= 0) t.rows[(size_t)existing] = cells; else t.rows.push_back(cells);
     t.save(indexFile());
-    ++changes;
+    ChangeNote n; n.kind = ChangeNote::IndexRow; n.id = cells[0]; n.header = want; n.cells = cells; notify(n);
 }
 
 //---------------------------------------------------------------- scanning
@@ -189,7 +189,14 @@ void Library::putGradeRow(const juce::String& vid, const juce::String& id, const
     const int existing = t.findRow("id", id);
     if (existing >= 0) t.rows[(size_t)existing] = cells; else t.rows.push_back(cells);
     t.save(gradesFile(vid, rate));
-    ++changes;
+    ChangeNote n; n.kind = ChangeNote::GradeRow; n.id = id; n.version = vid; n.rate = rate; n.header = want; n.cells = cells; notify(n);
+}
+
+Table Library::gradeFile(const juce::String& vid, int rate)
+{
+    const juce::ScopedLock sl(lock);
+    Table t; t.load(gradesFile(vid, rate));
+    return t;
 }
 
 Table Library::grades(const juce::String& vid, int rate)
@@ -744,7 +751,7 @@ void Library::setUserValue(const juce::String& id, const juce::String& key, cons
     if (r < 0) {t.rows.push_back(juce::StringArray()); r = (int)t.rows.size() - 1; t.set((size_t)r, "id", id);}
     t.set((size_t)r, key, value.trim());
     t.save(userFile());
-    ++changes;
+    ChangeNote n; n.kind = ChangeNote::UserValue; n.id = id; n.key = key; n.value = value.trim(); notify(n);
 }
 
 void Library::setUserValues(const std::vector<UserEdit>& edits)
@@ -761,7 +768,7 @@ void Library::setUserValues(const std::vector<UserEdit>& edits)
         t.set((size_t)r, e.key, e.value.trim());
     }
     t.save(userFile());
-    ++changes;
+    for (auto& e : edits) { ChangeNote n; n.kind = ChangeNote::UserValue; n.id = e.id; n.key = e.key; n.value = e.value.trim(); notify(n); }
 }
 
 std::vector<CustomColumn> Library::customColumns()
@@ -780,7 +787,7 @@ void Library::saveColumns(const std::vector<CustomColumn>& cols)
     for (auto& c : cols) {auto* o = new juce::DynamicObject(); o->setProperty("key", c.key); o->setProperty("name", c.name); o->setProperty("type", c.numeric ? "number" : "text"); arr.add(juce::var(o));}
     auto* root = new juce::DynamicObject(); root->setProperty("columns", arr);
     columnsFile().replaceWithText(juce::JSON::toString(juce::var(root)));
-    ++changes;
+    ChangeNote n; n.kind = ChangeNote::Columns; notify(n);
 }
 
 juce::String Library::addCustomColumn(const juce::String& name, bool numeric)
@@ -812,7 +819,7 @@ void Library::removeCustomColumn(const juce::String& key)
     saveColumns(cols);
     Table t; t.load(userFile()); //drop its values too
     const int c = t.col(key);
-    if (c >= 0) {t.header.remove(c); for (auto& r : t.rows) if (c < r.size()) r.remove(c); t.save(userFile());}
+    if (c >= 0) {t.header.remove(c); for (auto& r : t.rows) if (c < r.size()) r.remove(c); t.save(userFile()); ChangeNote n; n.kind = ChangeNote::ReloadUser; notify(n);}
 }
 
 bool Library::removeTrack(const juce::String& id)
@@ -837,7 +844,7 @@ bool Library::removeTrack(const juce::String& id)
     Table u; u.load(userFile());
     const int ur = u.findRow("id", id);
     if (ur >= 0) {u.rows.erase(u.rows.begin() + ur); u.save(userFile());}
-    ++changes;
+    ChangeNote n; n.kind = ChangeNote::Removed; n.id = id; notify(n);
     return true;
 }
 
@@ -965,7 +972,7 @@ juce::String Library::importPack(const juce::File& in, int* addedOut)
         folder.getChildFile("lean-shared").getChildFile(id + ".lnr.gz").replaceWithData(bytes.data(), bytes.size());
         ++added;
     }
-    if (added > 0) ++changes;
+    if (added > 0) { ChangeNote n; n.kind = ChangeNote::SharedAll; notify(n); }
     if (addedOut) *addedOut = added;
     return juce::String(added) + " records added from the " + (full ? "full" : "display") + " pack" + (own ? ", " + juce::String(own) + " skipped because you measured them yourself" : juce::String()) + (bad ? ", " + juce::String(bad) + " could not be read" : juce::String()) + ".";
 }
@@ -991,7 +998,9 @@ bool Library::writeLean(const juce::String& id, const LeanRecord& rec)
 {
     folder.getChildFile("lean").createDirectory();
     const auto packed = gzipBytes(serialiseLean(rec));
-    return leanFile(id).replaceWithData(packed.data(), packed.size());
+    const bool ok = leanFile(id).replaceWithData(packed.data(), packed.size());
+    if (ok) { ChangeNote n; n.kind = ChangeNote::LeanOne; n.id = id; notify(n); }
+    return ok;
 }
 
 bool Library::setLeanMeta(const juce::String& id, const std::vector<std::pair<std::string, std::string>>& changes)
@@ -1070,6 +1079,7 @@ Library::LeanReport Library::buildLeanRecords(bool force, bool verify, std::func
                             }
                         }
                         leanFile(id).replaceWithData(packed.data(), packed.size());
+                        ChangeNote n; n.kind = ChangeNote::LeanOne; n.id = id; notify(n);
                     }
                 }
             }
@@ -1171,7 +1181,8 @@ int Library::upgradeOldRows(std::function<bool()> shouldStop, std::function<void
                     const juce::ScopedLock sl(lock);
                     Table cur; cur.load(indexFile());
                     const int r = cur.findRow("id", id);
-                    if (r >= 0) {cur.set((size_t)r, "bpm_est", b.bpm > 0 ? num(b.bpm, 1) : juce::String()); cur.set((size_t)r, "bpm_confidence", num(b.confidence, 2)); cur.save(indexFile()); ++changes;}
+                    if (r >= 0) {cur.set((size_t)r, "bpm_est", b.bpm > 0 ? num(b.bpm, 1) : juce::String()); cur.set((size_t)r, "bpm_confidence", num(b.confidence, 2)); cur.save(indexFile());
+                        ChangeNote n; n.kind = ChangeNote::IndexRow; n.id = id; n.header = cur.header; n.cells = cur.rows[(size_t)r]; notify(n);}
                     any = true;
                 }
             }
@@ -1190,7 +1201,7 @@ int Library::upgradeOldRows(std::function<bool()> shouldStop, std::function<void
         const juce::ScopedLock sl(lock);
         Table cur; cur.load(indexFile());
         juce::StringArray want; for (auto c : kIndexHeader) want.add(c);
-        if (cur.header != want) {Table n; n.header = want; for (size_t r = 0; r < cur.rows.size(); ++r) {n.rows.push_back({}); for (auto& c : want) n.rows.back().add(cur.get(r, c));} n.save(indexFile()); ++changes;}
+        if (cur.header != want) {Table n; n.header = want; for (size_t r = 0; r < cur.rows.size(); ++r) {n.rows.push_back({}); for (auto& c : want) n.rows.back().add(cur.get(r, c));} n.save(indexFile()); ChangeNote cn; cn.kind = ChangeNote::ReloadAll; notify(cn);}
     }
     return changed.load();
 }
