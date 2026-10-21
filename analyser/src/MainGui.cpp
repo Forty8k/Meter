@@ -469,7 +469,7 @@ public:
         importButton.setBounds(top.removeFromLeft(110)); top.removeFromLeft(6);
         showButton.setBounds(top.removeFromLeft(90)); top.removeFromLeft(6);
         removeButton.setBounds(top.removeFromLeft(90)); top.removeFromLeft(6);
-        countLabel.setBounds(top);
+        countLabel.setBounds(top.withTrimmedRight(reserveRight)); //the Library tab's "Back to overview" button sits over the top-right corner
         r.removeFromTop(6);
         auto row2 = r.removeFromTop(26);
         gradeLabel.setBounds(row2.removeFromLeft(84)); gradeBox.setBounds(row2.removeFromLeft(170)); row2.removeFromLeft(4);
@@ -1046,6 +1046,9 @@ private:
     juce::TextEditor search;
     juce::TextButton addColumnButton{"Add column..."}, columnsButton{"Your columns..."}, importButton{"Import CSV..."}, showButton{"Show file"}, removeButton{"Remove..."};
     juce::Label countLabel;
+public:
+    int reserveRight = 0; //pixels at the top-right kept free for the Library tab's toggle button
+private:
     juce::Rectangle<int> hint;
     std::unique_ptr<juce::FileChooser> chooser;
     mdark::Table idx;
@@ -1170,6 +1173,15 @@ public:
             const auto img = createComponentSnapshot(getLocalBounds(), true, 1.0f);
             juce::FileOutputStream os(outDir.getChildFile(names[t]));
             if (os.openedOk()) {os.setPosition(0); os.truncate(); juce::PNGImageFormat().writeImageToStream(img, os);}
+        }
+        { //the Overview in a large (maximised) window, to check the details block has room
+            const auto oldBounds = getBounds();
+            setSize(2000, 1125);
+            tabs.setCurrentTabIndex(1); libraryTab.showFull(false); libraryTab.glance.reloadNow();
+            const auto img = createComponentSnapshot(getLocalBounds(), true, 1.0f);
+            juce::FileOutputStream os(outDir.getChildFile("tab-library-big.png"));
+            if (os.openedOk()) {os.setPosition(0); os.truncate(); juce::PNGImageFormat().writeImageToStream(img, os);}
+            setBounds(oldBounds);
         }
     }
     std::shared_ptr<mdark::Library> getLibrary() const { return library; }

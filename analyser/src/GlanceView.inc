@@ -75,7 +75,7 @@ public:
         sourceBox.setBounds(bar.removeFromLeft(130)); bar.removeFromLeft(6);
         shareButton.setBounds(bar.removeFromLeft(120)); bar.removeFromLeft(10);
         status.setBounds(bar.withTrimmedRight(146));
-        const int topH = juce::jmax(372, (int)(r.getHeight()*(r.getHeight() > 900 ? 0.52f : 0.44f)));
+        const int topH = juce::jmax(372, (int)(r.getHeight()*(r.getHeight() > 900 ? 0.58f : 0.44f)));
         topArea = r.removeFromTop(topH);
         table.setBounds(r);
     }
@@ -93,22 +93,23 @@ public:
         }
         if (compareMode && it->group >= 0) { paintCompare(g, a, *it); return; }
         const auto& rec = it->rec;
-        const float ui = juce::jlimit(1.0f, 1.7f, (float)getHeight()/780.0f); //everything in the panel grows with the window (1.0 at the normal size)
+        const float ui = juce::jlimit(1.0f, 1.7f, (float)getHeight()/780.0f); //the bars and spacing grow with the window (1.0 at the normal size) ...
+        const float uT = juce::jmin(ui, 1.25f), lg = juce::jmin(ui, 1.1f); //... the text grows less, and the legend stays small, so the details block has room
         // head row: name (left), who leads at the playhead / mouse (centre, large, yellow), grade (right)
         auto head = a.removeFromTop(juce::roundToInt(30*ui));
         {
             auto gradeArea = head.removeFromRight(juce::roundToInt(210*ui));
-            g.setColour(kAccent); g.setFont(juce::Font(26.0f*ui, juce::Font::bold));
+            g.setColour(kAccent); g.setFont(juce::Font(26.0f*uT, juce::Font::bold));
             g.drawText(it->grade, gradeArea, juce::Justification::centredRight);
             const int nameW = juce::roundToInt(head.getWidth()*0.38f);
-            g.setColour(kText); g.setFont(juce::Font(20.0f*ui, juce::Font::bold));
+            g.setColour(kText); g.setFont(juce::Font(20.0f*uT, juce::Font::bold));
             g.drawText(it->name, head.removeFromLeft(nameW), juce::Justification::centredLeft, true);
             double frac = hoverFrac;
             if (transportReady) { const double len = transport.getLengthInSeconds(); if (len > 0) frac = transport.getCurrentPosition()/len; }
             if (frac >= 0 && rec.columns > 0) {
                 const int c = juce::jlimit(0, rec.columns - 1, (int)(frac*rec.columns));
                 const double secs = frac*juce::String(rec.get("length_s")).getDoubleValue();
-                g.setColour(kAccent); g.setFont(juce::Font(22.0f*ui, juce::Font::bold));
+                g.setColour(kAccent); g.setFont(juce::Font(22.0f*uT, juce::Font::bold));
                 g.drawText(juce::String((int)secs/60) + ":" + juce::String::formatted("%02d", (int)secs % 60) + "   " + whoLeads(rec, c), head, juce::Justification::centredLeft, true);
             }
         }
@@ -123,12 +124,15 @@ public:
             d.add("Peak " + num("peak_db", "%.1f dBFS")); d.add("True peak " + num("true_peak_db", "%.1f dBTP")); d.add("LUFS " + num("lufs", "%.1f"));
             d.add("Meter " + juce::String(rec.get("meter_version")));
             d.add("Source " + (src.isEmpty() ? juce::String("not set") : src));
-            g.setColour(kText); g.setFont(juce::Font(13.0f*ui));
-            g.drawFittedText(d.joinIntoString("      "), a.removeFromTop(juce::roundToInt(20*ui)), juce::Justification::centredLeft, 1);
+            g.setColour(kText); g.setFont(juce::Font(13.0f*uT));
+            g.drawFittedText(d.joinIntoString("      "), a.removeFromTop(juce::roundToInt(20*uT)), juce::Justification::centredLeft, 1);
         }
         a.removeFromTop(juce::roundToInt(4*ui));
         // the large overall tone bar: the three small bars under it share its exact left edge and width, so a point in time is one x position in all four
-        const int barH = juce::jlimit(50, 150, (int)(a.getHeight()*0.30f));
+        //the big bar gives way to the details block: what is needed under it (3 small bars, legend, ~7 lines of facts) is reserved first
+        const int factsWant = juce::roundToInt(6*uT) + 7*juce::roundToInt(17*uT);
+        const int belowBar = juce::roundToInt(4*ui) + 3*juce::roundToInt(41*ui) + juce::roundToInt(6*ui) + juce::roundToInt(92*lg) + juce::roundToInt(6*ui);
+        const int barH = juce::jlimit(40, 150, juce::jmin((int)(a.getHeight()*0.30f), a.getHeight() - belowBar - factsWant));
         bigBar = a.removeFromTop(barH);
         drawBar(g, bigBar, rec, 0);
         a.removeFromTop(juce::roundToInt(4*ui));
@@ -139,7 +143,7 @@ public:
             auto labelRow = a.removeFromTop(juce::roundToInt(14*ui));
             const int chip = juce::roundToInt(8*ui);
             g.setColour(meterColour(k - 1)); g.fillRect(bigBar.getX(), labelRow.getY() + (labelRow.getHeight() - chip)/2, chip, chip);
-            g.setColour(kDim); g.setFont(juce::Font(12.0f*ui));
+            g.setColour(kDim); g.setFont(juce::Font(12.0f*uT));
             g.drawText(names[k - 1], bigBar.getX() + chip + 5, labelRow.getY(), 120, labelRow.getHeight(), juce::Justification::centredLeft);
             auto row = a.removeFromTop(smallH).withX(bigBar.getX()).withWidth(bigBar.getWidth());
             smallBars[k - 1] = row;
@@ -158,11 +162,11 @@ public:
         }
         a.removeFromTop(juce::roundToInt(6*ui));
         // the legend: how to read the bars
-        legendArea = a.removeFromTop(juce::roundToInt(92*ui));
-        paintLegend(g, legendArea, ui);
+        legendArea = a.removeFromTop(juce::roundToInt(92*lg));
+        paintLegend(g, legendArea, lg);
         // everything else we know about the track (only when there is room)
         a.removeFromTop(juce::roundToInt(6*ui));
-        if (a.getHeight() >= juce::roundToInt(70*ui)) paintFacts(g, a, *it, ui);
+        if (a.getHeight() >= juce::roundToInt(6*uT) + 3*juce::roundToInt(17*uT)) paintFacts(g, a, *it, uT); //as many lines as fit (3 or more)
     }
 
     //---------------------------------------------------------------- the details block (what the Full table's double-click shows), cached per track
@@ -627,7 +631,7 @@ public:
         auto r = getLocalBounds();
         auto bar = r.removeFromTop(0);
         (void)bar;
-        glance.setBounds(r); fullTable.setBounds(r);
+        fullTable.reserveRight = 146; glance.setBounds(r); fullTable.setBounds(r);
         toggle.setBounds(getWidth() - 138, 4, 130, 24); toggle.toFront(false);
     }
 private:
