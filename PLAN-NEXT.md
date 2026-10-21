@@ -56,5 +56,12 @@ Test in CI: add the same test files twice and check the second run says they wer
 - Tooltip on "Use replay blocks": "Score from each track's compact replay copy (the 16-bit window data inside its lean record) instead of the full stored window data. Needed for
   tracks shared with you in packs; for your own tracks it gives the same grades." 
 
+## 6b. Overview: the same search box as the Full table
+Add a search box to the Overview's toolbar (GlanceView, same look and placeholder "Search name, artist, genre, key ..." as LibraryView's `search`). It filters the Overview list
+as you type, the same way the Full table's search does (MainGui.cpp `applyFilter`: every word must appear, case-insensitive), matching the track name, artist, title, album,
+year, genre, BPM, key and source (from the lean record meta, the index and the user values; keep one lowercase "haystack" string per Item, built in `gather`). It works on top of
+the Library's filters. The count says "N of M tracks" while searching. Keep the selected track if it is still in the list. Optional: share the text with the Full table's box so a
+search typed in one shows in the other (only if simple).
+
 ## 7. Done
 HOW-TO.txt (grade sort = by grade text like Finder, numbers as numbers, details block, fast skip, hintLAB checks, gradeLAB version box, replay blocks), HANDOFF.md LATEST section, push, notify.
