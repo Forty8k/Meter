@@ -37,6 +37,9 @@ public:
         percentBox.setColour(juce::ComboBox::backgroundColourId, kPanel); percentBox.setColour(juce::ComboBox::textColourId, kText); percentBox.setColour(juce::ComboBox::outlineColourId, kPanel);
         fromLibrary.onClick = [this] { setFromLibrary(percentBox.getSelectedId()/100.0); };
         resetButton.onClick = [this] { if (mode == 0) hints = mdark::HintSettings(); else { score = mdark::ScoreParams(); if (previewOn) previewDue = juce::Time::getMillisecondCounter() + 300; } paintEvery = 1; buildSettings(); recompute(); };
+        fromLibrary.setTooltip("Looks at the tracks in the list and sets the triggers (where each hint starts to show) so the chosen share each side of the middle lights up. Then try the sliders.");
+        exportButton.setTooltip("Sends these settings to meterDARK (live, within a second) so you hear / see them in your DAW.");
+        resetButton.setTooltip("Puts every slider back to the value meterDARK ships with (this does not change meterDARK until you press Export).");
         exportButton.onClick = [this] { exportToMeter(); };
         levelTestButton.onClick = [this] { runLevelTest(); };
         lowEndButton.onClick = [this] { measureLowEnd(); };
@@ -76,9 +79,10 @@ public:
         auto buttons = left.removeFromBottom(100);
         auto b1 = buttons.removeFromTop(30), b2 = buttons.removeFromBottom(30);
         if (mode == 0) {
-            auto b3 = buttons.removeFromTop(34).withTrimmedTop(4); levelTestButton.setBounds(b3.removeFromLeft(150)); b3.removeFromLeft(6); lowEndButton.setBounds(b3);
+            //the workflow, top to bottom: set the triggers from the library, export them to meterDARK, or go back to meterDARK's own values
+            auto b3 = buttons.removeFromTop(34).withTrimmedTop(4); exportButton.setBounds(b3.removeFromLeft(220));
             fromLibrary.setBounds(b1.removeFromLeft(220)); b1.removeFromLeft(6); percentBox.setBounds(b1);
-            resetButton.setBounds(b2.removeFromLeft(196)); b2.removeFromLeft(8); exportButton.setBounds(b2);
+            resetButton.setBounds(b2.removeFromLeft(220));
         } else {
             rescoreButton.setBounds(b1.removeFromLeft(196)); b1.removeFromLeft(8); saveButton.setBounds(b1);
             auto b3 = buttons.removeFromTop(34).withTrimmedTop(4); resetButton.setBounds(b3.removeFromLeft(196)); b3.removeFromLeft(8); previewButton.setBounds(b3);
@@ -89,7 +93,7 @@ public:
         settingsPanel.setSize(left.getWidth() - 14, settingsPanel.getHeight());
         layoutSettings();
         r.removeFromLeft(12);
-        if (mode == 0) {dist.setVisible(true); dist.setBounds(r.removeFromTop(110)); r.removeFromTop(6); scatter.setVisible(true); scatter.setBounds(r.removeFromTop(200)); r.removeFromTop(8);} else {dist.setVisible(false); scatter.setVisible(false);}
+        if (mode == 0) {dist.setVisible(true); dist.setBounds(r.removeFromTop(110)); r.removeFromTop(6); scatter.setVisible(lowEndTried); if (lowEndTried) {scatter.setBounds(r.removeFromTop(250)); r.removeFromTop(8);}} else {dist.setVisible(false); scatter.setVisible(false);}
         table.setBounds(r);
     }
     void paint(juce::Graphics& g) override { g.fillAll(kBg); }
@@ -102,6 +106,7 @@ private:
     bool testing = false;
     bool loading = false, loaded = false; const void* loadedFor = nullptr; int loadedChange = -1;
     std::vector<mdark::HintTrackResult> hintResults;
+    bool lowEndTried = false; //the low-end chart only shows after a measurement was asked for
     std::map<juce::String, double> lowEnd; bool measuring = false; std::atomic<int> lowDone{0}, lowTotal{0}; //real low-end share per track id (-1 = no fine data)
     struct ScoreRow { juce::String grade, bonus; double letterValue = 0; bool done = false; };
     std::vector<ScoreRow> scoreResults;
@@ -237,8 +242,10 @@ private:
     //4a: does the weight reading follow the real low end? Reads each track's fine octave bands once (cached), then the scatter plots compare it with the old and new weight readings.
     void measureLowEnd() {
         auto lib = getLibrary ? getLibrary() : nullptr;
-        if (lib == nullptr || !loaded || loading || measuring) return;
-        measuring = true; lowDone = 0; lowTotal = 0;
+        if (lib == nullptr) return;
+        if (!loaded || loading) {status.setText("Wait until the tracks have finished loading, then press Measure low end again.", juce::dontSendNotification); return;}
+        if (measuring) return;
+        measuring = true; lowDone = 0; lowTotal = 0; lowEndTried = true; resized();
         juce::Component::SafePointer<LabView> sp(this);
         pool.addJob([this, sp, lib] {
             auto res = lib->lowEndShares([&] {return sp == nullptr;}, [&](int d, int n) {lowDone = d; lowTotal = n;});
@@ -503,12 +510,13 @@ private:
     //---------------------------------------------------------------- settings panel
     struct ClickLabel : public juce::Label { std::function<void()> onClick; void mouseUp(const juce::MouseEvent&) override { if (onClick) onClick(); } };
     bool advancedOpen = false;
-    struct Row { ClickLabel name; juce::Slider slider; juce::String group; bool header = false; };
+    struct Row { ClickLabel name; juce::Slider slider; juce::String group; bool header = false; juce::Component* ctl = nullptr; }; //ctl: a button with its caption in `name`
     juce::OwnedArray<Row> rows;
     juce::Component settingsPanel;
     juce::Viewport settingsView;
 
     void buildSettings() {
+        levelTestButton.setVisible(false); lowEndButton.setVisible(false); //they live under ADVANCED > CHECKS (hintLAB) and are put back there below
         rows.clear();
         auto addHeader = [&](const juce::String& t) {
             auto* r = rows.add(new Row()); r->header = true; r->name.setText(t, juce::dontSendNotification);
@@ -555,6 +563,16 @@ private:
                     addSlider(p.label, p.lo, p.hi, hints.v[i], p.decimals, p.unit, p.help, [this, i](double v) {hints.v[i] = v;}, p.def);
                 }
             }
+            if (advancedOpen) { //CHECKS: tests of the readings, not part of setting the triggers
+                addHeader("CHECKS"); rows.getLast()->name.setFont(juce::Font(13.0f, juce::Font::bold)); rows.getLast()->name.setColour(juce::Label::textColourId, kDim);
+                auto addCheck = [&](juce::TextButton& b, const juce::String& caption) {
+                    auto* r = rows.add(new Row()); r->ctl = &b;
+                    r->name.setText(caption, juce::dontSendNotification); r->name.setFont(juce::Font(12.0f)); r->name.setColour(juce::Label::textColourId, kDim);
+                    settingsPanel.addAndMakeVisible(r->name); settingsPanel.addAndMakeVisible(b);
+                };
+                addCheck(levelTestButton, "checks the readings do not change when the same track is played quieter (they should not).");
+                addCheck(lowEndButton, "checks the tone reading follows the real amount of low end in each track. Reads each track's stored fine data (not the audio files); the first run is slow, then it is cached.");
+            }
         } else {
             addHeader("ORIGINAL METER " + juce::String(mdark::findMeterVersion(mdark::tunableVersionId())->version) + " SCORING (experiment)");
             const auto& used = mdark::tunableSettingsUsed();
@@ -574,6 +592,7 @@ private:
         int y = 4; const int w = settingsPanel.getWidth() > 0 ? settingsPanel.getWidth() : 380;
         for (auto* r : rows) {
             if (r->header) {y += 6; r->name.setBounds(0, y, w, 22); y += 24; continue;}
+            if (r->ctl != nullptr) {r->ctl->setBounds(0, y, 150, 26); r->name.setBounds(156, y - 2, w - 156, 58); y += 62; continue;}
             r->name.setBounds(0, y, 150, 24);
             r->slider.setBounds(150, y, w - 150, 24);
             y += 27;
@@ -582,7 +601,7 @@ private:
     }
     void setMode(int m) {
         mode = m;
-        for (auto* b : {&fromLibrary, &exportButton, &levelTestButton, &lowEndButton}) b->setVisible(m == 0);
+        for (auto* b : {&fromLibrary, &exportButton}) b->setVisible(m == 0);
         percentBox.setVisible(m == 0);
         for (auto* b : {&rescoreButton, &saveButton, &previewButton, &gradeExportButton, &stockGradeButton}) b->setVisible(m == 1);
         resetButton.setButtonText(m == 0 ? "Back to meterDARK's values" : "Back to the original");
@@ -741,6 +760,18 @@ private:
                 x.push_back(it->second); oldW.push_back(r.oldWeight); newW.push_back(r.weight);
             }
         }
+        //what to say in the chart's place when it cannot be drawn
+        juce::String why() const {
+            const auto& o = *owner;
+            if (o.measuring) return "Measuring ... " + juce::String(o.lowDone.load()) + " of " + juce::String(o.lowTotal.load()) + " tracks (first time only, it is cached after).";
+            int withData = 0, audible = 0;
+            for (auto& kv : o.lowEnd) if (kv.second >= 0) ++withData;
+            for (auto& r : o.hintResults) if (r.audible != 0) ++audible;
+            if (o.lowEnd.empty()) return "Not measured yet.";
+            if (withData < 3) return "Cannot draw it: only " + juce::String(withData) + " of " + juce::String((int)o.lowEnd.size()) + " tracks have stored fine data (tracks/<id>.fine.f32.gz). Tracks that came in through a shared pack have none; add the audio files here to measure them.";
+            if (audible < 3) return "Cannot draw it: the hint readings have not been worked out for enough tracks yet (they run when the settings change; the Library filters may also leave too few tracks).";
+            return "Cannot draw it: none of the tracks in the list has both a hint reading and low-end data. Check the Library's filters.";
+        }
         juce::String summary() const {
             std::vector<double> x, a, b; collect(x, a, b);
             if (x.size() < 3) return "Not enough tracks with low-end data.";
@@ -749,10 +780,19 @@ private:
         void paint(juce::Graphics& g) override {
             g.fillAll(kPanel.darker(0.2f));
             std::vector<double> x, a, b; collect(x, a, b);
-            if (x.size() < 3) {g.setColour(kDim); g.setFont(juce::Font(13.0f)); g.drawText("Press \"Measure low end\" to compare the tone readings with the real low-end energy of each track.", getLocalBounds().reduced(10), juce::Justification::centred); return;}
+            auto head = getLocalBounds().reduced(10, 6);
+            g.setColour(kText); g.setFont(juce::Font(14.0f, juce::Font::bold));
+            g.drawText("Does the tone reading follow the real low end?", head.removeFromTop(20), juce::Justification::centredLeft);
+            g.setColour(kDim); g.setFont(juce::Font(12.0f));
+            g.drawFittedText("Each dot is a track: across = measured low-end share, up = tone reading. Dots rising from left to right mean the reading follows the low end; r near 1 = closely, near 0 = not at all.", head.removeFromTop(32), juce::Justification::topLeft, 2);
+            if (x.size() < 3) {
+                g.setColour(kAccent); g.setFont(juce::Font(13.0f));
+                g.drawFittedText(why(), getLocalBounds().reduced(14).withTrimmedTop(58), juce::Justification::centred, 4);
+                return;
+            }
             double xmax = 0; for (double v : x) xmax = juce::jmax(xmax, v);
             xmax = juce::jmax(0.05, xmax);
-            auto area = getLocalBounds().reduced(8, 6);
+            auto area = getLocalBounds().reduced(8, 6).withTrimmedTop(56);
             for (int k = 0; k < 2; ++k) {
                 auto r = area.removeFromLeft(area.getWidth()/(2 - k)).reduced(6, 0);
                 const auto& y = k == 0 ? a : b;

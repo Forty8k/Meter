@@ -1092,7 +1092,7 @@ std::map<juce::String, double> Library::lowEndShares(std::function<bool()> shoul
     const juce::File cache = folder.getChildFile("lowend.csv");
     {
         juce::StringArray lines; lines.addLines(cache.loadFileAsString());
-        for (auto& l : lines) {const int c = l.indexOfChar(','); if (c > 0) out[l.substring(0, c)] = l.substring(c + 1).getDoubleValue();}
+        for (auto& l : lines) {const int c = l.indexOfChar(','); if (c > 0 && l.substring(c + 1).getDoubleValue() >= 0) out[l.substring(0, c)] = l.substring(c + 1).getDoubleValue();} //-1 (no fine data then) is tried again
     }
     const Table t = index();
     std::vector<juce::String> todo;
