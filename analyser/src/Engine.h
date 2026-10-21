@@ -10,6 +10,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <functional>
 #include <map>
+#include <set>
 #include "Capture.h"
 #include "OriginalScorer.h"
 #include "Resampler.h"
@@ -54,6 +55,8 @@ public:
     juce::File folder;
 
     // scanning (any thread)
+    // A file already in the library (same path, size and modification time as when it was added, and complete) is skipped without being opened:
+    // known-files.csv in the library folder remembers path, size, modification time and id. Everything else is hashed, then looked up.
     AnalyseOutcome analyse(const juce::File& audio, std::function<void(double)> progress = {}, std::function<bool()> shouldStop = {});
     // Fills in what later versions added: grades from Meter versions a track has not been scored by yet (replayed from its
     // stored window data, or scanned again from its audio if that version measures differently), and BPM. Uses several cores.
@@ -104,6 +107,16 @@ private:
     juce::File indexFile() const { return folder.getChildFile("index.csv"); }
     juce::File userFile() const { return folder.getChildFile("user.csv"); }
     juce::File columnsFile() const { return folder.getChildFile("columns.json"); }
+    // what is already in the library, kept in memory so a batch does not re-read the CSV files for every file
+    struct DoneCache { int change = -1; std::map<juce::String, bool> extrasCurrent; std::map<juce::String, std::set<juce::String>> gradeIds; } doneCache;
+    struct KnownFile { juce::int64 size = 0, mtime = 0; juce::String id; };
+    std::map<juce::String, KnownFile> known; bool knownLoaded = false;
+    juce::File knownFile() const { return folder.getChildFile("known-files.csv"); }
+    void refreshDoneCache();                       // call with the lock held
+    bool isComplete(const juce::String& id);       // call with the lock held, after refreshDoneCache()
+    void loadKnown();                              // call with the lock held
+    void rememberKnown(const juce::File& audio, const juce::String& id);
+    AnalyseOutcome analyseHashed(const juce::File& audio, std::function<void(double)> progress, std::function<bool()> shouldStop);
     void writeReadme();
     void saveColumns(const std::vector<CustomColumn>& cols);
     void putIndexRow(const juce::StringArray& cells); // add, or replace the row with the same id

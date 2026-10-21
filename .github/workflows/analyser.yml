@@ -111,6 +111,9 @@ jobs:
           CLI=build/meterDARKAnalyserCLI_artefacts/Release/meterDARKAnalyserCLI
           "$CLI" --library testlib t_sine50.wav t_sine2k.wav t_noise.wav t_beat128_Amin.wav | tee cli.txt
           "$CLI" --library testlib t_sine50.wav | tee -a cli.txt
+          test -s testlib/known-files.csv
+          "$CLI" --library testlib t_sine50.wav t_sine2k.wav t_noise.wav t_beat128_Amin.wav | tee -a cli.txt
+          tail -n 1 cli.txt | grep -q "0 added, 4 already there, 0 failed"
           # a 48 kHz file, so the converted-rate files exist for both anchors
           python3 -c "
           import wave, struct, math

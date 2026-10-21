@@ -78,11 +78,18 @@ public:
                 post(0, 0, 0.0, {});
                 continue;
             }
-            if (next == juce::File()) {post(done, total, 0.0, {}); wait(-1); continue;}
+            if (next == juce::File()) {
+                if (skippedRun > 0) {postLog("skipped " + juce::String(skippedRun) + " files already in the library"); skippedRun = 0;}
+                post(done, total, 0.0, {}); wait(-1); continue;
+            }
             const juce::String name = next.getFileName();
             post(done, total, 0.0, name);
             const auto r = lib->analyse(next, [this, name](double p) { post(done, total, p, name); }, [this] { return threadShouldExit(); });
             ++done;
+            if (r.status == mdark::AnalyseOutcome::AlreadyThere) { //skipped files are counted, not listed one by one (thousands of log lines are slow)
+                ++skippedRun; if (skippedRun % 250 == 0) post(done, total, 0.0, "skipping files already in the library");
+                continue;
+            }
             postLog((r.status == mdark::AnalyseOutcome::Added ? "added      " : r.status == mdark::AnalyseOutcome::Updated ? "updated    "
                      : r.status == mdark::AnalyseOutcome::AlreadyThere ? "skipped    " : "NOT ADDED  ") + name + "   (" + r.message + ")");
         }
@@ -98,6 +105,7 @@ private:
     juce::Array<juce::File> queue;
     std::shared_ptr<mdark::Library> library;
     bool needUpgrade = false, needRescan = false;
+    int skippedRun = 0; //files skipped since the queue last ran empty (worker thread only)
     std::atomic<int> done{0}, total{0};
     juce::Component::SafePointer<juce::Component> owner; //the worker lives inside its owner, so a live owner means a live worker
 };

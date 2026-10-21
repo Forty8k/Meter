@@ -439,19 +439,90 @@ bool Library::scanAudio(const juce::File& audio, Capture* cap, std::vector<Lane>
     return true;
 }
 
+void Library::refreshDoneCache()
+{
+    if (doneCache.change == changes.load()) return;
+    doneCache.extrasCurrent.clear(); doneCache.gradeIds.clear();
+    const Table t = index();
+    const double cur = juce::String(kCaptureVersion).getDoubleValue();
+    for (size_t r = 0; r < t.rows.size(); ++r) doneCache.extrasCurrent[t.get(r, "id")] = t.get(r, "capture_version").getDoubleValue() >= cur;
+    for (auto& v : versionIds()) {
+        const Table g = grades(v);
+        auto& ids = doneCache.gradeIds[v];
+        for (size_t r = 0; r < g.rows.size(); ++r) ids.insert(g.get(r, "id"));
+    }
+    doneCache.change = changes.load();
+}
+bool Library::isComplete(const juce::String& id)
+{
+    auto e = doneCache.extrasCurrent.find(id);
+    if (e == doneCache.extrasCurrent.end() || !e->second) return false;
+    for (auto& v : versionIds()) if (doneCache.gradeIds[v].count(id) == 0) return false;
+    return true;
+}
+void Library::loadKnown()
+{
+    if (knownLoaded) return;
+    knownLoaded = true;
+    const juce::File f = knownFile();
+    if (!f.existsAsFile()) return;
+    juce::StringArray lines; lines.addLines(f.loadFileAsString());
+    for (auto& ln : lines) { //path,size,mtime,id (the path is the first field and may hold commas, so the last three are cut off from the right)
+        const int c3 = ln.lastIndexOfChar(','); if (c3 < 1) continue;
+        const int c2 = ln.substring(0, c3).lastIndexOfChar(','); if (c2 < 1) continue;
+        const int c1 = ln.substring(0, c2).lastIndexOfChar(','); if (c1 < 1) continue;
+        KnownFile k; k.size = ln.substring(c1 + 1, c2).getLargeIntValue(); k.mtime = ln.substring(c2 + 1, c3).getLargeIntValue(); k.id = ln.substring(c3 + 1).trim();
+        if (k.id.isNotEmpty()) known[ln.substring(0, c1)] = k;
+    }
+}
+void Library::rememberKnown(const juce::File& audio, const juce::String& id)
+{
+    const juce::ScopedLock sl(lock);
+    loadKnown();
+    KnownFile k; k.size = audio.getSize(); k.mtime = audio.getLastModificationTime().toMilliseconds(); k.id = id;
+    const juce::String path = audio.getFullPathName();
+    auto it = known.find(path);
+    if (it != known.end() && it->second.size == k.size && it->second.mtime == k.mtime && it->second.id == id) return;
+    known[path] = k;
+    juce::FileOutputStream os(knownFile());
+    if (os.openedOk()) { os.setPosition(os.getFile().getSize()); os.writeText(path + "," + juce::String(k.size) + "," + juce::String(k.mtime) + "," + id + "\n", false, false, nullptr); } //newest line wins
+}
+
 AnalyseOutcome Library::analyse(const juce::File& audio, std::function<void(double)> progress, std::function<bool()> shouldStop)
+{
+    {   // the fast way out: the same file as when it was added, and the library already has everything for it
+        const juce::ScopedLock sl(lock);
+        loadKnown();
+        auto it = known.find(audio.getFullPathName());
+        if (it != known.end() && it->second.size == audio.getSize() && it->second.mtime == audio.getLastModificationTime().toMilliseconds()) {
+            refreshDoneCache();
+            if (isComplete(it->second.id)) {
+                AnalyseOutcome out; out.id = it->second.id; out.status = AnalyseOutcome::AlreadyThere; out.message = "already in the library"; return out;
+            }
+        }
+    }
+    AnalyseOutcome out = analyseHashed(audio, progress, shouldStop);
+    if (out.status != AnalyseOutcome::Failed && out.id.isNotEmpty()) rememberKnown(audio, out.id);
+    return out;
+}
+
+AnalyseOutcome Library::analyseHashed(const juce::File& audio, std::function<void(double)> progress, std::function<bool()> shouldStop)
 {
     AnalyseOutcome out;
     const juce::String id = juce::SHA256(audio).toHexString().substring(0, 16); //the same file content always gets the same id
     out.id = id;
     bool replacing = false;
     std::vector<juce::String> missing; //Meter versions this track has no grade from yet
-    for (auto& v : versionIds()) if (grades(v).findRow("id", id) < 0) missing.push_back(v);
+    bool inIndex = false, extrasCurrent = false;
     {
-        Table t = index();
-        const int r = t.findRow("id", id);
-        if (r >= 0) {
-            const bool extrasCurrent = t.get((size_t)r, "capture_version").getDoubleValue() >= juce::String(kCaptureVersion).getDoubleValue();
+        const juce::ScopedLock sl(lock);
+        refreshDoneCache(); //kept in memory: the CSV files are only read again when something in the library changed
+        for (auto& v : versionIds()) if (doneCache.gradeIds[v].count(id) == 0) missing.push_back(v);
+        const auto e = doneCache.extrasCurrent.find(id);
+        if (e != doneCache.extrasCurrent.end()) {inIndex = true; extrasCurrent = e->second;}
+    }
+    {
+        if (inIndex) {
             if (extrasCurrent && missing.empty()) {out.status = AnalyseOutcome::AlreadyThere; out.message = "already in the library"; return out;}
             if (extrasCurrent) { //only the newer Meter versions are missing
                 if (!scanVersions(id, audio, missing, progress, shouldStop)) {out.message = "could not read the audio again"; return out;}
