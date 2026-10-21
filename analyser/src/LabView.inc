@@ -47,6 +47,12 @@ public:
         saveButton.onClick = [this] { saveScoreSettings(); };
         addAndMakeVisible(status);
         status.setColour(juce::Label::textColourId, kDim);
+        addAndMakeVisible(countLabel); countLabel.setColour(juce::Label::textColourId, kDim); countLabel.setJustificationType(juce::Justification::centredRight);
+        addAndMakeVisible(search);
+        search.setTextToShowWhenEmpty("Search name, artist, genre, key ...", kDim);
+        search.setColour(juce::TextEditor::backgroundColourId, kPanel); search.setColour(juce::TextEditor::textColourId, kText); search.setColour(juce::TextEditor::outlineColourId, kPanel);
+        search.setTooltip("Narrows the list below. The LAB still works from the Library's filters; searching changes nothing it calculates.");
+        search.onTextChange = [this] { model.refresh(); };
         addAndMakeVisible(table);
         table.setModel(&model);
         table.setColour(juce::ListBox::backgroundColourId, kBg);
@@ -80,6 +86,8 @@ public:
         auto top = r.removeFromTop(28);
         if (kind == 1) {scoreMode.setBounds(top.removeFromLeft(290)); top.removeFromLeft(6); versionBox.setBounds(top.removeFromLeft(130)); top.removeFromLeft(6); blocksToggle.setBounds(top.removeFromLeft(200)); top.removeFromLeft(16);}
         else {hintsMode.setBounds(top.removeFromLeft(150)); top.removeFromLeft(6); if (kind != 0) scoreMode.setBounds(top.removeFromLeft(210)); top.removeFromLeft(16);}
+        search.setBounds(top.removeFromRight(juce::jlimit(150, 260, getWidth()/4))); top.removeFromRight(8);
+        countLabel.setBounds(top.removeFromRight(110));
         status.setBounds(top);
         r.removeFromTop(8);
         auto left = r.removeFromLeft(400);
@@ -107,7 +115,7 @@ public:
 
 private:
     //---------------------------------------------------------------- data
-    struct Track { juce::String id, file, grade, gradeBonus; double letterValue = 0; std::vector<std::string> names; std::vector<float> core; std::vector<std::string> names2; std::vector<float> core2; double sr = 44100; };
+    struct Track { juce::String id, file, grade, gradeBonus; double letterValue = 0; std::vector<std::string> names; std::vector<float> core; std::vector<std::string> names2; std::vector<float> core2; double sr = 44100; juce::String hay; };
     std::vector<Track> tracks;          //loaded once per library (both the 0.5.5 data for the hints and the newest version's data for scoring)
     const int kind; bool useBlocks = false; juce::TextButton blocksToggle{"Use replay blocks"};
     bool testing = false;
@@ -183,6 +191,7 @@ private:
         pool.addJob([this, sp, lib, lm, fromBlocks] {
             std::vector<Track> t;
             const auto idx = lib->index();
+            const auto users = lib->userValues();
             const auto vids = mdark::Library::versionIds();
             const juce::String newest = kind == 1 ? labVersion : juce::String(mdark::tunableVersionId()); //hintLAB reads the newest version; gradeLAB the one picked in its version box
             //everything the Lab reads is at 96 kHz (as the Library shows it); a track not rescanned yet is read as the file has it
@@ -197,6 +206,12 @@ private:
             }
             for (size_t r = 0; r < idx.rows.size(); ++r) {
                 Track tr; tr.id = idx.get(r, "id"); tr.file = idx.get(r, "file"); tr.sr = idx.get(r, "sample_rate").getDoubleValue();
+                { //what the search box looks in (the same fields as the Full table and the Overview), plus any value of yours
+                    juce::String h = tr.file;
+                    for (const char* k : {"artist", "title", "album", "year", "genre", "bpm_est", "key_est", "source"}) h << " " << idx.get(r, k);
+                    auto uv = users.find(tr.id); if (uv != users.end()) for (auto& kv : uv->second) h << " " << kv.second;
+                    tr.hay = h.toLowerCase();
+                }
                 const int gr = g.findRow("id", tr.id);
                 if (gr >= 0) {tr.grade = g.get((size_t)gr, "grade"); tr.gradeBonus = g.get((size_t)gr, "bonus"); tr.letterValue = g.get((size_t)gr, "letter_value").getDoubleValue();}
                 bool gotBlock = false;
@@ -219,6 +234,7 @@ private:
                     tr.grade = juce::String(lr.get("grade")); tr.letterValue = juce::String(lr.get("letter_value")).getDoubleValue();
                     const int b = juce::String(lr.get("bonus_value")).getIntValue(); tr.gradeBonus = (b >= 1 && b <= 80) ? juce::String(b) : juce::String();
                     tr.sr = juce::String(lr.get("window_rate")).getDoubleValue(); if (tr.sr <= 0) tr.sr = 96000.0;
+                    tr.hay = (tr.file + " " + juce::String(lr.get("artist")) + " " + juce::String(lr.get("title")) + " " + juce::String(lr.get("album")) + " " + juce::String(lr.get("year")) + " " + juce::String(lr.get("genre")) + " " + juce::String(lr.get("source"))).toLowerCase();
                     tr.names = tr.names2; tr.core = tr.core2; t.push_back(std::move(tr));
                 }
             }
@@ -686,8 +702,17 @@ private:
         }
         void refresh() {
             const int n = (int)owner->tracks.size();
-            order.resize((size_t)n);
-            for (int i = 0; i < n; ++i) order[(size_t)i] = i;
+            int selId = -1; { const int sr = owner->table.getSelectedRow(); if (sr >= 0 && sr < (int)order.size()) selId = order[(size_t)sr]; }
+            order.clear();
+            //only the tracks the LAB works from (the Library's filters), narrowed by the search box (view only: it never changes what is calculated)
+            juce::StringArray words; words.addTokens(owner->search.getText().trim().toLowerCase(), " ", "\"");
+            words.removeEmptyStrings();
+            for (int i = 0; i < n; ++i) {
+                if (!owner->inUse((size_t)i)) continue;
+                bool ok = true; for (auto& w : words) if (!owner->tracks[(size_t)i].hay.contains(w)) {ok = false; break;}
+                if (ok) order.push_back(i);
+            }
+            owner->countLabel.setText(words.isEmpty() ? juce::String((int)order.size()) + " tracks" : juce::String((int)order.size()) + " of " + juce::String(owner->usedCount()) + " tracks", juce::dontSendNotification);
             const bool textCol = sortCol == 1 || sortCol == 2 || (mode == 1 && sortCol == 3);
             std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
                 if (sortCol == 2 || (mode == 1 && sortCol == 3)) { //grades by their TEXT (like Finder), ungraded / not yet scored last; ties by name
@@ -700,6 +725,7 @@ private:
                 return fwd ? va < vb : va > vb;
             });
             owner->table.updateContent(); owner->table.repaint();
+            if (selId >= 0) for (size_t k = 0; k < order.size(); ++k) if (order[k] == selId) {owner->table.selectRow((int)k, true, false); break;}
         }
         int getNumRows() override { return (int)order.size(); }
         void paintRowBackground(juce::Graphics& g, int row, int, int, bool sel) override { g.fillAll(sel ? kSelect : (row % 2 ? kRowAlt : kBg)); }
@@ -838,7 +864,8 @@ private:
     void updatePreviewButton() { previewButton.setButtonText(previewOn ? "Preview: on" : "Preview: off"); previewButton.setColour(juce::TextButton::buttonColourId, previewOn ? kSelect : kPanel); }
     juce::TextButton rescoreButton{"Re-score library"}, saveButton{"Save settings..."}, levelTestButton{"Level test"};
     juce::ComboBox percentBox;
-    juce::Label status;
+    juce::Label status, countLabel;
+    juce::TextEditor search;
     juce::TableListBox table;
     std::unique_ptr<juce::FileChooser> chooser;
     juce::TooltipWindow tooltips{this, 600};

@@ -227,3 +227,7 @@ gradeLAB -> meterDARK
   gradeLAB: a Meter version box at the top (0.5.5 / 0.5.6). Every version has its own window data, original grades and settings, and starts from its own original values when you switch.
     Export to meterDARK writes that version's id; a meterDARK built on another version ignores the file. "Use replay blocks" scores from each track's compact replay copy (the 16-bit window data
     inside its lean record) instead of the full stored data; needed for tracks shared with you in packs, the same grades for your own.
+
+  hintLAB and gradeLAB: the results table lists only the tracks the LAB works from (the Library's filters, when "Lab uses filtered tracks" is on). Both have the same search box as the
+    Full table (top right): every word must appear. It only narrows the list you see; it never changes which tracks set the triggers, get scored or ranked. The count shows "N of M tracks".
+  Overview: "Overlay lines" is on by default now (the lines sit inside the small tone / punch / detail bars); the button turns them off.

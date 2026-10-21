@@ -40,7 +40,7 @@ public:
         for (int i = 0; i < 8; ++i) sourceBox.addItem(kSources[i], i + 1);
         sourceBox.setColour(juce::ComboBox::backgroundColourId, kPanel); sourceBox.setColour(juce::ComboBox::textColourId, kText); sourceBox.setColour(juce::ComboBox::outlineColourId, kPanel);
         sourceBox.onChange = [this] { setSourceOfSelected(sourceBox.getText()); };
-        linesButton.setClickingTogglesState(true); linesButton.setToggleState(false, juce::dontSendNotification);
+        linesButton.setClickingTogglesState(true); linesButton.setToggleState(true, juce::dontSendNotification); //on by default: the lines sit inside the small bars
         linesButton.setColour(juce::TextButton::buttonOnColourId, kSelect);
         linesButton.onClick = [this] { repaint(); };
         playButton.onClick = [this] { togglePlay(); };

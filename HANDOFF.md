@@ -9,6 +9,9 @@
 6. gradeLAB version box: make_original_scorer.py now makes a `_tunable` copy of EVERY version; API `createTunableRun(versionId, sr, pe)`, `tunableSettingsUsed(versionId)`. LabView: `labVersion`, `versionBox`, `chooseVersion`; only the newest version has 96 kHz data, an older one is read and graded as each file has it (`rate` in load()). Export writes that version's id.
 Not hand-checked on a real screen: Overview layout (look at tab-library-big.png on ci-shots), hintLAB CHECKS rows layout, gradeLAB switching to 0.5.5 (check its Original grades match the Library's grades for Meter 0.5.5).
 
+## LATEST+: 21 Oct, LAB search round (PLAN-NEXT.md)
+LabView.inc: `Model::refresh` lists only `inUse(i)` tracks narrowed by `search` (view only; `Track::hay` built in `load()`), `countLabel` "N of M tracks", selection kept by track. GlanceView: linesButton on by default. Not hand-checked.
+
 ## EARLIER (19-20 Oct)
 ## LATEST: 20 Oct 2026, steps 1-5 of PLAN-NEXT.md built by Sonnet (read this, then do STEP 6 below)
 All on branch `analyser` (app). The plugin was not touched in this round. Nothing merged into main. CI was used for compile/test; nothing has been run on his Windows machine.
