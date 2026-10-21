@@ -25,29 +25,27 @@ public:
         addAndMakeVisible(settingsView);
         settingsView.setViewedComponent(&settingsPanel, false);
         settingsView.setScrollBarsShown(true, false);
-        for (auto* b : {&fromLibrary, &resetButton, &exportButton, &rescoreButton, &selectedButton, &saveButton, &levelTestButton, &lowEndButton, &previewButton, &gradeExportButton}) {addAndMakeVisible(b); styleButton(*b);}
+        for (auto* b : {&fromLibrary, &resetButton, &exportButton, &rescoreButton, &selectedButton, &saveButton, &levelTestButton, &lowEndButton, &gradeExportButton}) {addAndMakeVisible(b); styleButton(*b);}
         gradeExportButton.onClick = [this] { exportGradeToMeter(); };
         stockGradeButton.onClick = [this] { const bool had = gradeTuningFile().deleteFile() && !gradeTuningFile().existsAsFile(); juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon, "meterDARK back to stock", had ? "The gradeLAB settings file was removed: every meterDARK goes back to Chris's own scoring within a second." : "There was no gradeLAB file: meterDARK already uses Chris's own scoring.", "OK", this); };
         stockGradeButton.setTooltip("Removes the exported gradeLAB settings, so every meterDARK scores exactly as Chris's Meter again.");
         gradeExportButton.setTooltip("Sends these scoring settings to meterDARK (live, within a second). meterDARK then shows gradeLAB in yellow and a * after the grade; click gradeLAB there to switch it off.");
-        previewButton.setTooltip("On: a few seconds after you stop moving a slider, about 150 tracks covering the whole grade range are re-scored, so you see roughly what the change does without waiting for the whole library.");
-        previewButton.onClick = [this] { previewOn = !previewOn; updatePreviewButton(); if (previewOn) previewDue = juce::Time::getMillisecondCounter() + 200; };
         addAndMakeVisible(percentBox);
         percentBox.addItem("10% each side", 10); percentBox.addItem("15% each side", 15); percentBox.addItem("20% each side", 20); percentBox.addItem("25% each side", 25);
         percentBox.setSelectedId(15, juce::dontSendNotification);
         percentBox.setColour(juce::ComboBox::backgroundColourId, kPanel); percentBox.setColour(juce::ComboBox::textColourId, kText); percentBox.setColour(juce::ComboBox::outlineColourId, kPanel);
         fromLibrary.onClick = [this] { setFromLibrary(percentBox.getSelectedId()/100.0); };
-        resetButton.onClick = [this] { if (mode == 0) hints = mdark::HintSettings(); else { score = mdark::ScoreParams(); if (previewOn) previewDue = juce::Time::getMillisecondCounter() + 300; } paintEvery = 1; buildSettings(); recompute(); };
+        resetButton.onClick = [this] { if (mode == 0) hints = mdark::HintSettings(); else score = mdark::ScoreParams(); paintEvery = 1; buildSettings(); recompute(); };
         fromLibrary.setTooltip("Looks at the tracks in the list and sets the triggers (where each hint starts to show) so the chosen share each side of the middle lights up. Then try the sliders.");
         exportButton.setTooltip("Sends these settings to meterDARK (live, within a second) so you hear / see them in your DAW.");
         resetButton.setTooltip("Puts every slider back to the value meterDARK ships with (this does not change meterDARK until you press Export).");
         exportButton.onClick = [this] { exportToMeter(); };
         levelTestButton.onClick = [this] { runLevelTest(); };
         lowEndButton.onClick = [this] { measureLowEnd(); };
-        rescoreButton.onClick = [this] { previewDue = 0; rescore(false); };
-        selectedButton.onClick = [this] { previewDue = 0; rescore(false, true); };
-        selectedButton.setTooltip("Re-scores only the tracks you have selected in the list (click one, Ctrl/Shift-click for several), so you can see in a moment what the settings do to them.");
-        rescoreButton.setTooltip("Re-scores every track the LAB works from (the Library's filters). Takes a minute or so on a big library.");
+        rescoreButton.onClick = [this] { rescore(false); };
+        selectedButton.onClick = [this] { rescore(true); };
+        selectedButton.setTooltip("Re-scores only the tracks you have selected in the list (click one, Ctrl/Shift-click for several), so you can see in a moment what the settings do to them. Press it again while it runs to cancel.");
+        rescoreButton.setTooltip("Re-scores every track the LAB works from (the Library's filters). Takes a minute or so on a big library. Press it again while it runs to cancel.");
         saveButton.onClick = [this] { saveScoreSettings(); };
         addAndMakeVisible(status);
         status.setColour(juce::Label::textColourId, kDim);
@@ -105,7 +103,7 @@ public:
             resetButton.setBounds(b2.removeFromLeft(220));
         } else {
             rescoreButton.setBounds(b1.removeFromLeft(124)); b1.removeFromLeft(6); selectedButton.setBounds(b1.removeFromLeft(140)); b1.removeFromLeft(6); saveButton.setBounds(b1);
-            auto b3 = buttons.removeFromTop(34).withTrimmedTop(4); resetButton.setBounds(b3.removeFromLeft(196)); b3.removeFromLeft(8); previewButton.setBounds(b3);
+            auto b3 = buttons.removeFromTop(34).withTrimmedTop(4); resetButton.setBounds(b3.removeFromLeft(196));
             gradeExportButton.setBounds(b2.removeFromLeft(196)); b2.removeFromLeft(8); stockGradeButton.setBounds(b2);
         }
         left.removeFromBottom(6);
@@ -166,7 +164,7 @@ private:
     void chooseVersion(const juce::String& id) {
         if (id == labVersion || scoring || loading) {versionBox.setSelectedId(versionIdIndex(labVersion), juce::dontSendNotification); return;}
         labVersion = id; score = mdark::ScoreParams(); //each version starts from its own original values
-        loaded = false; previewDue = 0; scoreResults.clear(); labRanks.clear(); origRanks.clear();
+        loaded = false; scoreResults.clear(); labRanks.clear(); origRanks.clear();
         buildSettings(); model.refresh();
         status.setText("Loading Meter " + labVersionName() + " ...", juce::dontSendNotification);
     }
@@ -190,11 +188,13 @@ private:
         if (loading && loadPhase.load() == 1) status.setText("Loading tracks: " + juce::String(loadDone.load()) + " of " + juce::String(loadTotal.load()) + " ...", juce::dontSendNotification);
         else if (loading && loadTotal.load() > 0)
             status.setText("Grading the library in " + juce::String(loadedLevel.mode == 1 ? "normalised" : "mix") + " mode: " + juce::String(loadDone.load()) + " of " + juce::String(loadTotal.load()) + " tracks ...", juce::dontSendNotification);
-        if (mode == 1 && previewDue != 0 && !scoring && !loading && loaded && juce::Time::getMillisecondCounter() >= previewDue) { previewDue = 0; rescore(true); }
         if (scoring) {
-            status.setText(lastWasSelection ? "Re-scoring the selected tracks: " + juce::String(scoreDone.load()) + " of " + juce::String(scoreTotal) + " ..." : lastWasPreview ? "Previewing on a sample: " + juce::String(scoreDone.load()) + " of " + juce::String(scoreTotal) + " tracks ..." : "Re-scoring with the Lab settings: " + juce::String(scoreDone.load()) + " of " + juce::String(scoreTotal) + " tracks ...", juce::dontSendNotification);
-            if (scoreDone.load() >= scoreTotal) {scoring = false; scoreResults = std::move(scoreWork); scoreWork.clear(); finishRescore();
-                if (queuedRescore != 0) { const int q = queuedRescore; queuedRescore = 0; rescore(false, q == 2); } }
+            status.setText((cancelScoring ? juce::String("Cancelling ... ") : juce::String()) + (lastWasSelection ? "Re-scoring the selected tracks: " + juce::String(scoreDone.load()) + " of " + juce::String(scoreTotal) + " ..." : "Re-scoring with the Lab settings: " + juce::String(scoreDone.load()) + " of " + juce::String(scoreTotal) + " tracks ..."), juce::dontSendNotification);
+            if (scoreDone.load() >= scoreTotal) {
+                scoring = false; setScoringButtons(false);
+                if (cancelScoring) { scoreWork.clear(); status.setText("Cancelled. The earlier results are kept.", juce::dontSendNotification); }
+                else {scoreResults = std::move(scoreWork); scoreWork.clear(); finishRescore();}
+            }
         }
     }
 
@@ -526,35 +526,35 @@ private:
         for (size_t k = 0; k < order.size(); ++k) r[order[k]] = (int)k + 1;
         return r;
     }
-    int queuedRescore = 0; //1 = full, 2 = selected: pressed while another scoring was still running; it starts when that one finishes
-    void rescore(bool preview = false, bool selection = false) {
-        if (scoring && !preview) { queuedRescore = selection ? 2 : 1; status.setText("Another scoring is still running; yours starts as soon as it is done ...", juce::dontSendNotification); return; }
+    std::atomic<bool> cancelScoring{false};
+    void setScoringButtons(bool running) {
+        rescoreButton.setButtonText(running && !lastWasSelection ? "Cancel" : "Re-score library");
+        selectedButton.setButtonText(running && lastWasSelection ? "Cancel" : "Re-score selected");
+    }
+    //Nothing is scored until one of the two buttons is pressed. Pressing either one again while it runs cancels it.
+    void rescore(bool selection = false) {
+        if (scoring) { cancelScoring = true; return; }
         if (loading || !loaded) { //the track data is being (re)loaded (after switching replay blocks or the Meter version): scoring now would read data that is about to be replaced
-            if (!preview) status.setText("The tracks are still loading; press it again when the loading has finished.", juce::dontSendNotification);
+            status.setText("The tracks are still loading; press it again when the loading has finished.", juce::dontSendNotification);
             return;
         }
-        if (scoring || tracks.empty()) return;
+        if (tracks.empty()) return;
         std::vector<char> picked;
         if (selection) { //the rows selected in the list
             picked.assign(tracks.size(), 0); int n = 0;
             const auto rows = table.getSelectedRows();
             for (int k = 0; k < rows.size(); ++k) { const int r = rows[k]; if (r >= 0 && r < (int)model.order.size()) { picked[(size_t)model.order[(size_t)r]] = 1; ++n; } }
             if (n == 0) { status.setText("Select some tracks in the list first (click one, Ctrl/Shift-click for several), then press Re-score selected.", juce::dontSendNotification); return; }
-            preview = true;
         }
         lastWasSelection = selection;
         refreshUse(); origRanks = ranks(false);
-        lastWasPreview = preview; sampleMask.assign(tracks.size(), preview ? 0 : 1);
+        sampleMask.assign(tracks.size(), 1);
         if (selection) sampleMask = picked;
-        else if (preview) { //about 150 tracks spread over the whole grade range (every Nth in the Library's own order)
-            std::vector<size_t> ord; for (size_t i = 0; i < tracks.size(); ++i) if (inUse(i)) ord.push_back(i);
-            std::stable_sort(ord.begin(), ord.end(), [&](size_t a, size_t b) { return origRanks[a] < origRanks[b]; });
-            const size_t want = 150, step = ord.size() <= want ? 1 : ord.size()/want;
-            for (size_t k = 0; k < ord.size(); k += step) sampleMask[ord[k]] = 1;
-        }
+        cancelScoring = false;
         scoring = true; scoreDone = 0; scoreTotal = 0; for (size_t i = 0; i < tracks.size(); ++i) scoreTotal += (inUse(i) && sampleMask[i]) ? 1 : 0;
-        scoreResults.assign(tracks.size(), {}); scoreWork.assign(tracks.size(), {});
+        scoreWork.assign(tracks.size(), {});
         if (scoreTotal == 0) {scoring = false; status.setText("No track passes the Library's filters.", juce::dontSendNotification); return;}
+        setScoringButtons(true);
         const mdark::ScoreParams s = score; const int pe = paintEvery; const std::string ver = labVersion.toStdString();
         const mdark::LevelMode lv = getLevel ? getLevel() : mdark::LevelMode();
         for (size_t i = 0; i < tracks.size(); ++i) {
@@ -562,6 +562,7 @@ private:
             pool.addJob([this, i, s, pe, lv, ver] {
                 mdark::scoreParams() = s; //this thread's settings
                 ScoreRow row;
+                if (cancelScoring) { ++scoreDone; return; }
                 {
                     const Track& t = tracks[i];
                     if (!t.core2().empty()) {
@@ -583,21 +584,14 @@ private:
         }
     }
     void finishRescore() {
-        if (lastWasPreview) { //a sample only: say how much it changed and whether the order held, leave the rank columns empty
+        if (lastWasSelection) { //just the tracks you picked: what happened to each (the rank columns stay empty)
             labRanks.clear();
-            const auto o = ranks(false, &sampleMask), l = ranks(true, &sampleMask);
-            int n = 0, changed = 0; double sumD2 = 0;
-            for (size_t i = 0; i < tracks.size(); ++i) if (inUse(i) && sampleMask[i] && scoreResults[i].done) { ++n; changed += scoreResults[i].grade != tracks[i].grade; const double d = o[i] - l[i]; sumD2 += d*d; }
-            const double rho = n > 2 ? 1.0 - 6.0*sumD2/((double)n*((double)n*(double)n - 1.0)) : 1.0;
-            if (lastWasSelection) { //just the tracks you picked: what happened to each
-                juce::String msg = "Selected " + juce::String(n) + " track" + (n == 1 ? "" : "s") + ": " + juce::String(changed) + " grade" + (changed == 1 ? "" : "s") + " changed.";
-                int shown = 0;
-                for (size_t i = 0; i < tracks.size() && shown < 3; ++i) if (inUse(i) && sampleMask[i] && scoreResults[i].done) { msg << "   " << tracks[i].file.upToLastOccurrenceOf(".", false, false).substring(0, 28) << ": " << tracks[i].grade << " -> " << scoreResults[i].grade; ++shown; }
-                status.setText(msg, juce::dontSendNotification); model.refresh(); return;
-            }
-            status.setText("Preview on " + juce::String(n) + " tracks: " + juce::String(changed) + " grades changed, ranking order kept (r = " + juce::String(rho, 2) + "). Press Re-score library for the full result.", juce::dontSendNotification);
-            model.refresh();
-            return;
+            int n = 0, changed = 0;
+            for (size_t i = 0; i < tracks.size(); ++i) if (inUse(i) && sampleMask[i] && scoreResults[i].done) { ++n; changed += scoreResults[i].grade != tracks[i].grade; }
+            juce::String msg = "Selected " + juce::String(n) + " track" + (n == 1 ? "" : "s") + ": " + juce::String(changed) + " grade" + (changed == 1 ? "" : "s") + " changed.";
+            int shown = 0;
+            for (size_t i = 0; i < tracks.size() && shown < 3; ++i) if (inUse(i) && sampleMask[i] && scoreResults[i].done) { msg << "   " << tracks[i].file.upToLastOccurrenceOf(".", false, false).substring(0, 28) << ": " << tracks[i].grade << " -> " << scoreResults[i].grade; ++shown; }
+            status.setText(msg, juce::dontSendNotification); model.refresh(); return;
         }
         labRanks = ranks(true);
         int changed = 0, moved = 0;
@@ -684,7 +678,7 @@ private:
             r->slider.setTooltip(help + "   (double-click: back to " + juce::String(def, dec) + unit + ")");
             r->slider.setColour(juce::Slider::textBoxTextColourId, kText); r->slider.setColour(juce::Slider::textBoxOutlineColourId, kPanel);
             r->slider.setColour(juce::Slider::trackColourId, kAccent.withAlpha(0.6f)); r->slider.setColour(juce::Slider::backgroundColourId, kPanel);
-            r->slider.onValueChange = [this, set, s = &r->slider] { set(s->getValue()); if (mode == 0) startTimer(120), pendingRecompute = true; else if (previewOn) previewDue = juce::Time::getMillisecondCounter() + 450; };
+            r->slider.onValueChange = [this, set, s = &r->slider] { set(s->getValue()); if (mode == 0) startTimer(120), pendingRecompute = true; };
             settingsPanel.addAndMakeVisible(r->name); settingsPanel.addAndMakeVisible(r->slider);
         };
         if (mode == 0) {
@@ -751,14 +745,13 @@ private:
         mode = m;
         for (auto* b : {&fromLibrary, &exportButton}) b->setVisible(m == 0);
         percentBox.setVisible(m == 0);
-        for (auto* b : {&rescoreButton, &selectedButton, &saveButton, &previewButton, &gradeExportButton, &stockGradeButton}) b->setVisible(m == 1);
+        for (auto* b : {&rescoreButton, &selectedButton, &saveButton, &gradeExportButton, &stockGradeButton}) b->setVisible(m == 1);
         resetButton.setButtonText(m == 0 ? "Back to meterDARK's values" : "Back to the original");
-        updatePreviewButton();
         buildSettings();
         model.setColumns(m);
         resized();
         if (m == 0) recompute();
-        else status.setText(scoreResults.empty() || !scoreResults[0].done ? juce::String("Move the settings: a preview on about 150 tracks follows within seconds. Press Re-score library for the full, exact result (a minute or so). The Library tab's real grades never change.")
+        else status.setText(scoreResults.empty() || !scoreResults[0].done ? juce::String("Move the settings: nothing is scored until you press Re-score selected (click tracks in the list first) or Re-score library (a minute or so); press either again to cancel. The Library tab's real grades never change.")
                                                                            : status.getText(), juce::dontSendNotification);
     }
 
@@ -974,10 +967,9 @@ private:
     juce::TextButton hintsMode{"meterDARK hints"}, scoreMode{"Original scoring (experiment)"};
     juce::TextButton lowEndButton{"Measure low end"};
     juce::TextButton fromLibrary{"Set triggers from the library"}, resetButton{"Back to meterDARK's values"}, exportButton{"Export to meterDARK"};
-    bool previewOn = true; juce::uint32 previewDue = 0; bool lastWasPreview = false, lastWasSelection = false; std::vector<char> sampleMask;
+    bool lastWasSelection = false; std::vector<char> sampleMask;
     std::vector<ScoreRow> scoreWork; //the workers write here (never the table's data); the results move to scoreResults when all are done, so the table never reads what a worker is writing
-    juce::TextButton previewButton{"Preview: on"}, gradeExportButton{"Export to meterDARK"}, stockGradeButton{"meterDARK back to stock"};
-    void updatePreviewButton() { previewButton.setButtonText(previewOn ? "Preview: on" : "Preview: off"); previewButton.setColour(juce::TextButton::buttonColourId, previewOn ? kSelect : kPanel); }
+    juce::TextButton gradeExportButton{"Export to meterDARK"}, stockGradeButton{"meterDARK back to stock"};
     juce::TextButton rescoreButton{"Re-score library"}, selectedButton{"Re-score selected"}, saveButton{"Save settings..."}, levelTestButton{"Level test"};
     juce::ComboBox percentBox;
     juce::Label status, countLabel;

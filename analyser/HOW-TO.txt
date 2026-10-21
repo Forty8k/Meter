@@ -202,9 +202,9 @@ Full table additions
     Only your own edits are written, never the audio files. tagfill-log.csv lists every value; "Undo last fill" removes exactly those values again.
     Command line: --fill-tags [--folders-only] [--discogs-token T]; --tagfill-test checks the rules and parsers on sample data.
 
-gradeLAB Preview
-  "Preview: on" (default): a moment after you stop moving a slider, about 150 tracks spread over the whole grade range are re-scored and the status says how many
-    grades changed and how well the ranking order held (r = 1.00 means the same order). Only the sample shows new grades. "Re-score library" is still the full, exact run.
+gradeLAB scoring
+  Moving a setting scores nothing. Press "Re-score selected" (click tracks in the list first; Ctrl/Shift-click for several) or "Re-score library" to see the result.
+  Press the same button again while it runs ("Cancel") to stop it; the earlier results stay. The Preview button is gone.
 
 gradeLAB -> meterDARK
   "Export to meterDARK" (gradeLAB tab) writes the scoring settings to meterDARK's settings folder (grade-tuning.xml). Every meterDARK built on the same original
