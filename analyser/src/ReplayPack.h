@@ -57,6 +57,7 @@ inline bool unpackWindows(const std::vector<uint8_t>& in, std::vector<std::strin
     const int bits = *p++;
     uint64_t nc, nw;
     if (!rpGetVar(p, e, nc) || !rpGetVar(p, e, nw)) return false;
+    if (nc == 0 || nc > 256 || nw > 20000000ull / nc) return false; //a damaged or foreign block must not ask for absurd memory
     names.assign((size_t)nc, {}); std::vector<float> vmax((size_t)nc);
     for (size_t c = 0; c < nc; ++c) {
         uint64_t len; if (!rpGetVar(p, e, len) || p + len + 4 > e) return false;

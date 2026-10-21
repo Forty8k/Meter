@@ -231,3 +231,5 @@ gradeLAB -> meterDARK
   hintLAB and gradeLAB: the results table lists only the tracks the LAB works from (the Library's filters, when "Lab uses filtered tracks" is on). Both have the same search box as the
     Full table (top right): every word must appear. It only narrows the list you see; it never changes which tracks set the triggers, get scored or ranked. The count shows "N of M tracks".
   Overview: "Overlay lines" is on by default now (the lines sit inside the small tone / punch / detail bars); the button turns them off.
+  gradeLAB "Re-score selected": click one track in the list (Ctrl/Shift-click for several) and press it to re-score only those with the current settings; the status line shows each track's old and new grade.
+    (Fixed: re-scoring could crash the app. Results were written while the table was reading them, and a re-score started while the tracks were still reloading after switching "Use replay blocks".)

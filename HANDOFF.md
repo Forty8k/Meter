@@ -12,6 +12,9 @@ Not hand-checked on a real screen: Overview layout (look at tab-library-big.png 
 ## LATEST+: 21 Oct, LAB search round (PLAN-NEXT.md)
 LabView.inc: `Model::refresh` lists only `inUse(i)` tracks narrowed by `search` (view only; `Track::hay` built in `load()`), `countLabel` "N of M tracks", selection kept by track. GlanceView: linesButton on by default. Not hand-checked.
 
+## LATEST++: 21 Oct, gradeLAB crash fix + "Re-score selected"
+Crash causes fixed in LabView.inc: (1) workers wrote `scoreResults[i]` while the table read it (juce::String race) -> now `scoreWork`, moved to `scoreResults` when all done; (2) `rescore()` could start while `load()` was running (blocksToggle sets loaded=false), then `tracks` was replaced under the jobs -> refused while loading; (3) try/catch around each job, sanity limits in unpackWindows. Pressing Re-score while another scoring runs is queued (`queuedRescore`). New `selectedButton` ("Re-score selected", `rescore(false, true)`), table multi-select on, selection kept across refresh. Not reproduced (no GUI here): confirm by hand.
+
 ## EARLIER (19-20 Oct)
 ## LATEST: 20 Oct 2026, steps 1-5 of PLAN-NEXT.md built by Sonnet (read this, then do STEP 6 below)
 All on branch `analyser` (app). The plugin was not touched in this round. Nothing merged into main. CI was used for compile/test; nothing has been run on his Windows machine.
