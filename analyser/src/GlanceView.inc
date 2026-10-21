@@ -6,7 +6,7 @@
 
 class GlanceView : public juce::Component, public juce::TableListBoxModel, private juce::Timer, private juce::TableHeaderComponent::Listener {
 public:
-    struct Item { juce::String id, name, grade, path, song, source; juce::String bpm, musicalKey; double key = 0, dur = 0, sr = 0; int group = -1, groupSize = 1; bool best = false, shared = false; mdark::LeanRecord rec; };
+    struct Item { juce::String id, name, grade, path, song, source, hay; juce::String bpm, musicalKey; double key = 0, dur = 0, sr = 0; int group = -1, groupSize = 1; bool best = false, shared = false; mdark::LeanRecord rec; };
     std::function<std::shared_ptr<mdark::Library>()> getLibrary;
     std::function<std::shared_ptr<const std::set<juce::String>>()> getAllowed;
     std::function<int()> getFilterGen;
@@ -47,6 +47,12 @@ public:
         buildButton.onClick = [this] { buildRecords(); };
         addAndMakeVisible(status);
         status.setColour(juce::Label::textColourId, kDim);
+        addAndMakeVisible(search);
+        search.setTextToShowWhenEmpty("Search name, artist, genre, key ...", kDim);
+        search.setColour(juce::TextEditor::backgroundColourId, kPanel);
+        search.setColour(juce::TextEditor::textColourId, kText);
+        search.setColour(juce::TextEditor::outlineColourId, kPanel);
+        search.onTextChange = [this] { resort(); repaint(); };
         startTimer(80);
     }
     ~GlanceView() override {
@@ -74,7 +80,9 @@ public:
         compareButton.setBounds(bar.removeFromLeft(130)); bar.removeFromLeft(6);
         sourceBox.setBounds(bar.removeFromLeft(130)); bar.removeFromLeft(6);
         shareButton.setBounds(bar.removeFromLeft(120)); bar.removeFromLeft(10);
-        status.setBounds(bar.withTrimmedRight(146));
+        bar.removeFromRight(146); //the Library tab's toggle button sits over the top-right corner
+        search.setBounds(bar.removeFromRight(juce::jlimit(150, 260, bar.getWidth()/3))); bar.removeFromRight(8);
+        status.setBounds(bar);
         const int topH = juce::jmax(372, (int)(r.getHeight()*(r.getHeight() > 900 ? 0.58f : 0.44f)));
         topArea = r.removeFromTop(topH);
         table.setBounds(r);
@@ -413,6 +421,7 @@ private:
         table.repaint(); repaint();
     }
     juce::Label status;
+    juce::TextEditor search;
     juce::ThreadPool pool{1};
     std::atomic<int> buildDone{0}, buildTotal{0};
 
@@ -455,8 +464,14 @@ private:
 
     //---------------------------------------------------------------- data
     void resort() {
-        order.resize(items.size());
-        for (size_t i = 0; i < items.size(); ++i) order[i] = i;
+        order.clear();
+        juce::StringArray words; words.addTokens(search.getText().trim().toLowerCase(), " ", "\"");
+        words.removeEmptyStrings();
+        for (size_t i = 0; i < items.size(); ++i) { //the search box: every word must appear (the same rule as the Full table's)
+            bool ok = true; for (auto& w : words) if (!items[i].hay.contains(w)) {ok = false; break;}
+            if (ok) order.push_back(i);
+        }
+        status.setText(words.isEmpty() ? juce::String((int)items.size()) + " tracks" : juce::String((int)order.size()) + " of " + juce::String((int)items.size()) + " tracks", juce::dontSendNotification);
         std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
             if (sortCol == 1) { const int c = items[a].name.compareNatural(items[b].name); return sortFwd ? c < 0 : c > 0; }
             if (sortCol >= 4) {
@@ -520,6 +535,13 @@ private:
             it.source = juce::String(it.rec.get("source"));
             it.dur = juce::String(it.rec.get("length_s")).getDoubleValue(); it.sr = juce::String(it.rec.get("sample_rate")).getDoubleValue();
             it.song = songKey(artist, title, idx.get(r, "file"));
+            { //what the search box looks in: name, file, artist, title, album, year, genre, BPM, key, source, and any value of yours
+                juce::String h = it.name + " " + idx.get(r, "file");
+                for (const char* k : {"artist", "title", "album", "year", "genre"}) h << " " << juce::String(it.rec.get(k)) << " " << idx.get(r, k);
+                h << " " << it.bpm << " " << it.musicalKey << " " << it.source;
+                auto uv = users.find(id); if (uv != users.end()) for (auto& kv : uv->second) h << " " << kv.second;
+                it.hay = h.toLowerCase();
+            }
             out.push_back(std::move(it));
         }
         if (!allowed) { //records other people shared with you (lean-shared): shown too, marked as shared. Not when the Library's filters are in use, since they can only judge your own tracks.
@@ -536,6 +558,7 @@ private:
                 it.source = juce::String(it.rec.get("source"));
                 it.dur = juce::String(it.rec.get("length_s")).getDoubleValue(); it.sr = juce::String(it.rec.get("sample_rate")).getDoubleValue();
                 it.song = songKey(artist, title, {});
+                it.hay = (it.name + " " + juce::String(it.rec.get("artist")) + " " + juce::String(it.rec.get("title")) + " " + juce::String(it.rec.get("album")) + " " + juce::String(it.rec.get("year")) + " " + juce::String(it.rec.get("genre")) + " " + it.source).toLowerCase();
                 out.push_back(std::move(it));
             }
         }
