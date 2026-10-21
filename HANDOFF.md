@@ -12,6 +12,12 @@ Not hand-checked on a real screen: Overview layout (look at tab-library-big.png 
 ## LATEST+: 21 Oct, LAB search round (PLAN-NEXT.md)
 LabView.inc: `Model::refresh` lists only `inUse(i)` tracks narrowed by `search` (view only; `Track::hay` built in `load()`), `countLabel` "N of M tracks", selection kept by track. GlanceView: linesButton on by default. Not hand-checked.
 
+## LATEST+++: 21 Oct, the TRACK STORE (PLAN-NEXT.md, steps 1-4 and 6; step 5 not needed unless the LAB line "Loaded N tracks in X s" is slow, > ~20 s)
+- `analyser/src/TrackStore.{h,cpp}`: the library in memory, built once per launch (MainComponent::setFolder creates it BEFORE the worker starts). Library reports each change as a `ChangeNote` (Engine.h `onChange`); the store applies it to that track only and logs a `StoreChange`. Views poll `store->seq()` and `changesSince()` (false = log too old, rebuild from memory).
+- Full table (`LibraryView`), Overview (`GlanceView.inc`: makeItem/gather/applyChanges) and both LABs (`LabView.inc`: makeTracks/load/applyChanges/removeTrack) read from it; `changeCount` polling is gone from the tabs. Window data lives in the store (`windows`/`loadWindows`, kept per version|rate|blocks); LabView `Track` only points at it.
+- LAB: first load only blocks scoring ("Loading tracks: N of M"); later new/changed tracks arrive ≤25 per tick while not scoring; a removal erases the row and the parallel vectors. Level mode (normalised/mix): new tracks appended later get the plain grade until the next full load.
+- CLI test: `--store-test` (CI greps "Track store checks: all passed"). Not yet hand-checked by the user: endless "still loading" gone, editing a value does not reload the LABs, adding tracks keeps LAB results.
+
 ## LATEST++: 21 Oct, gradeLAB crash fix + "Re-score selected"
 Crash causes fixed in LabView.inc: (1) workers wrote `scoreResults[i]` while the table read it (juce::String race) -> now `scoreWork`, moved to `scoreResults` when all done; (2) `rescore()` could start while `load()` was running (blocksToggle sets loaded=false), then `tracks` was replaced under the jobs -> refused while loading; (3) try/catch around each job, sanity limits in unpackWindows. Pressing Re-score while another scoring runs is queued (`queuedRescore`). New `selectedButton` ("Re-score selected", `rescore(false, true)`), table multi-select on, selection kept across refresh. Not reproduced (no GUI here): confirm by hand.
 

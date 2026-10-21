@@ -233,3 +233,7 @@ gradeLAB -> meterDARK
   Overview: "Overlay lines" is on by default now (the lines sit inside the small tone / punch / detail bars); the button turns them off.
   gradeLAB "Re-score selected": click one track in the list (Ctrl/Shift-click for several) and press it to re-score only those with the current settings; the status line shows each track's old and new grade.
     (Fixed: re-scoring could crash the app. Results were written while the table was reading them, and a re-score started while the tracks were still reloading after switching "Use replay blocks".)
+  The track store (21 Oct): the library is read from disk ONCE when the Analyser opens it and kept in memory. The Full table, the Overview, hintLAB and gradeLAB all read from that one copy.
+    Changing one track (a name, a genre, a fill from tags) or adding tracks updates only those tracks everywhere; nothing is rebuilt. The LABs no longer show "still loading" after the first load:
+    new tracks are put in a few at a time, and the Library's real grades are never touched. After the first load the LAB status line shows "Loaded N tracks in X s".
+    The library FOLDER stays the only real record; the store is just its working copy in memory.
