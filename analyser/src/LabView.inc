@@ -58,8 +58,15 @@ public:
         model.owner = this; dist.owner = this; scatter.owner = this;
         addAndMakeVisible(blocksToggle); styleButton(blocksToggle);
         blocksToggle.setClickingTogglesState(true); blocksToggle.setColour(juce::TextButton::buttonOnColourId, kSelect);
-        blocksToggle.setTooltip("Regrade from each track's lean record (its packed replay block) instead of the stored window data. This is what a shared pack gives you.");
+        blocksToggle.setTooltip("Score from each track's compact replay copy (the 16-bit window data inside its lean record) instead of the full stored window data. Needed for tracks shared with you in packs; for your own tracks it gives the same grades.");
         blocksToggle.onClick = [this] { useBlocks = blocksToggle.getToggleState(); loaded = false; };
+        addAndMakeVisible(versionBox);
+        {   int k = 1; for (auto& mv : mdark::meterVersions()) versionBox.addItem("Meter " + juce::String(mv.version), k++);
+            versionBox.setSelectedId(versionIdIndex(labVersion), juce::dontSendNotification);
+            versionBox.setColour(juce::ComboBox::backgroundColourId, kPanel); versionBox.setColour(juce::ComboBox::textColourId, kText); versionBox.setColour(juce::ComboBox::outlineColourId, kPanel);
+            versionBox.setTooltip("Which of Chris's Meter versions to experiment on. Each has its own window data, original grades and settings (0.5.5 gives fewer #1 grades than 0.5.6). Switching reloads the tracks and puts the sliders back to that version's original values.");
+            versionBox.onChange = [this] { const int i = versionBox.getSelectedId() - 1; const auto& v = mdark::meterVersions(); if (i >= 0 && i < (int)v.size()) chooseVersion(juce::String(v[(size_t)i].id)); };
+            versionBox.setVisible(kind == 1); }
         if (kind == 0) {scoreMode.setVisible(false); blocksToggle.setVisible(false); hintsMode.setButtonText("hintLAB");}
         if (kind == 1) {hintsMode.setVisible(false); scoreMode.setButtonText("gradeLAB: original scoring (experiment)");}
         buildSettings();
@@ -71,7 +78,7 @@ public:
     void resized() override {
         auto r = getLocalBounds().reduced(12);
         auto top = r.removeFromTop(28);
-        if (kind == 1) {scoreMode.setBounds(top.removeFromLeft(290)); top.removeFromLeft(6); blocksToggle.setBounds(top.removeFromLeft(200)); top.removeFromLeft(16);}
+        if (kind == 1) {scoreMode.setBounds(top.removeFromLeft(290)); top.removeFromLeft(6); versionBox.setBounds(top.removeFromLeft(130)); top.removeFromLeft(6); blocksToggle.setBounds(top.removeFromLeft(200)); top.removeFromLeft(16);}
         else {hintsMode.setBounds(top.removeFromLeft(150)); top.removeFromLeft(6); if (kind != 0) scoreMode.setBounds(top.removeFromLeft(210)); top.removeFromLeft(16);}
         status.setBounds(top);
         r.removeFromTop(8);
@@ -129,6 +136,18 @@ private:
 
     mdark::HintSettings hints;
     mdark::ScoreParams score;
+    //gradeLAB: which original Meter version is being experimented on (its own window data, original grades and settings)
+    juce::String labVersion = juce::String(mdark::tunableVersionId());
+    juce::String labVersionName() const { const auto* mv = mdark::findMeterVersion(labVersion.toStdString()); return mv ? juce::String(mv->version) : labVersion; }
+    juce::ComboBox versionBox;
+    void chooseVersion(const juce::String& id) {
+        if (id == labVersion || scoring || loading) {versionBox.setSelectedId(versionIdIndex(labVersion), juce::dontSendNotification); return;}
+        labVersion = id; score = mdark::ScoreParams(); //each version starts from its own original values
+        loaded = false; previewDue = 0; scoreResults.clear(); labRanks.clear(); origRanks.clear();
+        buildSettings(); model.refresh();
+        status.setText("Loading Meter " + labVersionName() + " ...", juce::dontSendNotification);
+    }
+    static int versionIdIndex(const juce::String& id) { int k = 1; for (auto& mv : mdark::meterVersions()) {if (juce::String(mv.id) == id) return k; ++k;} return 1; }
     int paintEvery = 1;
     int mode = 0;
 
@@ -165,10 +184,12 @@ private:
             std::vector<Track> t;
             const auto idx = lib->index();
             const auto vids = mdark::Library::versionIds();
-            const juce::String newest = juce::String(mdark::tunableVersionId());
+            const juce::String newest = kind == 1 ? labVersion : juce::String(mdark::tunableVersionId()); //hintLAB reads the newest version; gradeLAB the one picked in its version box
             //everything the Lab reads is at 96 kHz (as the Library shows it); a track not rescanned yet is read as the file has it
-            auto g = lm.mode == 0 ? lib->grades(newest, 96000)
-                                  : lib->levelGrades(newest, 96000, lm, true, [&] {return sp == nullptr;}, [&](int d, int n) {loadDone = d; loadTotal = n;});
+            //only the newest version is also stored at the converted 96 kHz; an older one is read and graded as each file has it
+            const int rate = newest == juce::String(mdark::tunableVersionId()) ? 96000 : 0;
+            auto g = lm.mode == 0 ? lib->grades(newest, rate)
+                                  : lib->levelGrades(newest, rate, lm, true, [&] {return sp == nullptr;}, [&](int d, int n) {loadDone = d; loadTotal = n;});
             {
                 const auto nat = lib->grades(newest);
                 if (g.header.isEmpty()) g = nat;
@@ -184,8 +205,8 @@ private:
                     if (lib->readLean(tr.id, lr) && mdark::unpackWindows(lr.replay, tr.names2, tr.core2)) {gotBlock = true; tr.sr = juce::String(lr.get("window_rate")).getDoubleValue(); if (tr.sr <= 0) tr.sr = 96000.0;}
                 }
                 if (gotBlock) {}
-                else if (!lib->readCoreAt(tr.id, newest, 96000, tr.names2, tr.core2)) lib->readCore(tr.id, newest, tr.names2, tr.core2); //the newest version's windows at 96 kHz
-                else tr.sr = 96000.0;
+                else if (!lib->readCoreAt(tr.id, newest, rate, tr.names2, tr.core2)) lib->readCore(tr.id, newest, tr.names2, tr.core2); //the chosen version's windows (the newest at 96 kHz)
+                else if (rate > 0) tr.sr = (double)rate;
                 tr.names = tr.names2; tr.core = tr.core2; //the hints read the same windows (they only need peak, slew and zero)
                 if (tr.core.empty()) lib->readCore(tr.id, vids.front(), tr.names, tr.core);
                 if (!tr.core.empty() || !tr.core2.empty()) t.push_back(std::move(tr));
@@ -415,11 +436,11 @@ private:
         scoring = true; scoreDone = 0; scoreTotal = 0; for (size_t i = 0; i < tracks.size(); ++i) scoreTotal += (inUse(i) && sampleMask[i]) ? 1 : 0;
         scoreResults.assign(tracks.size(), {});
         if (scoreTotal == 0) {scoring = false; status.setText("No track passes the Library's filters.", juce::dontSendNotification); return;}
-        const mdark::ScoreParams s = score; const int pe = paintEvery;
+        const mdark::ScoreParams s = score; const int pe = paintEvery; const std::string ver = labVersion.toStdString();
         const mdark::LevelMode lv = getLevel ? getLevel() : mdark::LevelMode();
         for (size_t i = 0; i < tracks.size(); ++i) {
             if (!inUse(i) || !sampleMask[i]) continue;
-            pool.addJob([this, i, s, pe, lv] {
+            pool.addJob([this, i, s, pe, lv, ver] {
                 mdark::scoreParams() = s; //this thread's settings
                 ScoreRow row;
                 {
@@ -428,7 +449,7 @@ private:
                         std::vector<float> scaled; const std::vector<float>* src = &t.core2; //the level mode's gain on the stored windows
                         if (lv.mode == 1) {scaled = mdark::scaleWindows(t.names2, t.core2, lv.asLufs - lv.inLufs); src = &scaled;}
                         else if (lv.mode == 2) {scaled = mdark::scaleWindowsEach(t.names2, t.core2, mdark::mixWindowGains(t.names2, t.core2, t.sr)); src = &scaled;}
-                        auto run = mdark::createTunableRun(t.sr, pe);
+                        auto run = mdark::createTunableRun(ver, t.sr, pe);
                         for (size_t w = 0; w + t.names2.size() <= src->size(); w += t.names2.size()) run->feedWindow(t.names2, &(*src)[w]);
                         const auto res = run->result();
                         row.grade = juce::String(res.grade) + lv.suffix(); row.bonus = juce::String(res.bonus); row.letterValue = res.letterValue;
@@ -454,7 +475,7 @@ private:
         labRanks = ranks(true);
         int changed = 0, moved = 0;
         for (size_t i = 0; i < tracks.size(); ++i) if (inUse(i)) {changed += scoreResults[i].grade != tracks[i].grade; moved += labRanks[i] != origRanks[i];}
-        status.setText("Lab scoring (Meter " + juce::String(mdark::findMeterVersion(mdark::tunableVersionId())->version) + "):  " + juce::String(changed) + " of "
+        status.setText("Lab scoring (Meter " + labVersionName() + "):  " + juce::String(changed) + " of "
                        + juce::String(usedCount()) + " grades changed,  " + juce::String(moved) + " tracks moved in the ranking.", juce::dontSendNotification);
         model.refresh();
     }
@@ -465,9 +486,9 @@ private:
         const mdark::ScoreParams defaults;
         juce::XmlElement x("metergradetuning");
         x.setAttribute("ver", 1);
-        x.setAttribute("meterVersion", juce::String(mdark::tunableVersionId()));
+        x.setAttribute("meterVersion", labVersion);
         juce::StringArray changed, notInPlugin;
-        const auto& used = mdark::tunableSettingsUsed();
+        const auto& used = mdark::tunableSettingsUsed(labVersion.toStdString());
         for (auto& p : mdark::scoreParamInfo()) {
             const juce::String key(p.key);
             if (std::find(used.begin(), used.end(), std::string(p.key)) == used.end() && key != "width") continue;
@@ -483,7 +504,7 @@ private:
         juce::String msg;
         if (!ok) msg = "Could not write " + gradeTuningFile().getFullPathName();
         else {
-            const juce::String ver(mdark::findMeterVersion(mdark::tunableVersionId())->version);
+            const juce::String ver = labVersionName();
             if (changed.isEmpty()) msg << "Every setting is Chris's original value, so meterDARK scores exactly as before (no gradeLAB marker).\n";
             else { msg << juce::String(changed.size()) << " setting" << (changed.size() == 1 ? "" : "s") << " differ from Chris's Meter " << ver << ":\n"; for (auto& c : changed) msg << "   " << c << "\n"; }
             msg << "\nEvery meterDARK built on Meter " << ver << " picks this up within a second, even while open: the grade and tone colours come from these settings, "
@@ -500,7 +521,7 @@ private:
             const auto f = fc.getResult();
             if (f == juce::File()) return;
             auto* o = new juce::DynamicObject();
-            o->setProperty("meter_version", juce::String(mdark::tunableVersionId()));
+            o->setProperty("meter_version", labVersion);
             for (auto& p : mdark::scoreParamInfo()) o->setProperty(p.key, score.*(p.member));
             o->setProperty("redraws_per_window", paintEvery);
             f.replaceWithText(juce::JSON::toString(juce::var(o)));
@@ -574,8 +595,8 @@ private:
                 addCheck(lowEndButton, "checks the tone reading follows the real amount of low end in each track. Reads each track's stored fine data (not the audio files); the first run is slow, then it is cached.");
             }
         } else {
-            addHeader("ORIGINAL METER " + juce::String(mdark::findMeterVersion(mdark::tunableVersionId())->version) + " SCORING (experiment)");
-            const auto& used = mdark::tunableSettingsUsed();
+            addHeader("ORIGINAL METER " + labVersionName() + " SCORING (experiment)");
+            const auto& used = mdark::tunableSettingsUsed(labVersion.toStdString());
             const mdark::ScoreParams defaults;
             for (auto& p : mdark::scoreParamInfo()) {
                 if (juce::String(p.key) != "width" && std::find(used.begin(), used.end(), std::string(p.key)) == used.end()) continue;

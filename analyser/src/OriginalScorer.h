@@ -65,9 +65,10 @@ struct ScoreParams {
     double detailDecay = 0.0, fillGate = 0.0; // meterDARK's Detail settings (0 = the original): hot slew bins empty faster / lone hot hits count less
 };
 ScoreParams& scoreParams();                                   // this thread's settings
-const std::string& tunableVersionId();
-const std::vector<std::string>& tunableSettingsUsed();        // the settings this version's code actually has
-std::unique_ptr<MeterRun> createTunableRun(double sampleRate, int paintEvery);
+const std::string& tunableVersionId();                        // the newest version (gradeLAB's default)
+const std::vector<std::string>& tunableSettingsUsed(const std::string& versionId = std::string()); // the settings that version's code actually has ("" = the newest)
+std::unique_ptr<MeterRun> createTunableRun(const std::string& versionId, double sampleRate, int paintEvery); // every Meter version has a tunable copy
+inline std::unique_ptr<MeterRun> createTunableRun(double sampleRate, int paintEvery) { return createTunableRun(tunableVersionId(), sampleRate, paintEvery); }
 const MeterVersion* findMeterVersion(const std::string& id);
 
 } // namespace mdark
