@@ -4,6 +4,14 @@ Owner: Forty8k (Windows, works at 48 kHz, listens via Tidal at -14 LUFS). Librar
 (E:\Media\Reference Mixes / D:\AUDIO\REF Mixes). Explain things plainly, keep his own label words, no builds without his go,
 never merge into `main`, never hand-edit generated files.
 
+## LATEST: 22 Oct 2026, Meter 0.5.7 (Opus)
+- chris/0.5.7-e0faab5 added, generator run: Current.h on 0.5.7 with `constexpr int kChrisVersion = 507`. VERSION 0.5.7.
+- 0.5.7 thins Chris's slew (detail) black line when his beam is above 186 and drops it to nothing above 198 (that part of the score counts less). meterDARK's
+  own drawing (AirwindowsUI.cpp, `brightCut`) keeps the line at its full 0.5.6 body and blends it to the clip yellow by how much his rule cuts it (fully
+  yellow above 198), using his unscaled beam so the zoom does not move it. Scoring is his code, untouched. Light mode draws as before.
+- 0.5.7 directions only show without a bonus number; meterDARK does not draw directions, nothing to do.
+- Not checked on a real screen yet.
+
 ## Repo (GitHub Forty8k/Meter, fork of Airwindows Meter)
 - `meterdark` = the meterDARK plugin. CI "Pamplejuce": Windows + Linux must pass (macOS always fails on signing, ignore).
 - `analyser` = the Analyser app in `analyser/`. CI "meterDARK Analyser": build, selftest, level test, replay test,
@@ -15,7 +23,7 @@ never merge into `main`, never hand-edit generated files.
 - Every new setting: 0 / off = stock Chris, except the 96 kHz rate which is on by default (his choice).
 
 ## meterDARK (plugin) - what it is now
-- Skin over Chris's Meter 0.5.6 (0.5.5 also kept): dark mode with correct colours (including 0.5.6's new lines),
+- Skin over Chris's Meter 0.5.7 (0.5.5 and 0.5.6 also kept; `python3 tools/make_chris_layer.py <id>` picks another): dark mode with correct colours (including 0.5.6's new lines),
   per-meter tone bars with coloured playheads, legend on the main tone bar, display-only peak and slew trims (0 to -24 dB, never touch scoring).
 - Fixed: grades depended on window size -> scoring always runs at the default 1058x698 meter area, off screen.
 - Fixed: identical audio at different sample rates graded differently (Chris's slew = sample step x rate, peak = highest sample).
