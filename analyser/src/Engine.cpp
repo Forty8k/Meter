@@ -1233,9 +1233,10 @@ int Library::upgradeOldRows(std::function<bool()> shouldStop, std::function<void
     }
     if (jobs.empty()) return 0;
     //grade rows are collected and written a few hundred at a time (each grades file is read and written once per batch, not once per track)
-    juce::CriticalSection pendLock; std::map<std::pair<juce::String, int>, std::vector<std::pair<juce::String, OriginalResult>>> pending; size_t pendingCount = 0;
+    using Pending = std::map<std::pair<juce::String, int>, std::vector<std::pair<juce::String, OriginalResult>>>;
+    juce::CriticalSection pendLock; Pending pending; size_t pendingCount = 0;
     auto flush = [&](bool all) {
-        decltype(pending) out;
+        Pending out;
         { const juce::ScopedLock pl(pendLock); if (!all && pendingCount < 300) return; out.swap(pending); pendingCount = 0; }
         for (auto& kv : out) putGradeRows(kv.first.first, kv.first.second, kv.second);
     };
