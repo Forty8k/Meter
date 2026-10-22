@@ -31,7 +31,7 @@ void TrackStore::loadAll()
     const juce::ScopedLock sl(lock);
     indexT = std::move(idx); rebuildRowOf();
     user = std::move(usr); customs = std::move(cols); grade = std::move(gs);
-    leanKept.clear(); sharedKept.clear(); sharedListKnown = false;
+    leanKept.clear(); sharedKept.clear(); sharedListKnown = false; ++epoch;
 }
 
 void TrackStore::rebuildRowOf()
@@ -68,7 +68,7 @@ void TrackStore::apply(const ChangeNote& n)
     std::vector<CustomColumn> newCols; Table newIndex; std::map<juce::String, std::map<juce::String, juce::String>> newUser;
     if (n.kind == K::Columns) newCols = lib->customColumns();
     if (n.kind == K::ReloadUser) { newUser = lib->userValues(); newCols = lib->customColumns(); }
-    if (n.kind == K::ReloadAll) { loadAll(); const juce::ScopedLock sl(lock); { const juce::ScopedLock wl(windowLock); windowKept.clear(); } log(StoreChange::Reset, {}); return; }
+    if (n.kind == K::ReloadAll) { loadAll(); const juce::ScopedLock sl(lock); { const juce::ScopedLock wl(windowLock); windowKept.clear(); ++epoch; } log(StoreChange::Reset, {}); return; }
 
     const juce::ScopedLock sl(lock);
     switch (n.kind) {
@@ -89,7 +89,7 @@ void TrackStore::apply(const ChangeNote& n)
             if (n.rate == 0) g.nat[n.id] = n.cells;
             else if (n.rate == 96000) g.r96[n.id] = n.cells;
             else break;                                          // 44.1 kHz readings are stored for later; no tab shows them
-            { const juce::ScopedLock wl(windowLock); for (auto& kv : windowKept) kv.second.erase(n.id); }   // its window data is being rewritten as well
+            { const juce::ScopedLock wl(windowLock); for (auto& kv : windowKept) kv.second.erase(n.id); ++winEpoch[n.id]; }   // its window data is being rewritten as well
             log(StoreChange::Regraded, n.id);
             break;
         }
@@ -104,20 +104,22 @@ void TrackStore::apply(const ChangeNote& n)
             if (it != rowOf.end()) { indexT.rows.erase(indexT.rows.begin() + (long)it->second); rebuildRowOf(); }
             user.erase(n.id);
             for (auto& kv : grade) { kv.second.nat.erase(n.id); kv.second.r96.erase(n.id); }
-            leanKept.erase(n.id);
-            { const juce::ScopedLock wl(windowLock); for (auto& kv : windowKept) kv.second.erase(n.id); }
+            leanKept.erase(n.id); sharedKept.erase(n.id); ++dataEpoch[n.id];
+            { const juce::ScopedLock wl(windowLock); for (auto& kv : windowKept) kv.second.erase(n.id); ++winEpoch[n.id]; }
             log(StoreChange::Removed, n.id);
             break;
         }
         case K::Columns: customs = std::move(newCols); log(StoreChange::Columns, {}); break;
         case K::ReloadUser: user = std::move(newUser); customs = std::move(newCols); log(StoreChange::Values, {}); log(StoreChange::Columns, {}); break;
         case K::LeanOne: {
-            leanKept.erase(n.id);
-            { const juce::ScopedLock wl(windowLock); for (auto& kv : windowKept) if (kv.first.endsWith("|b")) kv.second.erase(n.id); }
+            leanKept.erase(n.id); ++dataEpoch[n.id];
+            { const juce::ScopedLock wl(windowLock); for (auto& kv : windowKept) if (kv.first.endsWith("|b")) kv.second.erase(n.id); ++winEpoch[n.id]; }
             log(StoreChange::Lean, n.id);
             break;
         }
-        case K::SharedAll: sharedKept.clear(); sharedListKnown = false; log(StoreChange::Shared, {}); break;
+        case K::SharedAll: sharedKept.clear(); sharedListKnown = false; ++epoch;
+            { const juce::ScopedLock wl(windowLock); for (auto& kv : windowKept) if (kv.first.endsWith("|b")) for (auto it = kv.second.begin(); it != kv.second.end();) { if (!rowOf.count(it->first)) it = kv.second.erase(it); else ++it; } } //shared records' replay blocks may be new
+            log(StoreChange::Shared, {}); break;
         case K::ReloadAll: break;
     }
 }
@@ -156,28 +158,34 @@ Table TrackStore::readings(const juce::String& v) const
 
 std::shared_ptr<const LeanRecord> TrackStore::lean(const juce::String& id)
 {
-    { const juce::ScopedLock sl(lock); auto it = leanKept.find(id); if (it != leanKept.end()) return it->second; }
+    uint64_t e;
+    { const juce::ScopedLock sl(lock); auto it = leanKept.find(id); if (it != leanKept.end()) return it->second; e = dataStamp(id); }
     auto rec = std::make_shared<LeanRecord>();
     std::shared_ptr<const LeanRecord> out = lib->readLean(id, *rec) ? rec : nullptr;
     const juce::ScopedLock sl(lock);
-    auto it = leanKept.find(id); if (it != leanKept.end()) return it->second;   // somebody was faster (or a change note arrived and a newer read is in)
+    if (dataStamp(id) != e) return out;                                          // something changed while reading: use it, but do not keep it
+    auto it = leanKept.find(id); if (it != leanKept.end()) return it->second;   // somebody was faster
     leanKept[id] = out;
     return out;
 }
 std::vector<juce::String> TrackStore::sharedIds()
 {
-    { const juce::ScopedLock sl(lock); if (sharedListKnown) return sharedList; }
+    uint64_t e;
+    { const juce::ScopedLock sl(lock); if (sharedListKnown) return sharedList; e = epoch.load(); }
     auto l = lib->sharedIds();
     const juce::ScopedLock sl(lock);
+    if (epoch.load() != e) return l;
     sharedList = l; sharedListKnown = true;
     return sharedList;
 }
 std::shared_ptr<const LeanRecord> TrackStore::shared(const juce::String& id)
 {
-    { const juce::ScopedLock sl(lock); auto it = sharedKept.find(id); if (it != sharedKept.end()) return it->second; }
+    uint64_t e;
+    { const juce::ScopedLock sl(lock); auto it = sharedKept.find(id); if (it != sharedKept.end()) return it->second; e = dataStamp(id); }
     auto rec = std::make_shared<LeanRecord>();
     std::shared_ptr<const LeanRecord> out = lib->readShared(id, *rec) ? rec : nullptr;
     const juce::ScopedLock sl(lock);
+    if (dataStamp(id) != e) return out;
     sharedKept[id] = out;
     return out;
 }
@@ -206,9 +214,11 @@ std::shared_ptr<const WindowData> TrackStore::readWindows(const WindowKey& key, 
 std::shared_ptr<const WindowData> TrackStore::windows(const WindowKey& key, const juce::String& id)
 {
     const juce::String k = key.str();
-    { const juce::ScopedLock sl(windowLock); auto m = windowKept.find(k); if (m != windowKept.end()) { auto it = m->second.find(id); if (it != m->second.end()) return it->second; } }
+    uint64_t e;
+    { const juce::ScopedLock sl(windowLock); auto m = windowKept.find(k); if (m != windowKept.end()) { auto it = m->second.find(id); if (it != m->second.end()) return it->second; } e = winStamp(id); }
     auto w = readWindows(key, id);
     const juce::ScopedLock sl(windowLock);
+    if (winStamp(id) != e) return w;
     auto& slot = windowKept[k][id];
     if (slot == nullptr) slot = w;
     return slot;
@@ -224,7 +234,8 @@ int TrackStore::loadWindows(const WindowKey& key, const std::vector<juce::String
 {
     const juce::String k = key.str();
     std::vector<juce::String> todo;
-    { const juce::ScopedLock sl(windowLock); auto& m = windowKept[k]; for (auto& id : ids) if (!m.count(id)) todo.push_back(id); }
+    std::vector<uint64_t> stamps;
+    { const juce::ScopedLock sl(windowLock); auto& m = windowKept[k]; for (auto& id : ids) if (!m.count(id)) { todo.push_back(id); stamps.push_back(winStamp(id)); } }
     if (todo.empty()) { if (progress) progress((int)ids.size(), (int)ids.size()); return 0; }
     std::atomic<int> next{0}, done{0};
     const int total = (int)todo.size();
@@ -233,7 +244,7 @@ int TrackStore::loadWindows(const WindowKey& key, const std::vector<juce::String
             const int i = next++;
             if (i >= total || (shouldStop && shouldStop())) return;
             auto w = readWindows(key, todo[(size_t)i]);
-            { const juce::ScopedLock sl(windowLock); auto& slot = windowKept[k][todo[(size_t)i]]; if (slot == nullptr) { slot = w; } }
+            { const juce::ScopedLock sl(windowLock); if (winStamp(todo[(size_t)i]) == stamps[(size_t)i]) { auto& slot = windowKept[k][todo[(size_t)i]]; if (slot == nullptr) { slot = w; } } }
             const int d = ++done; if (progress && (d % 16 == 0 || d == total)) progress(d, total);
         }
     };

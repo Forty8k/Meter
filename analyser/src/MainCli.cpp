@@ -8,7 +8,7 @@ int main(int argc, char* argv[])
 {
     juce::File library = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("meterDARK Library");
     juce::Array<juce::File> inputs;
-    bool rescan = false; bool fillTags = false, foldersOnly = false, tagTest = false, storeTest = false; juce::String discogsToken; int levels = 0; int lean = 0; juce::String exportPack, importPack; bool fullPack = false;
+    bool rescan = false; bool fillTags = false, foldersOnly = false, tagTest = false, storeTest = false; juce::String discogsToken; int levels = 0; int lean = 0; juce::String exportPack, importPack; bool fullPack = false, packNoNames = false;
     for (int i = 1; i < argc; ++i) {
         const juce::String a(argv[i]);
         if ((a == "--library" || a == "-l") && i + 1 < argc) {library = juce::File::getCurrentWorkingDirectory().getChildFile(argv[++i]); continue;}
@@ -17,6 +17,7 @@ int main(int argc, char* argv[])
         if (a == "--lean") {lean = 1; continue;}
         if (a == "--export-pack" && i + 1 < argc) {exportPack = argv[++i]; continue;}
         if (a == "--full") {fullPack = true; continue;}
+        if (a == "--no-names") {packNoNames = true; continue;}
         if (a == "--import-pack" && i + 1 < argc) {importPack = argv[++i]; continue;}
         if (a == "--lean-check") {lean = 2; continue;}
         if (a == "--fill-tags") {fillTags = true; continue;}
@@ -28,7 +29,7 @@ int main(int argc, char* argv[])
             std::cout << "Usage: meterDARKAnalyserCLI [--library <folder>] [--rescan] <audio files or folders...>\n"
                          "--rescan scans every track captured by an older analyser again from its stored file path.\n"
                          "--lean builds the small shareable record of every track (lean folder) from the stored window data; --lean-check also rebuilds them all and proves each replay block regrades to the same grade.\n"
-                         "--export-pack <file> [--full] writes a share pack of every lean record (display only, or with the replay blocks); --import-pack <file> adds a pack to lean-shared.\n"
+                         "--export-pack <file> [--full] [--no-names] writes a share pack of every lean record (display only, or with the replay blocks; with track names unless --no-names); --import-pack <file> adds a pack to lean-shared.\n"
                          "--fill-tags [--folders-only] [--discogs-token <token>] fills EMPTY artist / album / year / genre from the folder names, then from MusicBrainz (and Discogs with a token). Your own edits only; tagfill-log.csv in the library lists every fill.\n"
                          "--levels grades every track in the normalised and the mix level mode (replayed from the stored windows) and prints how many grades came out.\n"
                          "Adds each track to the library (default: Documents/meterDARK Library). WAV, AIFF, FLAC, Ogg and MP3.\n";
@@ -121,6 +122,29 @@ int main(int argc, char* argv[])
         { std::vector<mdark::StoreChange> ch; uint64_t now = 0; store.changesSince(s0, ch, now); int rem = 0; for (auto& x : ch) if (x.kind == mdark::StoreChange::Removed && x.id == rb.id) ++rem; check(rem == 1, "one Removed change"); }
         // too far behind the log
         { std::vector<mdark::StoreChange> ch; uint64_t now = 0; check(!store.changesSince(store.seq() + 5, ch, now), "a number from the future is refused"); }
+        // share packs: names travel (no paths), a second import updates, and a store that already looked at lean-shared sees the new records
+        {
+            lib->setUserValue(rc.id, "title", "Cee Song"); lib->setUserValue(rc.id, "artist", "Tester");
+            const juce::File named = tmp.getChildFile("named.mdarkpack"), anon = tmp.getChildFile("anon.mdarkpack");
+            check(lib->exportPack(named, true, {ra.id, rc.id}, true) == 2 && lib->exportPack(anon, true, {ra.id, rc.id}, false) == 2, "two packs written");
+            auto lib2 = std::make_shared<mdark::Library>(tmp.getChildFile("lib2"));
+            mdark::TrackStore store2(lib2);
+            check(store2.sharedIds().empty(), "nothing shared yet (and the store has looked)");
+            std::vector<juce::String> fresh; int upd = -1;
+            lib2->importPack(named, nullptr, &fresh, &upd);
+            check(fresh.size() == 2 && upd == 0, "2 new, 0 updated");
+            check(store2.sharedIds().size() == 2, "the store sees the imported records at once");
+            const auto sa = store2.shared(ra.id), sc = store2.shared(rc.id);
+            check(sa != nullptr && sa->get("name") == "a", "a name from the file name, without folder or extension");
+            check(sc != nullptr && sc->get("name") == "Tester - Cee Song" && sc->get("title") == "Cee Song", "your values win for the name and tags");
+            check(sa != nullptr && sa->get("source_path").empty() && sa->get("file").empty(), "no paths in a shared record");
+            fresh.clear(); lib2->importPack(named, nullptr, &fresh, &upd);
+            check(fresh.empty() && upd == 2, "importing again: 0 new, 2 updated");
+            lib2->importPack(anon, nullptr, nullptr, &upd);
+            const auto sa2 = store2.shared(ra.id);
+            check(sa2 != nullptr && sa2->get("name").empty(), "an anonymous pack carries no names (and the store shows the new copy)");
+            check(store2.windows({vids.back(), 0, true}, ra.id) != nullptr, "a full pack's replay block can be replayed");
+        }
         tmp.deleteRecursively();
         std::cout << (bad == 0 ? "Track store checks: all passed\n" : "Track store checks: FAILED\n");
         return bad == 0 ? 0 : 1;
@@ -153,8 +177,8 @@ int main(int argc, char* argv[])
         std::vector<juce::String> ids; const auto t = lib.index();
         for (size_t r = 0; r < t.rows.size(); ++r) ids.push_back(t.get(r, "id"));
         const juce::File out = juce::File::getCurrentWorkingDirectory().getChildFile(exportPack);
-        const int n = lib.exportPack(out, fullPack, ids);
-        std::cout << "Pack: " << n << " records written to " << out.getFullPathName() << " (" << (fullPack ? "full" : "display") << ", " << juce::String((double)out.getSize()/1024.0, 1) << " KB)\n";
+        const int n = lib.exportPack(out, fullPack, ids, !packNoNames);
+        std::cout << "Pack: " << n << " records written to " << out.getFullPathName() << " (" << (fullPack ? "full" : "display") << (packNoNames ? ", no names" : ", with names") << ", " << juce::String((double)out.getSize()/1024.0, 1) << " KB)\n";
     }
     if (importPack.isNotEmpty()) std::cout << "Pack import: " << lib.importPack(juce::File::getCurrentWorkingDirectory().getChildFile(importPack)) << "\n";
     if (levels) {

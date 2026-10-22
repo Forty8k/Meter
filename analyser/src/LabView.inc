@@ -231,7 +231,7 @@ private:
                 if (rec == nullptr || rec->replay.empty()) continue;
                 const auto& lr = *rec;
                 tr.w2 = tr.w = store.windows(key, id); if (!tr.w) continue;
-                tr.file = juce::String(lr.get("title")).isNotEmpty() ? juce::String(lr.get("artist")) + " - " + juce::String(lr.get("title")) + " (shared)" : id + " (shared)";
+                tr.file = sharedRecordName(lr, id) + " (shared)";
                 tr.grade = juce::String(lr.get("grade")); tr.letterValue = juce::String(lr.get("letter_value")).getDoubleValue();
                 const int b = juce::String(lr.get("bonus_value")).getIntValue(); tr.gradeBonus = (b >= 1 && b <= 80) ? juce::String(b) : juce::String();
                 tr.sr = tr.w->sr;

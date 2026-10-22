@@ -1096,6 +1096,13 @@ private:
 };
 
 //=============================================================================================== "Lab"
+//a shared record's name: the name it was exported with, else artist - title, else a short id (packs from before 22 Oct 2026 have no names)
+static juce::String sharedRecordName(const mdark::LeanRecord& rec, const juce::String& id) {
+    const juce::String n = juce::String(rec.get("name")), artist = juce::String(rec.get("artist")), title = juce::String(rec.get("title"));
+    if (n.isNotEmpty()) return n;
+    if (title.isNotEmpty()) return artist.isNotEmpty() ? artist + " - " + title : title;
+    return "Shared track " + id.substring(0, 6);
+}
 #include "LabView.inc"
 #include "GlanceView.inc"
 

@@ -164,11 +164,16 @@ jobs:
           # Share packs: a display pack and a full pack, imported into a different library; no paths in them
           "$CLI" --library testlib --export-pack pack-display.mdarkpack | tee -a cli.txt
           "$CLI" --library testlib --export-pack pack-full.mdarkpack --full | tee -a cli.txt
+          "$CLI" --library testlib --export-pack pack-anon.mdarkpack --full --no-names | tee -a cli.txt
           "$CLI" --library testlib2 --import-pack pack-full.mdarkpack | tee -a cli.txt
-          grep -q "Pack import: 5 records added" cli.txt
+          grep -q "Pack import: Pack (full): 5 new, 0 updated" cli.txt
+          "$CLI" --library testlib2 --import-pack pack-full.mdarkpack | tee -a cli.txt
+          grep -q "Pack import: Pack (full): 0 new, 5 updated" cli.txt
           ls testlib2/lean-shared/*.lnr.gz
           if command -v gzip >/dev/null; then
-            if gzip -dc pack-full.mdarkpack | grep -a -q -e "testlib" -e "t_sine50"; then echo "A pack contains a file name or path"; exit 1; fi
+            if gzip -dc pack-full.mdarkpack | grep -a -q "testlib"; then echo "A pack contains a folder or path"; exit 1; fi
+            if ! gzip -dc pack-full.mdarkpack | grep -a -q "t_sine50"; then echo "A pack made with names has no track names"; exit 1; fi
+            if gzip -dc pack-anon.mdarkpack | grep -a -q -e "testlib" -e "t_sine50"; then echo "An anonymous pack contains a name or path"; exit 1; fi
           fi
           [ "$(wc -c < pack-display.mdarkpack)" -lt "$(wc -c < pack-full.mdarkpack)" ]
           trap - ERR

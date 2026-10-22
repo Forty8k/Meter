@@ -32,8 +32,11 @@ public:
             h.setSortColumnId(3, true);
             h.addListener(this);
         }
-        for (auto* b : {&playButton, &linesButton, &buildButton, &compareButton, &shareButton}) {addAndMakeVisible(b); styleButton(*b);}
+        for (auto* b : {&playButton, &linesButton, &buildButton, &compareButton, &shareButton, &sharedButton}) {addAndMakeVisible(b); styleButton(*b);}
         shareButton.onClick = [this] { shareMenu(); };
+        sharedButton.setTooltip("Records other people (or your other computer) shared with you in packs: shown in the list, marked (shared), or hidden. The Library's filters never hide them.");
+        sharedButton.onClick = [this] { showShared = !showShared; saveOverviewSettings(); updateSharedButton(); loaded = false; };
+        updateSharedButton();
         compareButton.setClickingTogglesState(true); compareButton.setColour(juce::TextButton::buttonOnColourId, kSelect);
         compareButton.onClick = [this] { compareMode = compareButton.getToggleState(); repaint(); };
         addAndMakeVisible(sourceBox);
@@ -67,8 +70,7 @@ public:
         auto store = getStore ? getStore() : nullptr;
         if (store == nullptr) return;
         loadedFor = store.get(); loadedSeq = store->seq();
-        items = gather(store, getAllowed ? getAllowed() : nullptr); loaded = true; restoreColumns();
-        status.setText(juce::String((int)items.size()) + " tracks", juce::dontSendNotification);
+        items = gather(store, getAllowed ? getAllowed() : nullptr, showShared); loaded = true; restoreColumns();
         resort(); repaint();
     }
 
@@ -80,7 +82,8 @@ public:
         buildButton.setBounds(bar.removeFromLeft(170)); bar.removeFromLeft(6);
         compareButton.setBounds(bar.removeFromLeft(130)); bar.removeFromLeft(6);
         sourceBox.setBounds(bar.removeFromLeft(130)); bar.removeFromLeft(6);
-        shareButton.setBounds(bar.removeFromLeft(120)); bar.removeFromLeft(10);
+        shareButton.setBounds(bar.removeFromLeft(120)); bar.removeFromLeft(6);
+        sharedButton.setBounds(bar.removeFromLeft(118)); bar.removeFromLeft(10);
         bar.removeFromRight(146); //the Library tab's toggle button sits over the top-right corner
         search.setBounds(bar.removeFromRight(juce::jlimit(150, 260, bar.getWidth()/3))); bar.removeFromRight(8);
         status.setBounds(bar);
@@ -378,11 +381,17 @@ public:
 
 private:
     std::vector<Item> items; std::vector<size_t> order;
+    bool showShared = true; bool scrollToSelected = false; juce::String notice, jumpTo; //notice: the last import / build message, kept next to the count
     bool loaded = false, loading = false, building = false; const void* loadedFor = nullptr; uint64_t loadedSeq = 0; int seenGen = -1; juce::uint32 lastApplyMs = 0;
     juce::String selectedId; int sortCol = 3; bool sortFwd = true; bool restoredColumns = false;
     juce::Rectangle<int> topArea, bigBar, legendArea, smallBars[3]; double hoverFrac = -1;
     juce::TableListBox table;
-    juce::TextButton shareButton{"Share packs..."};
+    juce::TextButton shareButton{"Share packs..."}, sharedButton{"Shared: shown"};
+    void updateSharedButton() { sharedButton.setButtonText(showShared ? "Shared: shown" : "Shared: hidden"); }
+    //per library: overview-settings.json (only whether shared records show, for now)
+    juce::File overviewSettingsFile() const { auto lib = getLibrary ? getLibrary() : nullptr; return lib ? lib->folder.getChildFile("overview-settings.json") : juce::File(); }
+    void saveOverviewSettings() { const auto f = overviewSettingsFile(); if (f == juce::File()) return; auto* o = new juce::DynamicObject(); o->setProperty("showShared", showShared); f.replaceWithText(juce::JSON::toString(juce::var(o))); }
+    void loadOverviewSettings() { const auto f = overviewSettingsFile(); showShared = true; if (f.existsAsFile()) showShared = (bool)juce::JSON::parse(f).getProperty("showShared", true); updateSharedButton(); }
     std::unique_ptr<juce::FileChooser> chooser;
     juce::TextButton playButton{"Play"}, linesButton{"Overlay lines"}, buildButton{"Build / update records"}, compareButton{"Compare versions"};
     juce::ComboBox sourceBox; bool compareMode = false;
@@ -391,25 +400,45 @@ private:
         auto lib = getLibrary ? getLibrary() : nullptr;
         if (lib == nullptr) return;
         juce::PopupMenu m;
-        m.addItem(1, "Export a display pack (small: bars, grades, tags)...");
-        m.addItem(2, "Export a full pack (adds the replay blocks so others can regrade)...");
+        m.addItem(1, "Export a display pack, with track names (small: bars, grades, tags)...");
+        m.addItem(2, "Export a full pack, with track names (adds the replay blocks so others can regrade)...");
+        m.addSeparator();
+        m.addItem(11, "Export a display pack, no track names...");
+        m.addItem(12, "Export a full pack, no track names...");
+        m.addSeparator();
         m.addItem(3, "Import a pack...");
         m.showMenuAsync(juce::PopupMenu::Options(), [this, lib](int r) {
             if (r == 0) return;
             if (r == 3) {
                 chooser = std::make_unique<juce::FileChooser>("Choose a meterDARK pack", juce::File(), "*.mdarkpack");
                 chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this, lib](const juce::FileChooser& fc) {
-                    if (fc.getResult() == juce::File()) return;
-                    status.setText(lib->importPack(fc.getResult()), juce::dontSendNotification); loaded = false;
+                    const juce::File f = fc.getResult();
+                    if (f == juce::File()) return;
+                    notice = "Importing the pack ..."; resort();
+                    juce::Component::SafePointer<GlanceView> sp(this);
+                    pool.addJob([this, sp, lib, f] { //a full pack of thousands of tracks takes a moment: not on the window's thread
+                        std::vector<juce::String> fresh;
+                        const juce::String msg = lib->importPack(f, nullptr, &fresh);
+                        juce::MessageManager::callAsync([this, sp, msg, fresh] {
+                            if (sp == nullptr) return;
+                            notice = msg;
+                            if (!fresh.empty()) { jumpTo = fresh.front(); if (!showShared) { showShared = true; saveOverviewSettings(); updateSharedButton(); } }
+                            loaded = false; resort();
+                        });
+                    });
                 });
                 return;
             }
-            chooser = std::make_unique<juce::FileChooser>("Save the pack", juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile(r == 1 ? "meterDARK-display.mdarkpack" : "meterDARK-full.mdarkpack"), "*.mdarkpack");
-            chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting, [this, lib, r](const juce::FileChooser& fc) {
+            const bool full = (r % 10) == 2, names = r < 10;
+            chooser = std::make_unique<juce::FileChooser>("Save the pack", juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile(full ? "meterDARK-full.mdarkpack" : "meterDARK-display.mdarkpack"), "*.mdarkpack");
+            chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting, [this, lib, full, names](const juce::FileChooser& fc) {
                 if (fc.getResult() == juce::File()) return;
                 std::vector<juce::String> ids; for (auto& i : items) ids.push_back(i.id);
-                const int n = lib->exportPack(fc.getResult().withFileExtension("mdarkpack"), r == 2, ids);
-                status.setText(n < 0 ? juce::String("Could not write the pack.") : juce::String(n) + " records saved (" + juce::String((double)fc.getResult().withFileExtension("mdarkpack").getSize()/1024.0, 0) + " KB). No file names or paths are in it.", juce::dontSendNotification);
+                const juce::File out = fc.getResult().withFileExtension("mdarkpack");
+                const int n = lib->exportPack(out, full, ids, names);
+                notice = n < 0 ? juce::String("Could not write the pack.") : juce::String(n) + " records saved (" + juce::String((double)out.getSize()/1024.0, 0) + " KB). "
+                         + (names ? "Track names are in it; no folders or paths." : "No track names, folders or paths are in it.");
+                resort();
             });
         });
     }
@@ -472,7 +501,9 @@ private:
             bool ok = true; for (auto& w : words) if (!items[i].hay.contains(w)) {ok = false; break;}
             if (ok) order.push_back(i);
         }
-        status.setText(words.isEmpty() ? juce::String((int)items.size()) + " tracks" : juce::String((int)order.size()) + " of " + juce::String((int)items.size()) + " tracks", juce::dontSendNotification);
+        int nShared = 0; for (auto& i : items) nShared += i.shared ? 1 : 0;
+        const juce::String all = juce::String((int)items.size() - nShared) + " tracks" + (nShared > 0 ? " + " + juce::String(nShared) + " shared" : juce::String());
+        status.setText((words.isEmpty() ? all : juce::String((int)order.size()) + " of " + all) + (notice.isNotEmpty() ? "      " + notice : juce::String()), juce::dontSendNotification);
         std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
             if (sortCol == 1) { const int c = items[a].name.compareNatural(items[b].name); return sortFwd ? c < 0 : c > 0; }
             if (sortCol >= 4) {
@@ -484,7 +515,8 @@ private:
             return items[a].name.compareNatural(items[b].name) < 0;
         });
         table.updateContent(); table.repaint();
-        for (size_t i = 0; i < order.size(); ++i) if (items[order[i]].id == selectedId) {table.selectRow((int)i, true, false); return;}
+        const bool scroll = scrollToSelected; scrollToSelected = false;
+        for (size_t i = 0; i < order.size(); ++i) if (items[order[i]].id == selectedId) {table.selectRow((int)i, !scroll, true); return;}
         if (!order.empty() && current() == nullptr) table.selectRow(0);
     }
     //the same song: artist + title (ignoring case, punctuation and bracketed bits like "(2012 Remaster)"), or the file name when there are no tags; and about the same length
@@ -546,7 +578,7 @@ private:
     static Item makeSharedItem(const juce::String& id, const mdark::LeanRecord& rec) {
         Item it; it.id = id; it.shared = true; it.rec = rec;
         const juce::String artist = juce::String(it.rec.get("artist")), title = juce::String(it.rec.get("title"));
-        it.name = (title.isNotEmpty() ? (artist.isNotEmpty() ? artist + " - " + title : title) : id) + "  (shared)";
+        it.name = sharedRecordName(rec, id) + "  (shared)";
         it.grade = juce::String(it.rec.get("grade"));
         const int bonus = juce::String(it.rec.get("bonus_value")).getIntValue();
         it.key = (bonus >= 1 && bonus <= 80) ? (double)bonus : 1000.0 - juce::String(it.rec.get("letter_value")).getDoubleValue();
@@ -556,7 +588,7 @@ private:
         it.hay = (it.name + " " + juce::String(it.rec.get("artist")) + " " + juce::String(it.rec.get("title")) + " " + juce::String(it.rec.get("album")) + " " + juce::String(it.rec.get("year")) + " " + juce::String(it.rec.get("genre")) + " " + it.source).toLowerCase();
         return it;
     }
-    static std::vector<Item> gather(const std::shared_ptr<mdark::TrackStore>& store, const std::shared_ptr<const std::set<juce::String>>& allowed) {
+    static std::vector<Item> gather(const std::shared_ptr<mdark::TrackStore>& store, const std::shared_ptr<const std::set<juce::String>>& allowed, bool withShared) {
         std::vector<Item> out;
         const auto idx = store->index();
         const auto users = store->userValues();
@@ -567,8 +599,8 @@ private:
             Item it;
             if (makeItem(*store, idx, r, u != users.end() ? &u->second : nullptr, it)) out.push_back(std::move(it));
         }
-        if (!allowed) { //records other people shared with you (lean-shared): shown too, marked as shared. Not when the Library's filters are in use, since they can only judge your own tracks.
-            std::set<juce::String> have; for (auto& i : out) have.insert(i.id);
+        if (withShared) { //records shared with you (lean-shared): always shown, marked "(shared)". The Library's filters only judge your own tracks, so they leave these alone.
+            std::set<juce::String> have; for (size_t r = 0; r < idx.rows.size(); ++r) have.insert(idx.get(r, "id")); //one you measured yourself is shown as yours
             for (auto& id : store->sharedIds()) {
                 if (have.count(id)) continue;
                 auto rec = store->shared(id);
@@ -601,21 +633,22 @@ private:
         loadedSeq = now; lastApplyMs = juce::Time::getMillisecondCounter();
         if (!any) return;
         groupVersions(items);
-        status.setText(juce::String((int)items.size()) + " tracks", juce::dontSendNotification);
         resort(); repaint();
     }
     void load() {
         auto store = getStore ? getStore() : nullptr;
         if (store == nullptr || loading) return;
+        if (loadedFor != store.get()) loadOverviewSettings(); //another library: its own setting
         loading = true; loadedFor = store.get(); loadedSeq = store->seq(); seenGen = getFilterGen ? getFilterGen() : 0;
         const auto allowed = getAllowed ? getAllowed() : nullptr;
         juce::Component::SafePointer<GlanceView> sp(this);
-        pool.addJob([this, sp, store, allowed] {
-            std::vector<Item> out = gather(store, allowed);
+        const bool withShared = showShared;
+        pool.addJob([this, sp, store, allowed, withShared] {
+            std::vector<Item> out = gather(store, allowed, withShared);
             juce::MessageManager::callAsync([this, sp, out = std::move(out)]() mutable {
                 if (sp == nullptr) return;
                 items = std::move(out); loading = false; loaded = true; restoreColumns();
-                status.setText(juce::String((int)items.size()) + " tracks", juce::dontSendNotification);
+                if (jumpTo.isNotEmpty()) { selectedId = jumpTo; jumpTo = {}; scrollToSelected = true; }
                 resort(); repaint();
             });
         });
@@ -630,7 +663,7 @@ private:
             juce::MessageManager::callAsync([this, sp, rep] {
                 if (sp == nullptr) return;
                 building = false; loaded = false;
-                status.setText("Records: " + juce::String(rep.built) + " built, " + juce::String(rep.kept) + " already there, " + juce::String(rep.noData) + " without window data.", juce::dontSendNotification);
+                notice = "Records: " + juce::String(rep.built) + " built, " + juce::String(rep.kept) + " already there, " + juce::String(rep.noData) + " without window data.";
             });
         });
     }

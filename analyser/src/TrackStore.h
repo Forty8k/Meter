@@ -87,6 +87,13 @@ private:
     std::vector<juce::String> sharedList; bool sharedListKnown = false;
     std::deque<StoreChange> changeLog; uint64_t logStart = 0; std::atomic<uint64_t> seq_{0};
 
+    // goes up (inside the lock that guards the cache) every time something kept is thrown away. A reader notes it BEFORE reading the disk and keeps its
+    // result only if it has not moved: otherwise a change that arrived during the read would be overwritten by the older copy (and stay wrong until the next change).
+    std::atomic<uint64_t> epoch{0};
+    std::map<juce::String, uint64_t> dataEpoch;   // per track (lean / shared records), under `lock`
+    std::map<juce::String, uint64_t> winEpoch;    // per track (window data), under `windowLock`
+    uint64_t dataStamp(const juce::String& id) const { auto it = dataEpoch.find(id); return epoch.load() + (it == dataEpoch.end() ? 0 : it->second); }
+    uint64_t winStamp(const juce::String& id) const { auto it = winEpoch.find(id); return epoch.load() + (it == winEpoch.end() ? 0 : it->second); }
     mutable juce::CriticalSection windowLock;
     std::map<juce::String, std::map<juce::String, std::shared_ptr<const WindowData>>> windowKept;   // key.str() -> id -> data (null = none there)
 };

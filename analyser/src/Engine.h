@@ -160,8 +160,12 @@ public:
     // SHARE PACKS: one file (.mdarkpack) of lean records. A display pack has no replay blocks (small: just the bars, grades and tags); a full pack keeps them so the
     // receiver can regrade. Never any file path, file name or private column; the only identity is the record's id. Imported records go to lean-shared/ and are
     // never mixed into your own measurements.
-    int exportPack(const juce::File& out, bool full, const std::vector<juce::String>& ids);
-    juce::String importPack(const juce::File& in, int* added = nullptr);
+    // names = true: each record carries "name" (what the Overview shows: artist - title from your current values, else the file name WITHOUT folder or extension)
+    // and its artist / title / album / year / genre are refreshed from your current values. Never a path either way.
+    int exportPack(const juce::File& out, bool full, const std::vector<juce::String>& ids, bool names = true);
+    // newIds (optional) gets the ids that were not in lean-shared before; updated = records that replaced an earlier copy
+    juce::String importPack(const juce::File& in, int* added = nullptr, std::vector<juce::String>* newIds = nullptr, int* updated = nullptr);
+    static juce::String fileTitle(const juce::String& file);   // a stored file name without its folder or extension
     std::vector<juce::String> sharedIds();
     bool readShared(const juce::String& id, LeanRecord& out);
     bool writeLean(const juce::String& id, const LeanRecord& rec); // gzip and store

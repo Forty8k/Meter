@@ -928,15 +928,36 @@ bool Library::readLean(const juce::String& id, LeanRecord& out)
 
 static const char* kPrivateKeys[] = {"source_path", "file", "path", "folder", "filename"};
 
-int Library::exportPack(const juce::File& out, bool full, const std::vector<juce::String>& ids)
+juce::String Library::fileTitle(const juce::String& file)
+{
+    const juce::String n = file.fromLastOccurrenceOf("/", false, false).fromLastOccurrenceOf("\\", false, false);
+    return n.containsChar('.') ? n.upToLastOccurrenceOf(".", false, false) : n;
+}
+
+int Library::exportPack(const juce::File& out, bool full, const std::vector<juce::String>& ids, bool names)
 {
     std::vector<uint8_t> all;
     all.push_back('P'); all.push_back('C'); all.push_back('K'); all.push_back(1); all.push_back(full ? 1 : 0);
+    Table idx; std::map<juce::String, std::map<juce::String, juce::String>> usr; std::map<juce::String, size_t> rowOf;
+    if (names) { idx = index(); usr = userValues(); for (size_t r = 0; r < idx.rows.size(); ++r) rowOf[idx.get(r, "id")] = r; }
     std::vector<std::vector<uint8_t>> recs;
     for (auto& id : ids) {
         LeanRecord rec;
-        if (!readLean(id, rec) && !readShared(id, rec)) continue;
+        const bool own = readLean(id, rec);
+        if (!own && !readShared(id, rec)) continue;
         for (auto* k : kPrivateKeys) rec.meta.erase(std::remove_if(rec.meta.begin(), rec.meta.end(), [&](auto& kv) { return kv.first == k; }), rec.meta.end());
+        if (names && own) { //your current values win over the file's tags, which win over what the record was built with
+            auto r = rowOf.find(id); auto u = usr.find(id);
+            auto value = [&](const char* k) {
+                if (u != usr.end()) { auto v = u->second.find(k); if (v != u->second.end() && v->second.isNotEmpty()) return v->second; }
+                if (r != rowOf.end()) { const juce::String x = idx.get(r->second, k); if (x.isNotEmpty()) return x; }
+                return juce::String(rec.get(k));
+            };
+            for (const char* k : {"artist", "title", "album", "year", "genre"}) { const juce::String v = value(k); if (v.isNotEmpty()) rec.set(k, v.toStdString()); }
+            const juce::String artist = value("artist"), title = value("title");
+            juce::String name = title.isNotEmpty() ? (artist.isNotEmpty() ? artist + " - " + title : title) : (r != rowOf.end() ? fileTitle(idx.get(r->second, "file")) : juce::String());
+            if (name.isNotEmpty()) rec.set("name", name.toStdString());
+        } else if (!names) rec.meta.erase(std::remove_if(rec.meta.begin(), rec.meta.end(), [](auto& kv) { return kv.first == "name"; }), rec.meta.end());
         if (!full) rec.replay.clear();
         recs.push_back(serialiseLean(rec));
     }
@@ -947,7 +968,7 @@ int Library::exportPack(const juce::File& out, bool full, const std::vector<juce
     return (int)recs.size();
 }
 
-juce::String Library::importPack(const juce::File& in, int* addedOut)
+juce::String Library::importPack(const juce::File& in, int* addedOut, std::vector<juce::String>* newIds, int* updatedOut)
 {
     juce::FileInputStream fis(in);
     if (!fis.openedOk()) return "Could not open that file.";
@@ -957,8 +978,9 @@ juce::String Library::importPack(const juce::File& in, int* addedOut)
     if (mb.getSize() < 6 || p[0] != 'P' || p[1] != 'C' || p[2] != 'K' || p[3] != 1) return "That is not a meterDARK pack.";
     const bool full = p[4] == 1; p += 5;
     uint64_t n; if (!rpGetVar(p, e, n)) return "The pack is damaged.";
-    folder.getChildFile("lean-shared").createDirectory();
-    int added = 0, own = 0, bad = 0;
+    const juce::File dir = folder.getChildFile("lean-shared");
+    dir.createDirectory();
+    int added = 0, updated = 0, own = 0, bad = 0, noName = 0;
     for (uint64_t i = 0; i < n; ++i) {
         uint64_t len; if (!rpGetVar(p, e, len) || (uint64_t)(e - p) < len) {++bad; break;}
         LeanRecord rec;
@@ -968,13 +990,22 @@ juce::String Library::importPack(const juce::File& in, int* addedOut)
         if (id.isEmpty() || id.containsAnyOf("/\\:.")) {++bad; continue;}
         for (auto* k : kPrivateKeys) rec.meta.erase(std::remove_if(rec.meta.begin(), rec.meta.end(), [&](auto& kv) { return kv.first == k; }), rec.meta.end());
         if (leanFile(id).existsAsFile()) {++own; continue;} //you already measured this one yourself
+        if (rec.get("name").empty() && rec.get("title").empty()) ++noName;
+        const juce::File f = dir.getChildFile(id + ".lnr.gz");
+        const bool had = f.existsAsFile();
         const auto bytes = gzipBytes(serialiseLean(rec));
-        folder.getChildFile("lean-shared").getChildFile(id + ".lnr.gz").replaceWithData(bytes.data(), bytes.size());
-        ++added;
+        if (!f.replaceWithData(bytes.data(), bytes.size())) {++bad; continue;}
+        if (had) ++updated; else { ++added; if (newIds) newIds->push_back(id); }
     }
-    if (added > 0) { ChangeNote n; n.kind = ChangeNote::SharedAll; notify(n); }
+    if (added + updated > 0) { ChangeNote cn; cn.kind = ChangeNote::SharedAll; notify(cn); }
     if (addedOut) *addedOut = added;
-    return juce::String(added) + " records added from the " + (full ? "full" : "display") + " pack" + (own ? ", " + juce::String(own) + " skipped because you measured them yourself" : juce::String()) + (bad ? ", " + juce::String(bad) + " could not be read" : juce::String()) + ".";
+    if (updatedOut) *updatedOut = updated;
+    juce::String msg = "Pack (" + juce::String(full ? "full" : "display") + "): " + juce::String(added) + " new, " + juce::String(updated) + " updated (already there)";
+    if (own) msg << ", " << own << " skipped because you measured them yourself";
+    if (bad) msg << ", " << bad << " could not be read";
+    msg << ".";
+    if (noName > 0) msg << " " << noName << " have no names (the pack was made without them, or by an older Analyser: export it again from the other machine).";
+    return msg;
 }
 
 std::vector<juce::String> Library::sharedIds()
