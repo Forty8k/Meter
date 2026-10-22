@@ -340,6 +340,7 @@ struct AirwindowsMeter : public juce::Component
     //newer lines from Chris's meter (0.5.6 on): where the zero cross and RMS settle (B) and how far they keep departing (D)
     std::array<float, dataPoints+2> dataBZL{}, dataBZR{}, dataDZL{}, dataDZR{}, dataBRL{}, dataBRR{}, dataDRL{}, dataDRR{};
     bool hasZeroRmsLines = false;
+    int chrisVersion = 0; //the original Meter version underneath, as major*10000 + minor*100 + patch (0.5.7 = 507), set by the editor
     void pushExtra(const juce::String& what, float X) {
         std::array<float, dataPoints+2>* a = nullptr;
         if (what == "BZER_LEFT") a = &dataBZL; else if (what == "BZER_RIGHT") a = &dataBZR; else if (what == "DZER_LEFT") a = &dataDZL; else if (what == "DZER_RIGHT") a = &dataDZR;

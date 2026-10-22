@@ -30,6 +30,7 @@ PluginEditor::PluginEditor (PluginProcessor& p)
     meter.setOpaque(true);
     meter.resetArrays();
     meter.addMouseListener(this, false);
+    meter.chrisVersion = kChrisVersion; //which of Chris's looks meterDARK's own drawing follows (0.5.7: very bright detail turns the slew line yellow)
     addAndMakeVisible(meter);
     meter.outputR = 10.0;
     meter.outputG = 10.0;

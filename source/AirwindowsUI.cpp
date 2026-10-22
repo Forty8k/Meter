@@ -475,6 +475,18 @@ void AirwindowsMeter::paint(juce::Graphics &g)
             beam = fmin(beam, 199.0f);
             departure = fmin(6.18033988749894f, fmax(0.0f, (5.0f-(dataDL[count]+dataDR[count])) * sqrt(fmax(dataBL[count],dataBR[count]))) * 6.18033988749894f);
         }
+        //Meter 0.5.7 on: Chris thins the slew line when the highs are ear-splitting (his beam above 186) and drops it to nothing above 198, so those moments
+        //count less in the score. meterDARK keeps drawing the line at full body (you need to SEE what triggers it to fix it) and turns it yellow by how much
+        //Chris's rule cuts it. His beam is used as he computes it (not zoomed or curved), so the yellow does not move with the detail zoom.
+        float brightCut = 0.0f;
+        if (chrisVersion >= 507 && hasZeroRmsLines) {
+            const float chrisBeam = fmin(199.0f, sqrt(dataBL[count]+dataBR[count])*618.033988749894f);
+            if (chrisBeam > 198.0f) brightCut = 1.0f;
+            else if (chrisBeam > 186.0f && departure > 1.0e-6f) {
+                const float his = fmin(6.18033988749894f/(1.0f+(chrisBeam-186.0f)*0.2f), departure); //his 0.5.7 thickness
+                brightCut = juce::jlimit(0.0f, 1.0f, 1.0f - his/departure);
+            }
+        }
          //begin draw dots on meters L
         if (peakL > 197.0f) {
             g.setColour(clipCol);
@@ -486,16 +498,16 @@ void AirwindowsMeter::paint(juce::Graphics &g)
         //THE LINES (Chris's black lines), in meterDARK's style: white while there is enough movement to give the line a body; when the body
         //collapses (static, unchanging material) it turns yellow, the same yellow as clipping, and keeps a minimum height so it stays visible.
         //It sits on a darker band so it stands out from the dots. 0.5.5 has the slew line only; 0.5.6 adds one on the zero cross and peak meters.
-        auto drawLine = [&](int sec, float yv, float heightUnits) {
+        auto drawLine = [&](int sec, float yv, float heightUnits, float yellow = 0.0f) {
             if (dark) { g.setColour(beamBand); g.fillRect((float)count, meterY(sec, yv)-4.0f*vS, 1.0f, meterH(sec, heightUnits)+8.0f*vS); }
             const float bodyPx = meterH(sec, heightUnits);
-            const float fastness = 1.0f - fmin(bodyPx/1.5f, 1.0f);
+            const float fastness = fmax(1.0f - fmin(bodyPx/1.5f, 1.0f), yellow); //static material, or (0.5.7) too bright to count: yellow
             const float minPx = 2.0f;
             const float drawPx = fmax(bodyPx, minPx);
             g.setColour(dark ? beamCol.interpolatedWith(clipCol, fastness).withAlpha(0.88f+0.12f*fastness) : beamCol);
             g.fillRect((float)count, meterY(sec, yv) - (drawPx-bodyPx)*0.5f*(dark ? 1.0f : 0.0f), 1.0f, dark ? drawPx : bodyPx);
         };
-        drawLine(2, 600.0f-beam, departure); //the slew line
+        drawLine(2, 600.0f-beam, departure, brightCut); //the slew line
         if (hasZeroRmsLines) { //Chris's formulas for where the zero cross and RMS lines sit and how thick they are
             const float beamZ = (sqrt((dataBZL[count]+dataBZR[count])*0.5f)*6.0f)-6.0f;
             const float beamZero = fmax(fmin((sqrt(fmax(beamZ, 0.0f))*16.2f)-20.0f, 199.0f), 0.5f);
