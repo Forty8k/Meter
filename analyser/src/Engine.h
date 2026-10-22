@@ -139,6 +139,10 @@ private:
     void saveColumns(const std::vector<CustomColumn>& cols);
     void putIndexRow(const juce::StringArray& cells); // add, or replace the row with the same id
     void putGradeRow(const juce::String& vid, const juce::String& id, const OriginalResult& r, int rate = 0);
+    // many rows of one grades file in ONE read + write (a row per track still sends its own change note)
+    void putGradeRows(const juce::String& vid, int rate, const std::vector<std::pair<juce::String, OriginalResult>>& rows);
+    // the version whose stored windows this version uses (itself, or the older one it measures exactly like)
+    static juce::String windowSource(const juce::String& vid);
     juce::File gradesFile(const juce::String& vid, int rate = 0) const;
     juce::File levelGradesFile(const juce::String& vid, int rate, const LevelMode& lm) const;
     juce::File rateCoreFile(const juce::String& id, const juce::String& vid, int rate) const;

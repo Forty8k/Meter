@@ -177,19 +177,37 @@ std::vector<juce::String> Library::versionIds()
     return v;
 }
 
+juce::String Library::windowSource(const juce::String& vid)
+{
+    const MeterVersion* mv = findMeterVersion(vid.toStdString());
+    return (mv != nullptr && !mv->sameWindowsAs.empty()) ? juce::String(mv->sameWindowsAs) : vid;
+}
+
 void Library::putGradeRow(const juce::String& vid, const juce::String& id, const OriginalResult& o, int rate)
 {
+    putGradeRows(vid, rate, {{id, o}});
+}
+
+void Library::putGradeRows(const juce::String& vid, int rate, const std::vector<std::pair<juce::String, OriginalResult>>& rows)
+{
+    if (rows.empty()) return;
     const juce::ScopedLock sl(lock);
     Table t; t.load(gradesFile(vid, rate));
     juce::StringArray want; for (auto c : kGradeHeader) want.add(c);
     if (t.header != want) {Table n; n.header = want; for (size_t r = 0; r < t.rows.size(); ++r) {n.rows.push_back({}); for (auto& c : want) n.rows.back().add(t.get(r, c));} t = n;}
-    const juce::StringArray cells{id, juce::String(o.grade), juce::String(o.letter), juce::String(o.bonus), juce::String(o.authority), juce::String(o.power),
-        juce::String(o.detail), juce::String(o.directionsMain), juce::String(o.directions), num(o.bassPrevGrade, 3), num(o.peakPrevGrade, 3), num(o.slewPrevGrade, 3),
-        num(o.letterValue, 3), juce::String(o.bonusValue), juce::String((int)o.windows), juce::Time::getCurrentTime().toISO8601(true)};
-    const int existing = t.findRow("id", id);
-    if (existing >= 0) t.rows[(size_t)existing] = cells; else t.rows.push_back(cells);
+    std::map<juce::String, size_t> rowOf; for (size_t r = 0; r < t.rows.size(); ++r) rowOf[t.get(r, "id")] = r;
+    const juce::String now = juce::Time::getCurrentTime().toISO8601(true);
+    std::vector<juce::StringArray> written;
+    for (auto& [id, o] : rows) {
+        const juce::StringArray cells{id, juce::String(o.grade), juce::String(o.letter), juce::String(o.bonus), juce::String(o.authority), juce::String(o.power),
+            juce::String(o.detail), juce::String(o.directionsMain), juce::String(o.directions), num(o.bassPrevGrade, 3), num(o.peakPrevGrade, 3), num(o.slewPrevGrade, 3),
+            num(o.letterValue, 3), juce::String(o.bonusValue), juce::String((int)o.windows), now};
+        auto it = rowOf.find(id);
+        if (it != rowOf.end()) t.rows[it->second] = cells; else { rowOf[id] = t.rows.size(); t.rows.push_back(cells); }
+        written.push_back(cells);
+    }
     t.save(gradesFile(vid, rate));
-    ChangeNote n; n.kind = ChangeNote::GradeRow; n.id = id; n.version = vid; n.rate = rate; n.header = want; n.cells = cells; notify(n);
+    for (size_t i = 0; i < rows.size(); ++i) { ChangeNote n; n.kind = ChangeNote::GradeRow; n.id = rows[i].first; n.version = vid; n.rate = rate; n.header = want; n.cells = written[i]; notify(n); }
 }
 
 Table Library::gradeFile(const juce::String& vid, int rate)
@@ -337,6 +355,8 @@ bool Library::readCoreAt(const juce::String& id, const juce::String& vid, int ra
             if (auto* nm = r.getProperty("core_columns", juce::var()).getArray()) for (auto& n : *nm) names.push_back(n.toString().toStdString());
             return !names.empty() && readFloats(rateCoreFile(id, vid, rate), values) && values.size() % names.size() == 0;
         }
+    const juce::String src = windowSource(vid);
+    if (src != vid) return readCoreAt(id, src, rate, names, values); //a version that measures exactly like an older one: that one's stored windows
     return false;
 }
 
@@ -346,7 +366,7 @@ bool Library::readCore(const juce::String& id, const juce::String& vid, std::vec
     juce::File f = coreFile(id, vid);
     bool legacy = false;
     if (!f.existsAsFile() && vid == juce::String(meterVersions().front().id)) {f = folder.getChildFile("tracks").getChildFile(id + ".core.csv"); legacy = true;}
-    if (!f.existsAsFile()) return false;
+    if (!f.existsAsFile()) { const juce::String src = windowSource(vid); return src != vid && readCore(id, src, names, values); } //measures exactly like an older version
     juce::StringArray lines; lines.addLines(f.loadFileAsString());
     if (lines.size() < 2) return false;
     juce::StringArray head; head.addTokens(lines[0], ",", "");
@@ -532,7 +552,25 @@ AnalyseOutcome Library::analyseHashed(const juce::File& audio, std::function<voi
         if (inIndex) {
             if (extrasCurrent && missing.empty()) {out.status = AnalyseOutcome::AlreadyThere; out.message = "already in the library"; return out;}
             if (extrasCurrent) { //only the newer Meter versions are missing
-                if (!scanVersions(id, audio, missing, progress, shouldStop)) {out.message = "could not read the audio again"; return out;}
+                //a version that measures exactly like an older one is graded from the stored windows (no audio needed)
+                std::vector<juce::String> needAudio;
+                for (auto& v : missing) {
+                    std::vector<std::string> names; std::vector<float> values;
+                    if (windowSource(v) != v && readCore(id, v, names, values) && !names.empty()) {
+                        const MeterVersion* mv = findMeterVersion(v.toStdString());
+                        double fileRate = 44100.0;
+                        { Table ix = index(); const int r = ix.findRow("id", id); if (r >= 0) fileRate = ix.get((size_t)r, "sample_rate").getDoubleValue(); }
+                        auto run = mv->create(fileRate, 1);
+                        for (size_t w = 0; w + names.size() <= values.size(); w += names.size()) run->feedWindow(names, &values[w]);
+                        putGradeRow(v, id, run->result());
+                        for (int a : anchorRates()) if (a != juce::roundToInt(fileRate) && readCoreAt(id, v, a, names, values) && !names.empty()) {
+                            auto ra = mv->create((double)a, 1);
+                            for (size_t w = 0; w + names.size() <= values.size(); w += names.size()) ra->feedWindow(names, &values[w]);
+                            putGradeRow(v, id, ra->result(), a);
+                        }
+                    } else needAudio.push_back(v);
+                }
+                if (!needAudio.empty() && !scanVersions(id, audio, needAudio, progress, shouldStop)) {out.message = "could not read the audio again"; return out;}
                 out.status = AnalyseOutcome::Updated; out.message = "updated with Meter " + juce::String(missing.size() == 1 ? findMeterVersion(missing[0].toStdString())->version : "versions");
                 return out;
             }
@@ -1061,7 +1099,9 @@ Library::LeanReport Library::buildLeanRecords(bool force, bool verify, std::func
             if (r >= total || (shouldStop && shouldStop())) return;
             const juce::String id = t.get((size_t)r, "id");
             bool keep = false, nodata = false, mismatch = false; double bytes = 0, bytesReplay = 0;
-            if (!force && leanFile(id).existsAsFile()) {
+            bool current = false;
+            if (!force && leanFile(id).existsAsFile()) { LeanRecord old; current = readLean(id, old) && juce::String(old.get("meter_version")) == juce::String(mv->version); } //built with an older Meter: build again
+            if (current) {
                 keep = true; //already there: only your corrected tags and the audio source can have changed
                 std::vector<std::pair<std::string, std::string>> ch;
                 auto uv = users.find(id);
@@ -1169,17 +1209,36 @@ int Library::upgradeOldRows(std::function<bool()> shouldStop, std::function<void
 {
     Table t = index();
     if (t.rows.empty()) return 0;
-    //what each track still needs: grades from each Meter version, and the BPM estimate
-    struct Job { size_t row; std::vector<juce::String> missing; bool bpm; };
+    //what each track still needs: grades from each Meter version (at the file's rate, and at the converted anchor rates where the newest
+    //version's windows are stored), and the BPM estimate
+    const juce::String newestSrc = windowSource(versionIds().back());
+    struct Need { juce::String vid; int rate; };
+    struct Job { size_t row; std::vector<Need> missing; bool bpm; };
     std::vector<Job> jobs;
-    std::map<juce::String, Table> g;
-    for (auto& v : versionIds()) g[v] = grades(v);
+    std::map<juce::String, std::map<int, std::set<juce::String>>> have; // version -> rate -> ids with a grade row
+    for (auto& v : versionIds()) {
+        { const Table g = gradeFile(v, 0); for (size_t r = 0; r < g.rows.size(); ++r) have[v][0].insert(g.get(r, "id")); }
+        if (windowSource(v) == newestSrc) for (int a : anchorRates()) { const Table g = gradeFile(v, a); for (size_t r = 0; r < g.rows.size(); ++r) have[v][a].insert(g.get(r, "id")); }
+    }
     for (size_t r = 0; r < t.rows.size(); ++r) {
+        const juce::String id = t.get(r, "id");
         Job j{r, {}, t.get(r, "bpm_confidence").isEmpty()};
-        for (auto& v : versionIds()) if (g[v].findRow("id", t.get(r, "id")) < 0) j.missing.push_back(v);
+        const int fileRate = juce::roundToInt(t.get(r, "sample_rate").getDoubleValue());
+        for (auto& v : versionIds()) {
+            if (have[v][0].count(id) == 0) j.missing.push_back({v, 0});
+            if (windowSource(v) == newestSrc) for (int a : anchorRates()) //only where those windows were stored (tracks scanned before the anchor rates need a rescan for them)
+                if (a != fileRate && have[v][a].count(id) == 0 && (rateCoreFile(id, v, a).existsAsFile() || rateCoreFile(id, windowSource(v), a).existsAsFile())) j.missing.push_back({v, a});
+        }
         if (j.bpm || !j.missing.empty()) jobs.push_back(j);
     }
     if (jobs.empty()) return 0;
+    //grade rows are collected and written a few hundred at a time (each grades file is read and written once per batch, not once per track)
+    juce::CriticalSection pendLock; std::map<std::pair<juce::String, int>, std::vector<std::pair<juce::String, OriginalResult>>> pending; size_t pendingCount = 0;
+    auto flush = [&](bool all) {
+        decltype(pending) out;
+        { const juce::ScopedLock pl(pendLock); if (!all && pendingCount < 300) return; out.swap(pending); pendingCount = 0; }
+        for (auto& kv : out) putGradeRows(kv.first.first, kv.first.second, kv.second);
+    };
     std::atomic<int> next{0}, done{0}, changed{0}, noAudio{0};
     auto work = [&] {
         for (int k; (k = next++) < (int)jobs.size();) {
@@ -1189,21 +1248,24 @@ int Library::upgradeOldRows(std::function<bool()> shouldStop, std::function<void
             const juce::File tracks = folder.getChildFile("tracks");
             bool any = false;
             std::vector<juce::String> needAudio;
-            for (auto& v : j.missing) { //replay the stored window data where it exists (no audio needed)
+            for (auto& need : j.missing) { //replay the stored window data where it exists (no audio needed); a version that measures like an older one uses that one's windows
                 std::vector<std::string> names; std::vector<float> values;
-                if (readCore(id, v, names, values)) {
-                    auto run = findMeterVersion(v.toStdString())->create(t.get(j.row, "sample_rate").getDoubleValue(), 1);
+                const bool got = need.rate == 0 ? readCore(id, need.vid, names, values) : readCoreAt(id, need.vid, need.rate, names, values);
+                if (got && !names.empty()) {
+                    const double sr = need.rate > 0 ? (double)need.rate : t.get(j.row, "sample_rate").getDoubleValue();
+                    auto run = findMeterVersion(need.vid.toStdString())->create(sr, 1);
                     for (size_t w = 0; w + names.size() <= values.size(); w += names.size()) run->feedWindow(names, &values[w]);
-                    putGradeRow(v, id, run->result());
+                    { const juce::ScopedLock pl(pendLock); pending[{need.vid, need.rate}].push_back({id, run->result()}); ++pendingCount; }
                     any = true;
-                } else needAudio.push_back(v);
+                } else if (need.rate == 0) needAudio.push_back(need.vid); //no windows at the anchor rates: those stay as they are until a rescan
             }
+            flush(false);
             if (!needAudio.empty()) { //a Meter version that measures differently: it needs the audio again
                 const juce::File src(t.get(j.row, "source_path"));
                 if (src.existsAsFile() && scanVersions(id, src, needAudio, {}, shouldStop)) any = true;
                 else ++noAudio;
             }
-            if (j.bpm) {
+    if (j.bpm) {
                 std::vector<float> fine;
                 const juce::var meta = juce::JSON::parse(tracks.getChildFile(id + ".meta.json"));
                 const double sr = meta.getProperty("sample_rate", 0.0), blk = meta.getProperty("fine_block_samples", 0.0);
@@ -1227,6 +1289,7 @@ int Library::upgradeOldRows(std::function<bool()> shouldStop, std::function<void
     for (int i = 1; i < threads; ++i) pool.emplace_back(work);
     work();
     for (auto& th : pool) th.join();
+    flush(true);
     lastNoAudio = noAudio.load();
     {   //an index from before the grades moved to their own files: rewrite it in the current shape
         const juce::ScopedLock sl(lock);

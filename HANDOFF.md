@@ -12,6 +12,20 @@ Not hand-checked on a real screen: Overview layout (look at tab-library-big.png 
 ## LATEST+: 21 Oct, LAB search round (PLAN-NEXT.md)
 LabView.inc: `Model::refresh` lists only `inUse(i)` tracks narrowed by `search` (view only; `Track::hay` built in `load()`), `countLabel` "N of M tracks", selection kept by track. GlanceView: linesButton on by default. Not hand-checked.
 
+## LATEST (round 4): 22 Oct 2026, share-pack fixes + Meter 0.5.7, built by Opus (PLAN-NEXT.md). analyser AND meterdark branches.
+- Packs: `Library::exportPack(out, full, ids, names=true)` writes "name" (Overview name from current values, else `Library::fileTitle(file)`) and refreshes tags;
+  `importPack(in, added*, newIds*, updated*)` says "N new, M updated"; GUI share menu has with/without names; import runs on the pool. Overview: shared records always
+  shown (filters only judge own tracks), toggle "Shared: shown/hidden" in `overview-settings.json`, status "N tracks + M shared" + `notice` (last import/build message);
+  `sharedRecordName()` (MainGui.cpp) used by Overview + LABs. Old packs: "Shared track <id6>".
+- TrackStore race fix: per-track epochs (`dataEpoch`, `winEpoch`) + global `epoch`; a reader keeps its disk read only if the stamp did not move during the read.
+- Meter 0.5.7 (e0faab5): `analyser/original/0.5.7-e0faab5`; make_original_scorer.py writes `MeterVersion::sameWindowsAs` (identical audio-thread code ->
+  0.5.7 twins 0.5.6). `readCore`/`readCoreAt` fall back to the twin's files (`Library::windowSource`). `upgradeOldRows` replays missing grades at native AND anchor
+  rates (only where that version family's rate windows exist) and writes them batched (`putGradeRows`, 300 rows per flush). `analyseHashed` replays twins before
+  any audio rescan. Lean records rebuild when built with another Meter version. CLI `--twin-test` (CI): a 0.5.7 grade from 0.5.6's windows == scanning the audio.
+  New scans still capture every version (twin capture not skipped: the paint/scoring is needed anyway, the saving would be small).
+- meterDARK (meterdark branch): built on 0.5.7; Current.h has `kChrisVersion` (507); slew line keeps its body where 0.5.7 thins it, `brightCut` turns it yellow.
+- LabView: hints recompute once after the last batch of a big change, not per batch.
+
 ## LATEST+++: 21 Oct, the TRACK STORE (PLAN-NEXT.md, steps 1-4 and 6; step 5 not needed unless the LAB line "Loaded N tracks in X s" is slow, > ~20 s)
 - `analyser/src/TrackStore.{h,cpp}`: the library in memory, built once per launch (MainComponent::setFolder creates it BEFORE the worker starts). Library reports each change as a `ChangeNote` (Engine.h `onChange`); the store applies it to that track only and logs a `StoreChange`. Views poll `store->seq()` and `changesSince()` (false = log too old, rebuild from memory).
 - Full table (`LibraryView`), Overview (`GlanceView.inc`: makeItem/gather/applyChanges) and both LABs (`LabView.inc`: makeTracks/load/applyChanges/removeTrack) read from it; `changeCount` polling is gone from the tabs. Window data lives in the store (`windows`/`loadWindows`, kept per version|rate|blocks); LabView `Track` only points at it.

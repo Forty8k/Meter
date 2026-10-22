@@ -8,7 +8,7 @@ int main(int argc, char* argv[])
 {
     juce::File library = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("meterDARK Library");
     juce::Array<juce::File> inputs;
-    bool rescan = false; bool fillTags = false, foldersOnly = false, tagTest = false, storeTest = false; juce::String discogsToken; int levels = 0; int lean = 0; juce::String exportPack, importPack; bool fullPack = false, packNoNames = false;
+    bool rescan = false; bool fillTags = false, foldersOnly = false, tagTest = false, storeTest = false, twinTest = false; juce::String discogsToken; int levels = 0; int lean = 0; juce::String exportPack, importPack; bool fullPack = false, packNoNames = false;
     for (int i = 1; i < argc; ++i) {
         const juce::String a(argv[i]);
         if ((a == "--library" || a == "-l") && i + 1 < argc) {library = juce::File::getCurrentWorkingDirectory().getChildFile(argv[++i]); continue;}
@@ -25,6 +25,7 @@ int main(int argc, char* argv[])
         if (a == "--discogs-token" && i + 1 < argc) {discogsToken = argv[++i]; continue;}
         if (a == "--tagfill-test") {tagTest = true; continue;}
         if (a == "--store-test") {storeTest = true; continue;}
+        if (a == "--twin-test") {twinTest = true; continue;}
         if (a == "--help" || a == "-h") {
             std::cout << "Usage: meterDARKAnalyserCLI [--library <folder>] [--rescan] <audio files or folders...>\n"
                          "--rescan scans every track captured by an older analyser again from its stored file path.\n"
@@ -51,6 +52,66 @@ int main(int argc, char* argv[])
         { const auto d = parseDiscogs(R"({"results":[{"year":"2003","genre":["Rock"]},{"year":"1999","genre":["Electronic"]}]})"); check(d.ok && d.year == "1999" && d.genre == "Rock", "discogs parse"); }
         check(!parseMusicBrainz("not json").ok && !parseDiscogs("{}").ok, "bad answers");
         std::cout << (bad == 0 ? "Tag-fill checks: all passed\n" : "Tag-fill checks: FAILED\n");
+        return bad == 0 ? 0 : 1;
+    }
+    if (twinTest) { //a Meter version that measures exactly like an older one: grades from the older one's stored windows must equal scanning the audio
+        int bad = 0;
+        auto check = [&](bool ok, const juce::String& what) { if (!ok) { ++bad; std::cout << "FAIL: " << what << "\n"; } };
+        const auto& mvs = mdark::meterVersions();
+        const mdark::MeterVersion* twin = nullptr; for (auto& m : mvs) if (!m.sameWindowsAs.empty()) twin = &m;
+        if (twin == nullptr) { std::cout << "Twin checks: no version measures like an older one (nothing to check)\n"; return 0; }
+        const juce::String tv(twin->id), src(twin->sameWindowsAs);
+        std::cout << "Twin: " << tv << " measures like " << src << "\n";
+        const juce::File tmp = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("mdark-twin-test-" + juce::String(juce::Time::currentTimeMillis()));
+        tmp.createDirectory();
+        const juce::File wavFile = tmp.getChildFile("music.wav");
+        { //8 s at 44.1 kHz (so the 96 kHz conversion is used too): a chord with bursts of noise and a loud bright section
+            juce::WavAudioFormat wav; std::unique_ptr<juce::FileOutputStream> os(wavFile.createOutputStream());
+            std::unique_ptr<juce::AudioFormatWriter> w(wav.createWriterFor(os.get(), 44100.0, 2, 16, {}, 0)); os.release();
+            juce::AudioBuffer<float> b(2, 44100 * 8); juce::Random rnd(7);
+            for (int i = 0; i < b.getNumSamples(); ++i) {
+                const double t = i / 44100.0;
+                double v = 0.25*std::sin(6.2831853*110.0*t) + 0.15*std::sin(6.2831853*277.2*t) + 0.1*std::sin(6.2831853*3520.0*t);
+                if (std::fmod(t, 0.5) < 0.05) v += 0.5*(rnd.nextDouble()*2.0 - 1.0);
+                if (t > 5.0) v = 0.9*(rnd.nextDouble()*2.0 - 1.0)*(0.5 + 0.5*std::sin(6.2831853*9000.0*t)); //very bright, loud
+                b.setSample(0, i, (float)v); b.setSample(1, i, (float)(v*0.97));
+            }
+            w->writeFromAudioSampleBuffer(b, 0, b.getNumSamples());
+        }
+        const juce::File libDir = tmp.getChildFile("lib");
+        juce::String id;
+        std::map<int, juce::StringArray> direct; //rate -> the twin's grade row from scanning the audio
+        {
+            mdark::Library lib(libDir);
+            const auto r = lib.analyse(wavFile); id = r.id;
+            check(r.status == mdark::AnalyseOutcome::Added, "track added");
+            for (int rate : {0, 96000}) { const auto g = lib.gradeFile(tv, rate); const int row = g.findRow("id", id); check(row >= 0, "direct grade row at rate " + juce::String(rate)); if (row >= 0) direct[rate] = g.rows[(size_t)row]; }
+            //make it look like a library from before this version existed: no grade rows, no window files of its own, the anchor-rate windows under the older version's name
+            const juce::File tracks = libDir.getChildFile("tracks");
+            for (int rate : {0, 44100, 96000}) { mdark::Table g = lib.gradeFile(tv, rate); mdark::Table n; n.header = g.header; for (auto& row : g.rows) if (row[0] != id) n.rows.push_back(row); n.save(libDir.getChildFile(rate == 0 ? "grades-" + tv + ".csv" : "grades-" + tv + "@" + juce::String(rate) + ".csv")); }
+            tracks.getChildFile(id + ".core-" + tv + ".csv").deleteFile();
+            for (int rate : {44100, 96000}) { const juce::File f = tracks.getChildFile(id + ".core-" + tv + "@" + juce::String(rate) + ".f32.gz"); if (f.existsAsFile()) f.moveFileTo(tracks.getChildFile(id + ".core-" + src + "@" + juce::String(rate) + ".f32.gz")); }
+            const juce::File mf = tracks.getChildFile(id + ".meta.json");
+            mf.replaceWithText(mf.loadFileAsString().replace("\"core_version\": \"" + tv + "\"", "\"core_version\": \"" + src + "\"").replace(".core-" + tv + "@", ".core-" + src + "@"));
+        }
+        {
+            mdark::Library lib(libDir); //opened again, as the app does
+            check(lib.gradeFile(tv, 0).findRow("id", id) < 0, "the twin's grade is gone (simulated old library)");
+            const int n = lib.upgradeOldRows();
+            check(n == 1, "upgrade touched the track (" + juce::String(n) + ")");
+            for (int rate : {0, 96000}) {
+                const auto g = lib.gradeFile(tv, rate); const int row = g.findRow("id", id);
+                check(row >= 0, "replayed grade row at rate " + juce::String(rate));
+                if (row < 0) continue;
+                for (auto col : {"grade", "letter", "bonus", "authority", "power", "detail", "directions_main", "directions_end", "letter_value", "bonus_value", "windows"})
+                    check(g.get((size_t)row, col) == mdark::Table{g.header, {direct[rate]}}.get(0, col), juce::String("same ") + col + " at rate " + juce::String(rate) + ": " + g.get((size_t)row, col) + " vs " + mdark::Table{g.header, {direct[rate]}}.get(0, col));
+                std::cout << "  " << tv << (rate ? " @96k" : " native") << ": " << g.get((size_t)row, "grade") << " (bonus '" << g.get((size_t)row, "bonus") << "', directions '" << g.get((size_t)row, "directions_main") << "')\n";
+            }
+            check(lib.upgradeOldRows() == 0, "nothing left to do the second time");
+            check(lib.analyse(wavFile).status == mdark::AnalyseOutcome::AlreadyThere, "adding the file again: already there, no rescan");
+        }
+        tmp.deleteRecursively();
+        std::cout << (bad == 0 ? "Twin checks: all passed\n" : "Twin checks: FAILED\n");
         return bad == 0 ? 0 : 1;
     }
     if (storeTest) { //the track store: filled once, then changed one track at a time (no disk re-reading), in a temporary library

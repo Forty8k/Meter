@@ -43,6 +43,7 @@ struct MeterVersion {
     // displayWidth 1058 x 698 is the meter area of the plugin at its default 1080 x 720 size.
     // paintEvery = 1 is real-time playback (one repaint per window); larger mimics a host rendering faster than the screen redraws.
     std::function<std::unique_ptr<MeterRun>(double sampleRate, int paintEvery)> create;
+    std::string sameWindowsAs; // an OLDER version whose audio-thread code is identical (empty if none): the captured windows are the same, so its stored windows are this version's too
 };
 const std::vector<MeterVersion>& meterVersions(); // oldest first
 

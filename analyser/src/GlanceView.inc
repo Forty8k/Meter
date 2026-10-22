@@ -616,9 +616,8 @@ private:
         if (!store->changesSince(loadedSeq, ch, now)) { loaded = false; return; }
         const auto allowed = getAllowed ? getAllowed() : nullptr;
         bool any = false;
-        for (auto& c : ch) if (c.id.isEmpty() && c.kind != mdark::StoreChange::Lean && c.kind != mdark::StoreChange::Shared) { loaded = false; return; } //columns / reset / a whole-library change
         for (auto& c : ch) {
-            if (c.id.isEmpty()) { loaded = false; return; } //lean records for many tracks, or shared records
+            if (c.id.isEmpty()) { loaded = false; return; } //columns, a reset, lean records of many tracks, shared records: the list again (from memory)
             auto at = std::find_if(items.begin(), items.end(), [&](const Item& i) { return i.id == c.id; });
             if (c.kind == mdark::StoreChange::Removed) { if (at != items.end()) { items.erase(at); any = true; } continue; }
             if (allowed && !allowed->count(c.id)) { if (at != items.end()) { items.erase(at); any = true; } continue; }

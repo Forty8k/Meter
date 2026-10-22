@@ -324,7 +324,8 @@ private:
         for (auto& id : batch) pendingRegrade.erase(id);
         origRanks = ranks(false);
         if (!labRanks.empty()) labRanks = ranks(true);
-        recompute(); model.refresh();
+        if (pendingIds.empty()) recompute(); //the hints are worked out once the last batch is in (not after every batch of a big change)
+        model.refresh();
     }
     void removeTrack(const juce::String& id) {
         pendingIds.erase(std::remove(pendingIds.begin(), pendingIds.end(), id), pendingIds.end());

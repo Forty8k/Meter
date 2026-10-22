@@ -2,7 +2,7 @@ METER MDark ANALYSER - HOW TO
 ===========================
 
 What it does
-  Runs every version of the ORIGINAL Airwindows Meter it knows (0.5.5, 0.5.6 ...) over a track, once, much faster than
+  Runs every version of the ORIGINAL Airwindows Meter it knows (0.5.5, 0.5.6, 0.5.7 ...) over a track, once, much faster than
   real time and with no DAW, and keeps what each one sees and grades in a library folder. Your own Meter tweaks play no
   part in it, so the data never goes out of date: any gauge, grade or hint can be worked out again later from the library.
   When Chris publishes a new Meter, a new analyser build with it appears automatically (see "Updates" below).
@@ -112,9 +112,13 @@ The Library tab (overview)
   "Source" (Tidal, Spotify, Apple Music, Vinyl, CD, HDtracks, Qobuz, Other, or type your own in the full table's Source column) says where a copy came from.
   Copies of the same song (same artist + title, about the same length) are grouped: the list says "(3 versions)", the best one is marked "best"
     (best grade, then higher sample rate), and "Compare versions" stacks their tone bars.
-  "Share packs..." exports a display pack (small) or a full pack (adds the replay blocks so others can regrade), or imports a pack. Packs never
-    contain file names or paths. Imported tracks show as "(shared)" and are kept apart from your own measurements (lean-shared folder).
-  Command line: --lean (build records), --lean-check (rebuild all and prove each replay block regrades to the same grade), --export-pack, --import-pack.
+  "Share packs..." exports a display pack (small) or a full pack (adds the replay blocks so others can regrade), each with or without track names, or imports a pack.
+    With names, each record carries the name the Overview shows (artist - title from your current values, else the file name without folder or extension) and your
+    current artist / title / album / year / genre. Packs never contain folders or paths. Imported tracks show as "(shared)", kept apart from your own measurements
+    (lean-shared folder), and ALWAYS show in the Overview whatever the Library's filters ("Shared: shown / hidden" next to Share packs turns them off).
+    The import says how many records are new and how many replaced an earlier copy, then jumps to the first new one. Packs made before 22 Oct 2026 have no names
+    (the list shows "Shared track" + a short id): export them again.
+  Command line: --lean (build records), --lean-check (rebuild all and prove each replay block regrades to the same grade), --export-pack [--full] [--no-names], --import-pack.
 
 The gradeLAB tab
   The original-scoring experiment (it used to be inside the Lab). "Use replay blocks" regrades from each track's lean record (and from shared
@@ -224,7 +228,7 @@ gradeLAB -> meterDARK
     Under ADVANCED > CHECKS: "Level test" (the readings should not change when a track is played quieter) and "Measure low end" (does the tone reading follow the real low end?).
     The chart after "Measure low end" reads each track's stored fine data (not the audio files, so it works with the files moved; tracks from a shared pack have none). Each dot is a track:
     across = measured low-end share, up = tone reading; dots rising left to right = it follows; r near 1 = closely. If it cannot be drawn, it says why.
-  gradeLAB: a Meter version box at the top (0.5.5 / 0.5.6). Every version has its own window data, original grades and settings, and starts from its own original values when you switch.
+  gradeLAB: a Meter version box at the top (0.5.5 / 0.5.6 / 0.5.7). Every version has its own window data, original grades and settings, and starts from its own original values when you switch.
     Export to meterDARK writes that version's id; a meterDARK built on another version ignores the file. "Use replay blocks" scores from each track's compact replay copy (the 16-bit window data
     inside its lean record) instead of the full stored data; needed for tracks shared with you in packs, the same grades for your own.
 
@@ -237,3 +241,8 @@ gradeLAB -> meterDARK
     Changing one track (a name, a genre, a fill from tags) or adding tracks updates only those tracks everywhere; nothing is rebuilt. The LABs no longer show "still loading" after the first load:
     new tracks are put in a few at a time, and the Library's real grades are never touched. After the first load the LAB status line shows "Loaded N tracks in X s".
     The library FOLDER stays the only real record; the store is just its working copy in memory.
+  Meter 0.5.7 (22 Oct 2026): Chris's newest. It measures exactly like 0.5.6 (same audio code; only the scoring changed: the detail black line counts less on
+    ear-splitting highs, and the directions only show when there is no bonus number). So every track's 0.5.7 grades are worked out from the 0.5.6 data already stored:
+    no audio is read again. This happens by itself when the library opens ("updating the library for the newest Meter"). 0.5.7 is now the newest version: the default
+    in the version boxes and the LABs. Press "Build / update records" once afterwards: records built with 0.5.6 are built again with 0.5.7's grade.
+    gradeLAB settings exported for 0.5.6 do not apply to a meterDARK built on 0.5.7: tune on 0.5.7 and export again.
