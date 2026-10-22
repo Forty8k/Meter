@@ -55,10 +55,14 @@ B6. CI: selftest / --store-test still pass; add a check that a test track's 0.5.
 ## Part C: Meter 0.5.7 in meterDARK (meterdark branch, /root/Meter-plugin)
 C1. Add `chris/0.5.7-e0faab5/` (same five files + upstream.json), run `tools/make_chris_layer.py` -> Chris_v0_5_7_e0faab5.h, Current.h now on 0.5.7. Keep 0.5.5 and 0.5.6.
     Make the generator also write `constexpr int kChrisVersion = 507;` (major*10000+minor*100+patch style is fine, just consistent) into Current.h.
-C2. meterDARK draws Chris's lines itself (source/AirwindowsUI.cpp ~line 471, the `hasZeroRmsLines` block copies his departureSlew formula). When kChrisVersion >= 0.5.7:
-    apply his new rule to the slew line's thickness, using HIS unscaled beam (sqrt(dataBL+dataBR)*618.033988749894f, capped 199; not meterDARK's zoomed / curved `beam`):
-    departure = fmin(6.18033988749894f/(1+fmax(chrisBeam-186,0)*0.2f), <old expression>); if (chrisBeam > 198) departure = 199 - chrisBeam.
-    The yellow "static" look and the 2 px minimum stay meterDARK's (so a collapsed line still shows, yellow). Scoring comes from Chris's code untouched.
+C2. (Changed after the user's answer, 22 Oct.) meterDARK keeps SHOWING the line where Chris would thin / hide it; the scoring still follows Chris (his code, untouched).
+    meterDARK draws Chris's lines itself (source/AirwindowsUI.cpp ~line 471, `hasZeroRmsLines` block). When kChrisVersion >= 0.5.7, use HIS unscaled beam
+    (chrisBeam = fmin(199, sqrt(dataBL+dataBR)*618.033988749894f); not meterDARK's zoomed / curved `beam`, so the trigger does not depend on the detail zoom):
+    - thickness: keep the 0.5.6 departure expression (do NOT apply his thinning or the collapse to 199-chrisBeam);
+    - colour: how much Chris's rule would cut the line, cut = 1 - (his 0.5.7 thickness / the 0.5.6 thickness) (0..1; 1 when chrisBeam > 198); blend the line toward the
+      clip yellow by `cut` (same yellow as clipping and as the existing "static" look; fastness and cut combine with max). So "too bright to count" parts turn yellow
+      in place and stay visible, and the user can see exactly which moments trigger it.
+    - the darker band behind the line stays.
 C3. meterDARK does not draw "directions" today (checked: no use in source/); nothing to do. VERSION file -> 0.5.7 if it only mirrors Chris's version (check CMake use first).
 C4. The gradeLAB key list in make_chris_layer.py must still match the analyser's RULES (both scripts print the keys they used; CI compares as today).
 C5. CI green on meterdark (cmake_ctest.yml). HANDOFF.md (plugin) LATEST: built on 0.5.7, what changed.
