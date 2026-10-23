@@ -4,6 +4,10 @@ Owner: Forty8k (Windows, works at 48 kHz, listens via Tidal at -14 LUFS). Librar
 (E:\Media\Reference Mixes / D:\AUDIO\REF Mixes). Explain things plainly, keep his own label words, no builds without his go,
 never merge into `main`, never hand-edit generated files.
 
+## LATEST: 23 Oct 2026, Meter 0.5.8 (Opus)
+- chris/0.5.8-11a8ac8 added, generator run: Current.h on 0.5.8, kChrisVersion 508, VERSION 0.5.8. Chris's only change: the bonus number shows up to 99 (was 80)
+  and only with an A balance. That is in his scoring code (untouched); meterDARK shows whatever his code gives. The 0.5.7 slew-line yellow (chrisVersion >= 507) stays.
+
 ## LATEST: 22 Oct 2026, Meter 0.5.7 (Opus)
 - chris/0.5.7-e0faab5 added, generator run: Current.h on 0.5.7 with `constexpr int kChrisVersion = 507`. VERSION 0.5.7.
 - 0.5.7 thins Chris's slew (detail) black line when his beam is above 186 and drops it to nothing above 198 (that part of the score counts less). meterDARK's
@@ -23,7 +27,7 @@ never merge into `main`, never hand-edit generated files.
 - Every new setting: 0 / off = stock Chris, except the 96 kHz rate which is on by default (his choice).
 
 ## meterDARK (plugin) - what it is now
-- Skin over Chris's Meter 0.5.7 (0.5.5 and 0.5.6 also kept; `python3 tools/make_chris_layer.py <id>` picks another): dark mode with correct colours (including 0.5.6's new lines),
+- Skin over Chris's Meter 0.5.8 (0.5.5, 0.5.6 and 0.5.7 also kept; `python3 tools/make_chris_layer.py <id>` picks another): dark mode with correct colours (including 0.5.6's new lines),
   per-meter tone bars with coloured playheads, legend on the main tone bar, display-only peak and slew trims (0 to -24 dB, never touch scoring).
 - Fixed: grades depended on window size -> scoring always runs at the default 1058x698 meter area, off screen.
 - Fixed: identical audio at different sample rates graded differently (Chris's slew = sample step x rate, peak = highest sample).
