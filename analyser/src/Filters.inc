@@ -111,7 +111,7 @@ inline bool conditionPasses(const FilterCondition& c, int type, const juce::Stri
         if (c.op == "at most") return x <= y;
         return true;
     }
-    if (type == 5) { //the bonus number: only 1-80 is shown, tracks outside it have none. "up to 40" = 1 to 40, "from 40" = 40 and up (numbers, not goodness).
+    if (type == 5) { //the bonus number (the one SHOWN: 1-80 up to Meter 0.5.7, 1-99 with an A balance from 0.5.8); tracks without one have none. "up to 40" = 1 to 40, "from 40" = 40 and up (numbers, not goodness).
         if (v.isEmpty() || !v.containsAnyOf("0123456789")) return false;
         const double x = v.removeCharacters(",").getDoubleValue();
         const juce::String t = c.value.trim();
@@ -284,7 +284,7 @@ private:
                 for (size_t k = 0; k < scale.size(); ++k) value.addItem(juce::String(scale[k]), (int)k + 1);
                 return;
             }
-            if (t == 5) {for (int k = 1; k <= 80; ++k) value.addItem(juce::String(k), k); return;}
+            if (t == 5) {for (int k = 1; k <= 99; ++k) value.addItem(juce::String(k), k); return;}
             if (!owner.valuesFor) return;
             const auto vals = owner.valuesFor(key);
             for (int k = 0; k < vals.size() && k < 400; ++k) value.addItem(vals[k], k + 1);

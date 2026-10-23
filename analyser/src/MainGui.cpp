@@ -663,7 +663,7 @@ private:
         if (sortCol < 1 || sortCol > (int)cols.size()) return;
         const Column c = cols[(size_t)sortCol - 1];
         const bool numeric = c.kind != Kind::Text && c.kind != Kind::Key;
-        //grades read best-first when sorted "forwards" (A before B, high authority before low, bonus 1 before 80)
+        //grades read best-first when sorted "forwards" (A before B, high authority before low, bonus 1 before 99)
         const bool higherFirst = c.kind == Kind::Grade || c.kind == Kind::Letter || c.kind == Kind::SubGrade;
         std::stable_sort(shown.begin(), shown.end(), [&](const RowRef& a, const RowRef& b) {
             if (c.kind == Kind::Grade) { //by the grade TEXT, like Chris's Finder column (GradeRank.h compareGradeText); ungraded always last; ties by name
@@ -909,7 +909,8 @@ private:
     void showHowToRead() {
         const juce::String t =
             "A grade like  30-Abbd  reads left to right:\n\n"
-            "30-   THE NUMBER: Chris's 'double top 40'. Only tracks that make it into the top 80 get one; 1 is best.\n"
+            "30-   THE NUMBER: 1 is best. Meter 0.5.8 on: numbers 1 to 99, and ONLY for tracks whose balance letter is A.\n"
+            "      (Up to 0.5.7: Chris's 'double top 40', numbers 1 to 80, whatever the balance.)\n"
             "      No number means the track is outside it: compare those by their letter.\n\n"
             "A     THE LETTER: how well BALANCED the three meters are with each other. A is best, Z is worst.\n\n"
             "bbd   AUTHORITY, POWER, DETAIL: HOW MUCH of each the track has (lows, peaks, highs), each on its own scale:\n"
@@ -920,10 +921,10 @@ private:
             "Examples from a real library:\n"
             "  AbAA   strong across the board and in proportion: letter A\n"
             "  DBdB   huge authority and detail, but power lags at d: letter drops to D\n"
-            "  76-Aghi   modest everywhere, but evenly matched: still an A, and in the top 80\n\n"
+            "  76-Aghi   modest everywhere, but evenly matched: still an A, and it gets a number\n\n"
             "Best possible: 1-AJJK.   Worst: Zssv.\n\n"
             "Directions shows what the meter's own direction line said most of the time during the loud parts of the track.\n"
-            "Sorting by Grade follows Chris's order: numbered tracks first (1 to 80), then the rest by letter, A first.";
+            "Sorting by Grade follows Chris's order: numbered tracks first (1, 2 ... 99), then the rest by letter, A first.";
         auto* w = new juce::AlertWindow("How to read a grade", {}, juce::MessageBoxIconType::NoIcon, this);
         auto* ed = new juce::TextEditor();
         ed->setMultiLine(true); ed->setReadOnly(true); ed->setText(t); ed->setSize(720, 420);

@@ -1,6 +1,6 @@
 // Ranking of the parts of a grade, for filtering. Pure C++ (no JUCE) so the self-test can check it.
 //
-// A grade like  30-Abbd  is: bonus number (1-80, LOWER is better, often absent), overall letter (A best ... Z worst), then authority, power, detail.
+// A grade like  30-Abbd  is: bonus number (LOWER is better, often absent; 1-80 up to Meter 0.5.7, 1-99 from 0.5.8 and only with an A balance), overall letter (A best ... Z worst), then authority, power, detail.
 // Each of authority / power / detail is ONE ordered scale: lowercase little ... plenty (b, a), then capitals A, B, C ... (exceptionally strong).
 // The Meter versions start and stop their scales at different letters (0.5.5 authority runs s...J, 0.5.6 runs p...M; detail starts at v or t), but the middle is the
 // same, so every sub-grade letter gets ONE rank that does not depend on the version:  ... c = -2, b = -1, a = 0, A = 1, B = 2, C = 3 ...  Higher is better.
@@ -72,6 +72,14 @@ inline std::string legacySubGradeLetter(const std::string& field, int value) {
     const char* scale = field == "authority" ? "ponmlkjihgfedcbaABCDEFGHIJKLM" : field == "power" ? "qponmlkjihgfedcbaABCDEFGHIJKL" : field == "detail" ? "tsrqponmlkjihgfedcbaABCDEFGHIJKLM" : "";
     const int n = (int)std::string(scale).size();
     return (value >= 0 && value < n) ? std::string(1, scale[value]) : std::string();
+}
+
+// the bonus number SHOWN in a grade ("30-Abbd" -> 30), 0 when it has none. Use this, not bonus_value: bonus_value is the number before the
+// original decides whether to show it, and which numbers it shows depends on the Meter version.
+inline int gradeNumber(const std::string& grade) {
+    const std::string g = gradeTrim(grade);
+    size_t i = 0; while (i < g.size() && std::isdigit((unsigned char)g[i])) ++i;
+    return (i > 0 && i < g.size() && g[i] == '-') ? std::atoi(g.substr(0, i).c_str()) : 0;
 }
 
 // ---- Sorting grades by their TEXT, the way Chris does in a Finder column (21 Oct).

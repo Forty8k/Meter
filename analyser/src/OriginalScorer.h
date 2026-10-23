@@ -21,7 +21,7 @@ struct OriginalResult {
     double storeR = 0, storeG = 0, storeB = 0, outputVol = 0;       // the tone colour of the latest window as the meter's top bar draws it (0-1, G and B already cyan-corrected), and its loudness
     double cumulative = 0, duration = 0, cumulativePlus = 0, durationPlus = 0;
     double letterValue = 0;  // the number behind the letter (0-27.6, the letter is its whole part: 27 = A, higher is better)
-    int bonusValue = 0;      // the bonus number before it is hidden (the original only shows 1-80; lower is better)
+    int bonusValue = 0;      // the bonus number before it is hidden (which numbers the original shows depends on the version: 1-80 up to 0.5.7, 1-99 with an A balance from 0.5.8; lower is better)
     long windows = 0, paints = 0;
 };
 

@@ -60,8 +60,11 @@ int main(int argc, char* argv[])
         const auto& mvs = mdark::meterVersions();
         const mdark::MeterVersion* twin = nullptr; for (auto& m : mvs) if (!m.sameWindowsAs.empty()) twin = &m;
         if (twin == nullptr) { std::cout << "Twin checks: no version measures like an older one (nothing to check)\n"; return 0; }
-        const juce::String tv(twin->id), src(twin->sameWindowsAs);
-        std::cout << "Twin: " << tv << " measures like " << src << "\n";
+        const juce::String tv(twin->id);
+        //the version the anchor-rate windows are filed under in an old library: the newest OTHER version of the same family (yesterday's newest, 0.5.7 for 0.5.8)
+        juce::String src(twin->sameWindowsAs);
+        for (auto& m : mvs) if (juce::String(m.id) != tv && mdark::Library::windowSource(juce::String(m.id)) == juce::String(twin->sameWindowsAs)) src = juce::String(m.id);
+        std::cout << "Twin: " << tv << " measures like " << twin->sameWindowsAs << "; old windows filed under " << src << "\n";
         const juce::File tmp = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("mdark-twin-test-" + juce::String(juce::Time::currentTimeMillis()));
         tmp.createDirectory();
         const juce::File wavFile = tmp.getChildFile("music.wav");

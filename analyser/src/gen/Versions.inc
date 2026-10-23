@@ -2,24 +2,28 @@
 #include "Meter_v0_5_5_18d9cf5.inc"
 #include "Meter_v0_5_6_40bb6cc.inc"
 #include "Meter_v0_5_7_e0faab5.inc"
+#include "Meter_v0_5_8_11a8ac8.inc"
 #include "Meter_v0_5_5_18d9cf5_tunable.inc"
 #include "Meter_v0_5_6_40bb6cc_tunable.inc"
 #include "Meter_v0_5_7_e0faab5_tunable.inc"
+#include "Meter_v0_5_8_11a8ac8_tunable.inc"
 namespace mdark {
 const std::vector<MeterVersion>& meterVersions() {
     static const std::vector<MeterVersion> v = {
         {"0.5.5-18d9cf5", "0.5.5", "18d9cf5", "2026-10-10", [](double sr, int pe) { return std::unique_ptr<MeterRun>(new mdarkorig_v0_5_5_18d9cf5::Run(sr, pe)); }, ""},
         {"0.5.6-40bb6cc", "0.5.6", "40bb6cc", "2026-10-16", [](double sr, int pe) { return std::unique_ptr<MeterRun>(new mdarkorig_v0_5_6_40bb6cc::Run(sr, pe)); }, ""},
         {"0.5.7-e0faab5", "0.5.7", "e0faab5", "2026-10-22", [](double sr, int pe) { return std::unique_ptr<MeterRun>(new mdarkorig_v0_5_7_e0faab5::Run(sr, pe)); }, "0.5.6-40bb6cc"},
+        {"0.5.8-11a8ac8", "0.5.8", "11a8ac8", "2026-10-22", [](double sr, int pe) { return std::unique_ptr<MeterRun>(new mdarkorig_v0_5_8_11a8ac8::Run(sr, pe)); }, "0.5.6-40bb6cc"},
     };
     return v;
 }
-const std::string& tunableVersionId() { static const std::string s = "0.5.7-e0faab5"; return s; }  // the newest version
+const std::string& tunableVersionId() { static const std::string s = "0.5.8-11a8ac8"; return s; }  // the newest version
 const std::vector<std::string>& tunableSettingsUsed(const std::string& versionId) {
     static const std::vector<std::string> none;
     { static const std::vector<std::string> v = {"decayPeak", "decaySlew", "decayBass", "binCap", "curvePS", "curveBass", "gradeExp", "gradeRise", "balanceExp", "letterExp", "clipLevel", "clipDecay", "clipDecayBoth", "clipWeight", "toneDecay", "detailDecay", "fillGate"}; if (versionId == "0.5.5-18d9cf5") return v; }
     { static const std::vector<std::string> v = {"decayPeak", "decaySlew", "decayBass", "binCap", "curvePS", "curveBass", "gradeExp", "gradeRise", "balanceExp", "letterExp", "clipLevel", "clipDecay", "clipDecayBoth", "clipWeight", "blackLine", "toneDecay", "detailDecay", "fillGate"}; if (versionId == "0.5.6-40bb6cc") return v; }
     { static const std::vector<std::string> v = {"decayPeak", "decaySlew", "decayBass", "binCap", "curvePS", "curveBass", "gradeExp", "gradeRise", "balanceExp", "letterExp", "clipLevel", "clipDecay", "clipDecayBoth", "clipWeight", "blackLine", "toneDecay", "detailDecay", "fillGate"}; if (versionId == "0.5.7-e0faab5") return v; }
+    { static const std::vector<std::string> v = {"decayPeak", "decaySlew", "decayBass", "binCap", "curvePS", "curveBass", "gradeExp", "gradeRise", "balanceExp", "letterExp", "clipLevel", "clipDecay", "clipDecayBoth", "clipWeight", "blackLine", "toneDecay", "detailDecay", "fillGate"}; if (versionId == "0.5.8-11a8ac8") return v; }
     { static const std::vector<std::string> v = {"decayPeak", "decaySlew", "decayBass", "binCap", "curvePS", "curveBass", "gradeExp", "gradeRise", "balanceExp", "letterExp", "clipLevel", "clipDecay", "clipDecayBoth", "clipWeight", "blackLine", "toneDecay", "detailDecay", "fillGate"}; if (versionId.empty()) return v; }
     return none;
 }
@@ -27,6 +31,7 @@ std::unique_ptr<MeterRun> createTunableRun(const std::string& versionId, double 
     if (versionId == "0.5.5-18d9cf5") return std::unique_ptr<MeterRun>(new mdarkorig_v0_5_5_18d9cf5_tunable::Run(sr, pe));
     if (versionId == "0.5.6-40bb6cc") return std::unique_ptr<MeterRun>(new mdarkorig_v0_5_6_40bb6cc_tunable::Run(sr, pe));
     if (versionId == "0.5.7-e0faab5") return std::unique_ptr<MeterRun>(new mdarkorig_v0_5_7_e0faab5_tunable::Run(sr, pe));
-    return std::unique_ptr<MeterRun>(new mdarkorig_v0_5_7_e0faab5_tunable::Run(sr, pe));
+    if (versionId == "0.5.8-11a8ac8") return std::unique_ptr<MeterRun>(new mdarkorig_v0_5_8_11a8ac8_tunable::Run(sr, pe));
+    return std::unique_ptr<MeterRun>(new mdarkorig_v0_5_8_11a8ac8_tunable::Run(sr, pe));
 }
 } // namespace mdark

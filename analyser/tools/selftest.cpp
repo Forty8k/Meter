@@ -199,6 +199,8 @@ static bool gradeRankTest()
     check(compareGradeText("1-AAAA", "1-AABA") < 0 && compareGradeText("1-AABA", "1-BDDD") < 0, "1-AAAA above 1-AABA above 1-BDDD");
     check(compareGradeText("2-AAAA", "10-AAAA") < 0, "2- above 10- (numbers as numbers)");
     check(compareGradeText("1-BDDD", "AAAA") < 0, "numbered above unnumbered");
+    check(compareGradeText("95-Abbd", "AAAA") < 0 && compareGradeText("80-Abbd", "95-Abbd") < 0, "0.5.8 numbers above 80 still count as numbers");
+    check(gradeNumber("95-Abbd") == 95 && gradeNumber(" 7-AJJK") == 7 && gradeNumber("Abbd") == 0 && gradeNumber("") == 0 && gradeNumber("12") == 0, "gradeNumber reads the shown number only");
     check(compareGradeText("1-AAAA", "1-AAAa") < 0 && compareGradeText("1-AAAa", "1-AAAA") > 0, "capital above lowercase when letters are equal");
     check(compareGradeText("35-BaaB", "1-AAAA") > 0, "35- below 1-");
     check(compareGradeText("BaaB", "BaaB") == 0, "equal");

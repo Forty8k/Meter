@@ -348,16 +348,21 @@ bool Library::readCoreAt(const juce::String& id, const juce::String& vid, int ra
     if (rate <= 0) return readCore(id, vid, names, values);
     const juce::var meta = juce::JSON::parse(folder.getChildFile("tracks").getChildFile(id + ".meta.json"));
     if (juce::roundToInt((double)meta.getProperty("sample_rate", 0.0)) == rate) return readCore(id, vid, names, values);
+    //the anchor-rate windows are stored for the version that was newest when the track was scanned; any version that measures exactly like it
+    //(the same window family) reads those (its own entry first)
+    const juce::String family = windowSource(vid);
+    const juce::var* pick = nullptr;
     if (auto* arr = meta.getProperty("rate_runs", juce::var()).getArray())
         for (auto& r : *arr) {
-            if (juce::roundToInt((double)r.getProperty("rate", 0.0)) != rate || r.getProperty("core_version", "").toString() != vid) continue;
-            names.clear(); values.clear();
-            if (auto* nm = r.getProperty("core_columns", juce::var()).getArray()) for (auto& n : *nm) names.push_back(n.toString().toStdString());
-            return !names.empty() && readFloats(rateCoreFile(id, vid, rate), values) && values.size() % names.size() == 0;
+            if (juce::roundToInt((double)r.getProperty("rate", 0.0)) != rate) continue;
+            const juce::String cv = r.getProperty("core_version", "").toString();
+            if (cv == vid) { pick = &r; break; }
+            if (pick == nullptr && windowSource(cv) == family) pick = &r;
         }
-    const juce::String src = windowSource(vid);
-    if (src != vid) return readCoreAt(id, src, rate, names, values); //a version that measures exactly like an older one: that one's stored windows
-    return false;
+    if (pick == nullptr) return false;
+    names.clear(); values.clear();
+    if (auto* nm = pick->getProperty("core_columns", juce::var()).getArray()) for (auto& n : *nm) names.push_back(n.toString().toStdString());
+    return !names.empty() && readFloats(rateCoreFile(id, pick->getProperty("core_version", "").toString(), rate), values) && values.size() % names.size() == 0;
 }
 
 // Reads a stored core file. Files from the first analyser versions (<id>.core.csv) hold Meter 0.5.5's ten values under short names.
@@ -1212,6 +1217,7 @@ int Library::upgradeOldRows(std::function<bool()> shouldStop, std::function<void
     //what each track still needs: grades from each Meter version (at the file's rate, and at the converted anchor rates where the newest
     //version's windows are stored), and the BPM estimate
     const juce::String newestSrc = windowSource(versionIds().back());
+    std::vector<juce::String> family; for (auto& v : versionIds()) if (windowSource(v) == newestSrc) family.push_back(v); //every version that measures like the newest
     struct Need { juce::String vid; int rate; };
     struct Job { size_t row; std::vector<Need> missing; bool bpm; };
     std::vector<Job> jobs;
@@ -1227,7 +1233,7 @@ int Library::upgradeOldRows(std::function<bool()> shouldStop, std::function<void
         for (auto& v : versionIds()) {
             if (have[v][0].count(id) == 0) j.missing.push_back({v, 0});
             if (windowSource(v) == newestSrc) for (int a : anchorRates()) //only where those windows were stored (tracks scanned before the anchor rates need a rescan for them)
-                if (a != fileRate && have[v][a].count(id) == 0 && (rateCoreFile(id, v, a).existsAsFile() || rateCoreFile(id, windowSource(v), a).existsAsFile())) j.missing.push_back({v, a});
+                if (a != fileRate && have[v][a].count(id) == 0 && std::any_of(family.begin(), family.end(), [&](const juce::String& f) { return rateCoreFile(id, f, a).existsAsFile(); })) j.missing.push_back({v, a});
         }
         if (j.bpm || !j.missing.empty()) jobs.push_back(j);
     }

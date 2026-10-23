@@ -100,6 +100,7 @@ public:
                       std::function<void(int done, int total)> progress = {}, int* missing = nullptr);
     static const std::vector<int>& anchorRates();       // the converted rates every track is also scanned at: 44100, 96000
     static std::vector<juce::String> versionIds();      // every Meter version the analyser has, oldest first
+    static juce::String windowSource(const juce::String& vid); // the version whose stored windows this one uses: itself, or the older one it measures exactly like
     std::map<juce::String, std::map<juce::String, juce::String>> userValues(); // id -> key -> value
     std::vector<CustomColumn> customColumns();
     void setUserValue(const juce::String& id, const juce::String& key, const juce::String& value);
@@ -141,8 +142,6 @@ private:
     void putGradeRow(const juce::String& vid, const juce::String& id, const OriginalResult& r, int rate = 0);
     // many rows of one grades file in ONE read + write (a row per track still sends its own change note)
     void putGradeRows(const juce::String& vid, int rate, const std::vector<std::pair<juce::String, OriginalResult>>& rows);
-    // the version whose stored windows this version uses (itself, or the older one it measures exactly like)
-    static juce::String windowSource(const juce::String& vid);
     juce::File gradesFile(const juce::String& vid, int rate = 0) const;
     juce::File levelGradesFile(const juce::String& vid, int rate, const LevelMode& lm) const;
     juce::File rateCoreFile(const juce::String& id, const juce::String& vid, int rate) const;

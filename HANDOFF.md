@@ -12,6 +12,15 @@ Not hand-checked on a real screen: Overview layout (look at tab-library-big.png 
 ## LATEST+: 21 Oct, LAB search round (PLAN-NEXT.md)
 LabView.inc: `Model::refresh` lists only `inUse(i)` tracks narrowed by `search` (view only; `Track::hay` built in `load()`), `countLabel` "N of M tracks", selection kept by track. GlanceView: linesButton on by default. Not hand-checked.
 
+## LATEST (round 5): 23 Oct 2026, Meter 0.5.8 (11a8ac8), Opus. analyser + meterdark.
+- 0.5.8 changes one line of Chris's scoring: the number shows when 100-(cumulativePlus/durationPlus)*100 <= 99 (was 80) AND (int)allMatch >= 27 (balance A). Audio code
+  identical -> twin of 0.5.6 (`sameWindowsAs`). Added to analyser/original and plugin chris/; both generators run; meterDARK on 0.5.8 (kChrisVersion 508, VERSION 0.5.8).
+- FIX: `readCoreAt` now picks any rate_run of the same window family (windowSource equal), reading the file under that run's core_version; tracks scanned while 0.5.7
+  was newest have their anchor-rate windows filed under 0.5.7, which the 0.5.7 round's fallback (vid -> root only) missed. upgradeOldRows checks rate files across the
+  whole family. --twin-test now files the old windows under the newest other family member (0.5.7) to cover exactly that.
+- "Numbered" = `mdark::gradeNumber(grade)` (GradeRank.h, the number shown in the grade) instead of bonus_value 1..80 (Overview sort key, LAB shared tracks);
+  Filters bonus box 1..99; How-to-read text updated; selftest cases.
+
 ## LATEST (round 4): 22 Oct 2026, share-pack fixes + Meter 0.5.7, built by Opus (PLAN-NEXT.md). analyser AND meterdark branches.
 - Packs: `Library::exportPack(out, full, ids, names=true)` writes "name" (Overview name from current values, else `Library::fileTitle(file)`) and refreshes tags;
   `importPack(in, added*, newIds*, updated*)` says "N new, M updated"; GUI share menu has with/without names; import runs on the pool. Overview: shared records always

@@ -557,9 +557,9 @@ private:
         const juce::String artist = juce::String(it.rec.get("artist")), title = juce::String(it.rec.get("title"));
         it.name = title.isNotEmpty() ? (artist.isNotEmpty() ? artist + " - " + title : title) : juce::File(idx.get(r, "file")).getFileNameWithoutExtension();
         it.grade = juce::String(it.rec.get("grade"));
-        const int bonus = juce::String(it.rec.get("bonus_value")).getIntValue();
+        const int bonus = mdark::gradeNumber(it.rec.get("grade"));
         const double lv = juce::String(it.rec.get("letter_value")).getDoubleValue();
-        it.key = (bonus >= 1 && bonus <= 80) ? (double)bonus : 1000.0 - lv;
+        it.key = bonus > 0 ? (double)bonus : 1000.0 - lv;
         it.path = idx.get(r, "source_path");
         it.bpm = idx.get(r, "bpm_est"); it.musicalKey = idx.get(r, "key_est");
         if (uv) { auto b = uv->find("bpm"); if (b != uv->end() && b->second.isNotEmpty()) it.bpm = b->second; auto k = uv->find("key"); if (k != uv->end() && k->second.isNotEmpty()) it.musicalKey = k->second; }
@@ -580,8 +580,8 @@ private:
         const juce::String artist = juce::String(it.rec.get("artist")), title = juce::String(it.rec.get("title"));
         it.name = sharedRecordName(rec, id) + "  (shared)";
         it.grade = juce::String(it.rec.get("grade"));
-        const int bonus = juce::String(it.rec.get("bonus_value")).getIntValue();
-        it.key = (bonus >= 1 && bonus <= 80) ? (double)bonus : 1000.0 - juce::String(it.rec.get("letter_value")).getDoubleValue();
+        const int bonus = mdark::gradeNumber(it.rec.get("grade"));
+        it.key = bonus > 0 ? (double)bonus : 1000.0 - juce::String(it.rec.get("letter_value")).getDoubleValue();
         it.source = juce::String(it.rec.get("source"));
         it.dur = juce::String(it.rec.get("length_s")).getDoubleValue(); it.sr = juce::String(it.rec.get("sample_rate")).getDoubleValue();
         it.song = songKey(artist, title, {});
